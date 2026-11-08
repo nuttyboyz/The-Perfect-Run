@@ -89,7 +89,7 @@ export class PadInput {
     if (down(9)) { const r = root.querySelector('.overlay.on #pause-resume'); if (r && visible(r)) r.click(); }
     if (down(1)) {
       // Most specific "back" first. Leaving the lobby is never on B in split-screen: one slip would end the game for both players.
-      const sels = ['.overlay.on #shop-close', '.screen.on [data-back]', '.screen.on #btn-to-char'];
+      const sels = ['.pad-modal.on [data-back]', '.pad-root [data-back]', '.overlay.on #shop-close', '.screen.on [data-back]', '.screen.on #btn-to-char'];
       if (!document.body.classList.contains('split')) sels.push('.screen.on #btn-leave');
       let back = null;
       for (const sel of sels) { back = [...root.querySelectorAll(sel)].find(visible); if (back) break; }
@@ -103,9 +103,10 @@ function visible(e) { if (!e) return false; const r = e.getBoundingClientRect();
 function focusables(root) {
   // The top-most open layer wins: an open overlay, else the open screen.
   const layers = [...root.querySelectorAll('.overlay.on:not(.soft), .screen.on, .overlay.on.soft')];
-  const layer = layers.find((l) => l.classList.contains('overlay') && !l.classList.contains('soft')) || layers.find((l) => l.classList.contains('screen')) || layers[0];
+  const modal = [...root.querySelectorAll('.pad-modal.on')].find(visible); // e.g. the on-screen keyboard
+  const layer = modal || layers.find((l) => l.classList.contains('overlay') && !l.classList.contains('soft')) || layers.find((l) => l.classList.contains('screen')) || layers[0] || (root.classList && root.classList.contains('pad-root') ? root : null);
   if (!layer) return [];
-  return [...layer.querySelectorAll('button, select, input[type=range], input[type=checkbox], .pad-nav')].filter((e) => !e.disabled && visible(e));
+  return [...layer.querySelectorAll('button, select, input[type=range], input[type=checkbox], .pad-nav')].filter((e) => !e.disabled && visible(e) && (modal || !e.closest('.pad-modal')));
 }
 export function setFocus(root, el) {
   root.querySelectorAll('.pad-focus').forEach((e) => e.classList.remove('pad-focus'));
@@ -129,6 +130,7 @@ function spatial(cur, items, [dx, dy]) {
   return best;
 }
 function press(el) {
+  if (el.classList.contains('pad-text')) { el.dispatchEvent(new CustomEvent('padtype', { bubbles: true })); return; } // a text box: open the on-screen keyboard
   if (el.tagName === 'SELECT') { el.selectedIndex = (el.selectedIndex + 1) % el.options.length; el.dispatchEvent(new Event('change', { bubbles: true })); return; }
   if (el.tagName === 'INPUT' && el.type === 'checkbox') { el.checked = !el.checked; el.dispatchEvent(new Event('change', { bubbles: true })); return; }
   el.click();

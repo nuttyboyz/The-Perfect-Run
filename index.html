@@ -16,7 +16,7 @@
 </script>
 </head>
 <body>
-<div id="login" class="login">
+<div id="login" class="login pad-root">
   <div class="login-panel">
     <div class="login-logo"><em>The</em> PERFECT RUN</div>
     <div id="lg-home">
@@ -29,13 +29,15 @@
     <form id="lg-form" class="lg-form" style="display:none" autocomplete="on">
       <h2 id="lg-title"></h2>
       <p class="muted" id="lg-sub"></p>
-      <label class="field" id="lg-name-f"><span>Name</span><input id="lg-name" maxlength="16" autocomplete="username" spellcheck="false"></label>
-      <label class="field"><span>Password</span><input id="lg-pw" type="password" maxlength="64" autocomplete="current-password"></label>
-      <label class="field" id="lg-pw2-f"><span>Confirm password</span><input id="lg-pw2" type="password" maxlength="64" autocomplete="new-password"></label>
+      <label class="field" id="lg-name-f"><span>Name</span><input id="lg-name" class="pad-text pad-nav pad-first" maxlength="16" autocomplete="username" spellcheck="false"></label>
+      <label class="field"><span>Password</span><input id="lg-pw" class="pad-text pad-nav pad-first" type="password" maxlength="64" autocomplete="current-password"></label>
+      <label class="field" id="lg-pw2-f"><span>Confirm password</span><input id="lg-pw2" class="pad-text pad-nav" type="password" maxlength="64" autocomplete="new-password"></label>
       <p class="lg-err" id="lg-err"></p>
       <button class="btn primary" type="submit" id="lg-go">Sign in</button>
-      <button class="btn small ghost" type="button" id="lg-back">Back</button>
+      <button class="btn small ghost" type="button" id="lg-back" data-back>Back</button>
     </form>
+    <div id="lg-osk" class="lg-osk pad-modal"><div class="osk-show" id="osk-show"></div><div class="osk-keys" id="osk-keys"></div></div>
+    <p class="lg-padhint" id="lg-padhint">🎮 Controller: <b>✕</b> select · <b>○</b> back · on a text box <b>✕</b> opens the keyboard</p>
   </div>
 </div>
 <div id="loading" class="on"><div class="ld-logo">THE PERFECT RUN</div><div class="ld-bar"><i></i></div><div class="ld-text">Forging the world…</div></div>
