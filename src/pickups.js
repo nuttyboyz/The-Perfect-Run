@@ -1,5 +1,6 @@
 // Health pickups dropped by champions (mini bosses). Each player sees and collects their own
 // copies, so nothing needs syncing: the drop event carries a position and a seed.
+import { Dailies } from './dailies.js';
 import * as THREE from 'three';
 import { mulberry32 } from './rng.js';
 import { MINI } from './data.js';
@@ -162,7 +163,7 @@ export class HealthPickups {
     const g = this.game, p = g.player;
     this.game.scene.remove(k.m);
     if (!p) return;
-    p.pc += k.val; g.runStats.pcEarned += k.val;
+    p.pc += k.val; g.runStats.pcEarned += k.val; if (g.dailyOn && g.dailyOn()) Dailies.add('pc', k.val);
     if (!quiet) { g.audio.play('coin', 0.5); g.ui.coinPop(k.val); g.fx.glow.emit({ p: [k.x, k.y + 1, k.z], life: 0.3, s0: 1.1, s1: 0.2, c0: [1, 0.9, 0.4, 1], c1: [1, 0.7, 0.2, 0] }); }
   }
 

@@ -963,3 +963,22 @@ body.split .lobby-left .btn.big small { font-size: .62em; }
 .lg-padhint { display: none; margin: 0; text-align: center; font-size: .78rem; color: var(--muted); }
 .lg-padhint.on { display: block; }
 .lg-form .field input.pad-focus { outline: 3px solid var(--gold); }
+#powerups .pu-more { color: #fff; border-color: rgba(255,255,255,.35); }
+
+/* Daily Challenges */
+.daily-btn { border-color: rgba(255,190,70,.6); background: linear-gradient(180deg, rgba(230,150,40,.3), rgba(90,50,10,.42)); }
+.daily-btn:hover, .daily-btn.pad-focus { border-color: #ffd27a; box-shadow: 0 0 22px rgba(255,180,60,.45); }
+.dl-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.dl-grid .ul-card { opacity: 1; }
+.dl-grid .ul-name { font-size: 1.05rem; }
+.dl-tier { display: flex; justify-content: space-between; align-items: center; }
+.dl-tier .ul-tag.t1 { color: #8be59a; } .dl-tier .ul-tag.t2 { color: #7fb8ff; } .dl-tier .ul-tag.t3 { color: #ffb05a; } .dl-tier .ul-tag.t4 { color: #ff6a8a; }
+.dl-pp { font-weight: 800; color: #d9b8ff; font-size: .9rem; }
+.dl-note { font-size: .8rem; }
+
+/* Power-up picture icons */
+.pu-svg { width: 100%; height: 100%; display: block; }
+.pu-ic { display: inline-block; width: 3.2rem; height: 3.2rem; filter: drop-shadow(0 0 10px rgba(0,0,0,.6)); }
+#elem.ten .pu-ic { width: 2.6rem; height: 2.6rem; }
+#powerups span.pi { position: relative; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: none; background: none; }
+#powerups span.pi b { position: absolute; right: -4px; bottom: -3px; font-size: .62rem; background: rgba(0,0,0,.75); border-radius: 6px; padding: 0 3px; color: #ffe9a8; }

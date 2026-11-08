@@ -8,7 +8,7 @@ import { MOBS, MOB_TYPES, MOB_ARM_IDS, armedBase, BOSSES, NPCS, NPC_TYPES, CLASS
 import { makeHumanoid, makeMob, makeBoss, makeDemon, makeNameplate } from './models.js';
 import { makeCharacterModel, flushSwipes, setCharacterScale, STEP_KIND, stepAccum } from './characters.js';
 import { makeMobRig, MOB_LOOKS } from './mobrig.js';
-import { makeOrbitBlades, makeAuraRing } from './duelfx.js';
+import { makeOrbitBlades, makeFireRing, auraRadius } from './duelfx.js';
 import { makeJetpack, jetFx } from './jetpack.js';
 import { makeWings, setWings } from './wings.js';
 import { Drone, Turret } from './drone.js';
@@ -105,13 +105,13 @@ export class RemotePlayerView {
       this.rider.reset();
     }
     this.prevY = this.pos.y;
-    if (p.ml && !this.mlT) this.mlT = 0.001;
-    if (this.mlT) { this.mlT += dt * 1.8; if (this.mlT >= 1) this.mlT = p.ml ? 0.001 : 0; }
+    if (p.ml && !this.mlT) { this.mlT = 0.001; this.mlMv = p.mv | 0; }
+    if (this.mlT) { this.mlT += dt * 1.8; if (this.mlT >= 1) { this.mlT = p.ml ? 0.001 : 0; this.mlMv = p.mv | 0; } }
     const w = Array.isArray(p.wp) ? p.wp[p.wi || 0] : null;
     if (w && WEAPON_BY_ID[w]) this.model.userData.setWeapon(WEAPON_BY_ID[w].kind === 'gear' ? 'bare' : w); // an all-gear loadout fights bare-handed
     // Web Swing: the anchor of the line they hang from (presence sw, tenths of a metre); the left arm reaches for it.
     const sw = Array.isArray(p.sw) && p.sw.length === 3 ? [p.sw[0] / 10, p.sw[1] / 10, p.sw[2] / 10] : null;
-    this.model.userData.anim({ speed: riding ? 0 : (p.sp || 0) / 10, pitch: (p.pt || 0) / 100, gun: true, reload: !p.gn && WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind === 'gun', weapon: true, melee: this.mlT || 0, arc: WEAPON_BY_ID[w] && WEAPON_BY_ID[w].arc, cast: p.ct ? 1 : 0, dead: !p.al, swing: sw, eyes: p.ey > 0, eyeGlow: p.ey === 2 ? 1 : 0.45 }, dt, this.t);
+    this.model.userData.anim({ speed: riding ? 0 : (p.sp || 0) / 10, pitch: (p.pt || 0) / 100, gun: true, reload: !p.gn && WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind === 'gun', weapon: true, melee: this.mlT || 0, move: this.mlMv | 0, arc: WEAPON_BY_ID[w] && WEAPON_BY_ID[w].arc, cast: p.ct ? 1 : 0, dead: !p.al, swing: sw, eyes: p.ey > 0, eyeGlow: p.ey === 2 ? 1 : 0.45 }, dt, this.t);
     if (fx) flushSwipes(this.model, fx);
     const rig = this.model.userData.rig;
     if (sw && fx && p.al) fx.webLine('r' + this.id, rig ? rig.handWorld('Left') : [this.pos.x, this.pos.y + 1.6, this.pos.z], sw);
@@ -158,10 +158,9 @@ export class RemotePlayerView {
       this.orbit.rotation.y += dt * 3.4;
     } else if (this.orbit) { this.scene.remove(this.orbit); this.orbit = null; }
     if (au > 0) {
-      if (!this.ring) { this.ring = makeAuraRing(); this.scene.add(this.ring); }
-      const r = 3.4 + 0.7 * au;
-      this.ring.position.set(this.pos.x, this.pos.y + 0.08, this.pos.z);
-      this.ring.scale.setScalar(r * (1 + 0.03 * Math.sin(this.t * 6)));
+      if (!this.ring) { this.ring = makeFireRing(); this.scene.add(this.ring); }
+      this.ring.position.set(this.pos.x, this.pos.y + 0.02, this.pos.z);
+      this.ring.userData.set(auraRadius(au), au, this.t);
     } else if (this.ring) { this.scene.remove(this.ring); this.ring = null; }
   }
   dispose() {

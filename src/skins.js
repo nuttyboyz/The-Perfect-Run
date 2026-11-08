@@ -61,18 +61,18 @@ export const SKINS = {
     S('sage', 'Sage Scribe', ['#8fae8a', '#e7c98f'], { clay: 0xcf8f5e, joints: 0x9a5a38, coat: 0x9db796, coat2: 0x7b9776, trim: 0xe7c98f, pants: 0x4b4a3a, boots: 0x6a5238, hat: 0xb8cdb0, glow: 0xffe08a, glowCore: 0xfff8dc }),
   ],
   knight: [
-    S('ironclad', 'Ironclad', ['#9aa2ac', '#d4dae2', '#5c6168'], { mx: { h: 214, s0: 0.05, sk: 0.15, l0: 0.1, lk: 1.45, metal: 0.85, rough: 0.26, env: 1.7 } }),
-    S('crusader', 'Silver Crusader', ['#dfe4ea', '#b9c0c8', '#f1ece0'], { mx: { h: 210, s0: 0.03, sk: 0.15, l0: 0.3, lk: 1.15, metal: 0.9, rough: 0.22, env: 1.8 } }),
-    S('blackguard', 'Blackguard', ['#2a2530', '#4a3d58', '#c9a24a'], { mx: { h: 275, s0: 0.14, sk: 0.25, l0: 0, lk: 0.6, metal: 0.7, rough: 0.35 } }),
-    S('azure', 'Azure Lion', ['#2a4fa8', '#7d9ad8', '#f0c23c'], { mx: { h: 220, s0: 0.45, sk: 0.3, l0: 0.06, lk: 1.2, metal: 0.8, rough: 0.3, env: 1.5 } }),
-    S('gilded', 'Gilded', ['#e0b04a', '#8a6420'], { mx: { h: 42, s0: 0.62, sk: 0.2, l0: 0.08, lk: 1.25, metal: 0.95, rough: 0.25, env: 1.8 } }),
+    S('ironclad', 'Ironclad', ['#9aa2ac', '#d4dae2', '#5c6168'], { mx: { h: 214, s0: 0.04, sk: 0.12, l0: 0.6, lk: 0.5, metal: 0.9, rough: 0.24, env: 2.4 } }), // polished steel plate (Nutty 2026-11-08: was too dark to read as a knight)
+    S('crusader', 'Silver Crusader', ['#dfe4ea', '#b9c0c8', '#f1ece0'], { mx: { h: 210, s0: 0.03, sk: 0.12, l0: 0.55, lk: 0.7, metal: 1, rough: 0.16, env: 2.5 } }),
+    S('blackguard', 'Blackguard', ['#2a2530', '#4a3d58', '#c9a24a'], { mx: { h: 275, s0: 0.14, sk: 0.25, l0: 0.12, lk: 0.7, metal: 0.9, rough: 0.28, env: 2 } }),
+    S('azure', 'Azure Lion', ['#2a4fa8', '#7d9ad8', '#f0c23c'], { mx: { h: 220, s0: 0.45, sk: 0.3, l0: 0.2, lk: 1.0, metal: 0.95, rough: 0.24, env: 2.2 } }),
+    S('gilded', 'Gilded', ['#e0b04a', '#8a6420'], { mx: { h: 42, s0: 0.62, sk: 0.2, l0: 0.3, lk: 0.95, metal: 1, rough: 0.2, env: 2.3 } }),
   ],
   ninja: [
-    S('indigo', 'Indigo', ['#3a3f6a', '#1a1c2a']),
-    S('shadow', 'Shadow', ['#15151a', '#3a3a44'], { mx: { h: 235, s0: 0.04, sk: 0.1, l0: 0, lk: 0.42 } }),
-    S('ash', 'Ash Mist', ['#7a7c84', '#e8e4d8'], { mx: { h: 220, s0: 0.03, sk: 0.1, l0: 0.22, lk: 0.85 } }),
-    S('viper', 'Viper', ['#1e4a24', '#5ad64a'], { mx: { h: 128, s0: 0.35, sk: 0.4, l0: 0, lk: 0.95 } }),
-    S('crimson', 'Crimson', ['#7a1620', '#d23a3a'], { mx: { h: 356, s0: 0.5, sk: 0.35, l0: 0, lk: 0.95 } }),
+    S('indigo', 'Indigo', ['#3a3f6a', '#1a1c2a'], { mx: { h: 230, s0: 0.2, sk: 0.3, l0: 0.11, lk: 0.9, metal: 0, rough: 0.95, env: 0.6 } }), // woven cloth, not leather (Nutty 2026-11-08)
+    S('shadow', 'Shadow', ['#15151a', '#3a3a44'], { mx: { h: 235, s0: 0.04, sk: 0.1, l0: 0.09, lk: 0.7, metal: 0, rough: 0.95, env: 0.6 } }),
+    S('ash', 'Ash Mist', ['#7a7c84', '#e8e4d8'], { mx: { h: 220, s0: 0.03, sk: 0.1, l0: 0.3, lk: 0.85, metal: 0, rough: 0.95, env: 0.6 } }),
+    S('viper', 'Viper', ['#1e4a24', '#5ad64a'], { mx: { h: 128, s0: 0.35, sk: 0.4, l0: 0.1, lk: 1.05, metal: 0, rough: 0.95, env: 0.6 } }),
+    S('crimson', 'Crimson', ['#7a1620', '#d23a3a'], { mx: { h: 356, s0: 0.5, sk: 0.35, l0: 0.1, lk: 1.05, metal: 0, rough: 0.95, env: 0.6 } }),
   ],
   ragmon: [
     S('blank', 'Blank', ['#e6c4a8', '#c9a488']),

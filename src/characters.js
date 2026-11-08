@@ -11,6 +11,7 @@ import { buildReptilian } from './reptilian.js';
 import { buildVeteranGear, buildDeathGear, buildAura, buildLongHair, animateAura, makeScythe, makeStaff } from './gear.js';
 import { buildIronwood, buildCrown, recolorTexture } from './armor.js';
 import { buildChad } from './chad.js';
+import { moveOf, samplePose, strikeDir, MELEE_V2 } from './meleemoves.js';
 import { buildQuill, animateSpark } from './quill.js';
 import { SKINS, skinOf, DEFAULT_SKIN } from './skins.js';
 import { makeWeapon } from './weapons.js';
@@ -60,6 +61,17 @@ function buttOf(w) {
   return (u.butt = V(0, n ? y / n : 0, minZ + 0.015));
 }
 const UP = V(0, 1, 0);
+// A melee weapon's world rotation along its move: the shaft points out along `radial`, the edge (+x) leads the strike.
+function moveBasis(p, dir, frame) {
+  const ca = Math.cos(p.az), sa = Math.sin(p.az), ce = Math.cos(p.el), se = Math.sin(p.el);
+  const z = V(sa * ce, se, ca * ce).normalize();
+  const x = V(ca * ce, 0, -sa * ce).multiplyScalar(dir.daz).add(V(-sa * se, ce, -ca * se).multiplyScalar(dir.del));
+  x.addScaledVector(z, -x.dot(z));
+  if (x.lengthSq() < 1e-4) x.crossVectors(UP, z);
+  x.normalize();
+  const y = new THREE.Vector3().crossVectors(z, x);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z)).premultiply(frame);
+}
 const templates = new Map();
 let animSource = null;
 
@@ -110,7 +122,7 @@ function skinBodyMaterials(scene, def, skin) {
         return r.h != null ? [r.h, (r.s0 || 0) + sat * (r.sk ?? 1), (r.l0 || 0) + l * (r.lk ?? 1)] : [h + (r.dh || 0), sat * (r.sk ?? 1), (r.l0 || 0) + l * (r.lk ?? 1)];
       }).map;
       if (r.metal != null && 'metalness' in m) { m.metalness = r.metal; if (m.metalnessMap && r.metal > 0.5) m.metalnessMap = null; }
-      if (r.rough != null && 'roughness' in m) { m.roughness = r.rough; if (m.roughnessMap && r.rough < 0.5) m.roughnessMap = null; }
+      if (r.rough != null && 'roughness' in m) { m.roughness = r.rough; m.roughnessMap = null; if ('clearcoat' in m && r.rough > 0.6) m.clearcoat = 0; if ('specularIntensity' in m && r.rough > 0.6) m.specularIntensity = 0.35; }
       if (r.env != null && 'envMapIntensity' in m) m.envMapIntensity = r.env;
       return m;
     });
@@ -395,6 +407,13 @@ export class CharacterRig {
         swingAng = sty === 'chop' ? e * 0.4 : 0; twist = swingAng * 0.45;
       } else { swingAng = e * wide; twist = swingAng * 0.45; }
     }
+    // Melee weapons follow their own pair of attack motions (meleemoves.js); st.move picks which one this swing is.
+    let mvPose = null, mvDir = null;
+    if (MELEE_V2 && melee > 0 && wd && wd.kind === 'melee' && !wd.cane && !wd.reaper) {
+      const mv = moveOf({ id: wd.id, shield: !!wd.shield, fist: !!wd.fist }, st.move);
+      mvPose = samplePose(mv, melee); mvDir = strikeDir(mv);
+      twist = mvPose.az * (mv.type === 'chop' ? 0.15 : 0.45);
+    }
     const pitch = THREE.MathUtils.clamp(st.pitch || 0, -1.1, 1.2);
     this.pitch = pitch;
     const spine = ['Spine', 'Spine1', 'Spine2'].map((k) => B.get(k)).filter(Boolean);
@@ -478,6 +497,13 @@ export class CharacterRig {
             const L = caneLift(melee);
             gp = eye.clone().add(V(-0.3 + bobX, -0.7 + bob + L * 0.6, 0.52).multiplyScalar(K).applyQuaternion(yaw));
             gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.1 - L * 0.12, -0.08, 0, 'YXZ')));
+          } else if (mvPose) {
+            const pivot = eye.clone().add(V(0, -0.24, 0.02).multiplyScalar(K).applyQuaternion(aimQ));
+            const p2 = { az: mvPose.az * 0.75, el: mvPose.el * 0.85 - 0.12, r: mvPose.r };
+            const ca = Math.cos(p2.az), ce = Math.cos(p2.el);
+            const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), ca * ce).normalize().applyQuaternion(aimQ);
+            gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.36 : twoH ? 0.42 : 0.48) * p2.r * K);
+            gq = moveBasis(p2, mvDir, aimQ);
           } else if (melee > 0) {
             const pivot = eye.clone().add(V(0, -0.24, 0.02).multiplyScalar(K).applyQuaternion(aimQ));
             const a = swingAng * 0.75;
@@ -533,6 +559,14 @@ export class CharacterRig {
           const L = caneLift(melee);
           gp = sc.clone().add(V(-0.32, -0.5 + L * 0.82, 0.2).multiplyScalar(h).applyQuaternion(yaw));
           gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.05 - L * 0.1, -0.05, 0, 'YXZ')));
+        } else if (mvPose) {
+          const pivot = sc.clone().add(V(0, -0.1 * h, 0));
+          const p2 = { az: mvPose.az, el: mvPose.el - 0.05, r: mvPose.r };
+          const ce = Math.cos(p2.el);
+          const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), Math.cos(p2.az) * ce).normalize().applyQuaternion(yaw);
+          gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.3 : twoH ? 0.42 : 0.5) * p2.r * h);
+          gq = moveBasis(p2, mvDir, yaw);
+          if (twoH) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -0.15));
         } else if (melee > 0) {
           const pivot = sc.clone().add(V(0, -0.1 * h, 0));
           const r = ((wd.fist ? 0.3 : twoH ? 0.42 : 0.5) + thr * 0.55) * h;

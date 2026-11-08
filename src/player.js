@@ -11,8 +11,11 @@ import { makeJetpack, jetFx, JET } from './jetpack.js';
 import { makeWings, setWings, WING } from './wings.js';
 import { Drone, Turret, TURRET } from './drone.js';
 const DIVE_KEYS = ['ShiftLeft', 'ShiftRight', 'ControlLeft', 'KeyZ', 'PadDown'];
-import { makeOrbitBlades } from './duelfx.js';
+import { makeOrbitBlades, makeFireRing, auraRadius } from './duelfx.js';
+import { Dailies } from './dailies.js';
+import { moveOf, movesFor, hitShape, MELEE_V2 } from './meleemoves.js';
 
+const TAP_MIN = 0.06; // fastest a handgun can be fired by tapping the trigger
 const PARRY = { window: 0.22, mul: 1 }; // seconds after raising the shield that a hit is parried; the attacker takes the hit's damage times mul
 const q10 = (v) => Math.round(v * 10);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -143,6 +146,8 @@ export class LocalPlayer {
     if (this.frozenUntil > g.now) { input = g.frozenInput(); this.meleePending = 0; } // sealed in ice: no moving, looking, shooting or casting until it thaws
     else if (this.frozenUntil) { this.frozenUntil = 0; g.ui.frost(0); }
     if (this.stats.regen && this.hp < this.stats.maxHp) this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
+    // Catch your breath: 4 seconds without taking a hit and health slowly comes back (4% a second), so a rough fight isn't a death sentence.
+    else if (!g.duel && this.hp < this.stats.maxHp && g.now - (this.hurtAt || 0) > 4) this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.maxHp * 0.04 * dt);
 
     // Aim down sights (right mouse / C / left trigger): slower, steadier, zoomed, and the view goes through the
     // gun's iron sights or scope (see Game.updateCamera). Other weapons just pull the camera in close.
@@ -242,7 +247,9 @@ export class LocalPlayer {
     if (wp.bow) this.bowStep(dt, input);
     else if ((input.mouseDown || input.padFire) && this.fireCd <= 0 && !this.dash && !this.blocking) {
       if (wp.kind === 'melee') this.melee();
-      else if (wp.auto || input.mouseClicked) this.shoot();
+      else this.shoot(); // every weapon keeps attacking while the trigger is held
+    } else if (wp.tap && input.mouseClicked && this.fireCd > 0 && this.game.now - (this.tapT || -9) >= TAP_MIN && !this.dash && !this.blocking && this.reloadT <= 0) {
+      this.fireCd = 0; this.shoot(); // handguns: a fresh pull of the trigger fires right away, as fast as you can pull it
     }
     if (this.meleePending > 0) {
       this.meleePending -= dt;
@@ -306,7 +313,7 @@ export class LocalPlayer {
     this.recoilT = Math.max(0, this.recoilT - dt * 9);
     m.userData.anim({
       speed: this.board ? 0 : this.speedNow, pitch: this.pitch, gun: wp.kind === 'gun', reload: this.reloadT > 0,
-      weapon: true, melee: this.meleeT > 0 ? 1 - this.meleeT / Math.max(0.2, wp.rate / this.stats.rate) : 0,
+      weapon: true, melee: this.meleeT > 0 ? 1 - this.meleeT / Math.max(0.2, wp.rate / this.stats.rate) : 0, move: this.meleeMove | 0,
       cast: this.castT, dead: !this.alive, sprint: this.sprinting && this.recoilT === 0 && this.meleeT <= 0, recoil: this.recoilT, arc: wp.kind === 'melee' ? Math.min(360, wp.arc * this.stats.reach) : wp.arc,
       block: !!this.blocking, swing: this.swing ? this.swing.a : null, ads: this.ads || 0, adsUp: wp.adsUp ?? 0.075, adsBack: wp.adsBack ?? 0.78, scope: !!wp.scope, eyes: !!wp.eyes && this.alive, eyeGlow: this.eyeGlow || 0.45,
     }, dt, this.time);
@@ -403,6 +410,7 @@ export class LocalPlayer {
     if (wp.deploy) return this.deployTurret(wp);
     this.ammo[this.cur]--;
     this.recoilT = 1;
+    this.tapT = g.now;
     this.fireCd = (wp.spin ? Math.min(0, this.fireCd) : 0) + wp.rate / this.stats.rate;
     const origin = this.muzzleWorld();
     if (wp.proj) { this.fireProjectile(wp, origin); if (this.ammo[this.cur] === 0) this.reload(); return; }
@@ -618,11 +626,17 @@ export class LocalPlayer {
       this.game.emitFx(['melee', q10(this.pos.x), q10(this.pos.z), Math.round(this.yaw * 100), wp.id]);
       return;
     }
-    if (wp.shield) { this.stab = !this.stab; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.stab ? 'thrust' : undefined; } // sword and shield: slash, stab, slash, stab
-    if (wp.id === 'axe' || wp.id === 'fireaxe') { this.chopAlt = !this.chopAlt; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.chopAlt ? 'chop' : undefined; } // axes: overhead chop, horizontal cut, chop, cut
+    // Each weapon's attacks alternate (meleemoves.js): slash then stab, chop then cut, and so on.
+    if (MELEE_V2) {
+      this.meleeMove = ((this.meleeMove | 0) + 1) % movesFor(wp).length;
+      this.stab = moveOf(wp, this.meleeMove).type === 'thrust';
+    } else {
+      if (wp.shield) { this.stab = !this.stab; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.stab ? 'thrust' : undefined; } // sword and shield: slash, stab, slash, stab
+      if (wp.id === 'axe' || wp.id === 'fireaxe') { this.chopAlt = !this.chopAlt; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.chopAlt ? 'chop' : undefined; } // axes: overhead chop, horizontal cut
+    }
     this.fireCd = wp.rate / this.stats.rate;
     this.meleeT = Math.max(0.2, wp.rate / this.stats.rate);
-    this.meleePending = 0.1;
+    this.meleePending = MELEE_V2 ? Math.min(0.3, Math.max(0.1, this.meleeT * 0.38)) : 0.1; // the hit lands as the strike comes through
     this.game.audio.play('swing');
     this.game.emitFx(['melee', q10(this.pos.x), q10(this.pos.z), Math.round(this.yaw * 100), wp.id]);
   }
@@ -664,8 +678,9 @@ export class LocalPlayer {
   meleeHit() {
     const g = this.game, wp = this.weapon;
     const rm = wp.kind === 'melee' ? this.stats.reach : 1; // Reaper's Reach: wider swing and longer reach while a melee weapon is in hand
-    const stab = wp.shield && this.stab; // a stab is narrow, a little longer and hits harder
-    const arc = (Math.min(360, (stab ? 40 : wp.arc) * rm) * Math.PI) / 180 / 2, reach = wp.range * rm * (stab ? 1.2 : 1), dmgMul = stab ? 1.3 : 1;
+    // The move shapes the hit: a thrust is narrow, reaches farther and hits harder; a chop is narrower and heavier.
+    const hs = MELEE_V2 && wp.kind === 'melee' && !wp.cane ? hitShape(moveOf(wp, this.meleeMove), wp) : wp.shield && this.stab ? { arc: 40, reach: 1.2, dmg: 1.3 } : { arc: wp.arc, reach: 1, dmg: 1 };
+    const arc = (Math.min(360, hs.arc * rm) * Math.PI) / 180 / 2, reach = wp.range * rm * hs.reach, dmgMul = hs.dmg;
     let hitAny = false, n = 0;
     for (const t of g.targets()) {
       const dx = t.x - this.pos.x, dz = t.z - this.pos.z;
@@ -711,6 +726,7 @@ export class LocalPlayer {
     const g = this.game;
     this.elemPending++;
     g.ui.levelUp(this.level);
+    if (g.dailyOn && g.dailyOn()) { Dailies.add('levels'); Dailies.best('level', this.level); }
     g.audio.play('crate', 0.6);
     g.fx.shockwave([this.pos.x, this.pos.y + 0.1, this.pos.z], 6, 0xffe08a, 0.5);
   }
@@ -731,6 +747,7 @@ export class LocalPlayer {
       og.visible = true;
       og.position.set(this.pos.x, this.pos.y + 1.0, this.pos.z);
       og.rotation.y += dt * 3.4;
+      for (const h of og.children) if (h.userData.spin) h.userData.spin.rotation.x += dt * 9; // each dagger rolls as it flies
       this.orbitT -= dt;
       if (this.orbitT <= 0) {
         this.orbitT = 0.12;
@@ -756,15 +773,21 @@ export class LocalPlayer {
       }
     } else if (this.orbitGroup) this.orbitGroup.visible = false;
     if (s.aura > 0) {
+      // Scorching Aura: a ring of real fire around you. Everything inside it burns; each stack widens the ring,
+      // makes the flames taller and hotter, and burns harder.
+      const r = auraRadius(s.aura);
+      if (!this.fireRing) { this.fireRing = makeFireRing(); g.scene.add(this.fireRing); }
+      this.fireRing.visible = this.alive;
+      this.fireRing.position.set(this.pos.x, this.pos.y + 0.02, this.pos.z);
+      this.fireRing.userData.set(r, s.aura, g.now);
       this.auraT -= dt;
-      if (this.auraT <= 0) {
-        this.auraT = 0.6;
-        const r = 3.4 + 0.7 * s.aura;
-        g.areaDamage([this.pos.x, this.pos.y + 1, this.pos.z], r, (4 + 2 * s.aura) * s.dmg, { silentNum: true, burn: 1.2 });
-        const e = g.fx.glow;
-        for (let i = 0; i < 4; i++) { const a = Math.random() * 6.283; e.emit({ p: [this.pos.x + Math.sin(a) * r * 0.8, this.pos.y + 0.3, this.pos.z + Math.cos(a) * r * 0.8], life: 0.5, s0: 0.8, s1: 0.2, c0: [1, 0.5, 0.15, 0.7], c1: [1, 0.2, 0.05, 0] }); }
+      if (this.auraT <= 0 && this.alive) {
+        this.auraT = 0.5;
+        g.areaDamage([this.pos.x, this.pos.y + 1, this.pos.z], r, (6 + 4 * s.aura) * s.dmg, { silentNum: true, burn: 1 + 0.3 * s.aura });
+        const e = g.fx.spark;
+        for (let i = 0; i < 3 + s.aura; i++) { const a = Math.random() * 6.283; e.emit({ p: [this.pos.x + Math.sin(a) * r, this.pos.y + 0.5, this.pos.z + Math.cos(a) * r], v: [(Math.random() - 0.5), 2 + Math.random() * 3, (Math.random() - 0.5)], life: 1.1, s0: 0.12, s1: 0.03, c0: [1, 0.65, 0.2, 1], c1: [1, 0.2, 0, 0], turb: 2 }); }
       }
-    }
+    } else if (this.fireRing) { g.scene.remove(this.fireRing); this.fireRing = null; }
   }
 
   buildOrbit(n) {
@@ -785,6 +808,7 @@ export class LocalPlayer {
     this.cds[key] = (this.game.duel ? DUEL.cd : ab.cd) * this.stats.cdr * this.stats.mast[key].cd; // every power is 5 s in the arena
     this.castT = 0.35;
     g.ui.flashAbility(key);
+    if (g.dailyOn && g.dailyOn()) Dailies.add('casts');
   }
 
   // The dash hurts whatever it passes through, with the character's element on top.
@@ -1493,6 +1517,7 @@ export class LocalPlayer {
     const g = this.game, B = this.block, c = [this.pos.x + Math.sin(this.yaw) * 0.6, this.pos.y + 1.2, this.pos.z + Math.cos(this.yaw) * 0.6];
     if (B.t <= PARRY.window && g.now - (this.parryT || -9) > 0.3) {
       this.parryT = g.now;
+      if (g.dailyOn && g.dailyOn()) Dailies.add('parries');
       const t = g.attackerTarget(src);
       if (t) g.damage(t, amount * PARRY.mul, { at: [t.x, t.y + t.h * 0.6, t.z], kx: (t.x - this.pos.x) * 2, kz: (t.z - this.pos.z) * 2, head: true });
       g.fx.shockwave(c, 3, 0xffe9a8, 0.3); g.fx.impact(c, [1, 0.95, 0.7]);
@@ -1540,6 +1565,7 @@ export class LocalPlayer {
       if (dmg <= 0) return false;
     }
     this.hp -= dmg;
+    this.hurtAt = g.now;
     g.ui.hurt(dmg / this.stats.maxHp, src);
     const dir = this.bleed(dmg);
     g.audio.play('hurt');
@@ -1607,6 +1633,7 @@ export class LocalPlayer {
     this.clearStatus();
     this.endEye();
     this.deaths = (this.deaths || 0) + 1;
+    if (this.fireRing) this.fireRing.visible = false;
     g.audio.play('death');
     const canRespawn = this.beds > 0 && g.phase !== 'demon' && g.phase !== 'boss';
     if (this.stats.phoenix > this.phoenixUsed && g.phase !== 'demon') {
@@ -1690,7 +1717,7 @@ export class LocalPlayer {
     return {
       p: [q10(this.pos.x), q10(this.pos.y), q10(this.pos.z)], ry: Math.round(this.yaw * 100), pt: Math.round(this.pitch * 100),
       hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0,
-      wi: this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
+      wi: this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
       ct: this.castT > 0 ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
       jp: this.jetEquipped() ? (this.jet.level > 0.1 ? 2 : 1) : this.hasGear('wings') ? (this.wing.soar ? 4 : this.game.now - this.wing.flapT < 0.45 ? 5 : 3) : 0,
       dr: this.drone && this.alive ? (this.drone.firing ? 2 : 1) : 0,
@@ -1701,5 +1728,5 @@ export class LocalPlayer {
     };
   }
 
-  dispose() { this.game.scene.remove(this.model); if (this.orbitGroup) this.game.scene.remove(this.orbitGroup); if (this.drone) this.drone.dispose(); if (this.turret) this.turret.dispose(); }
+  dispose() { this.game.scene.remove(this.model); if (this.orbitGroup) this.game.scene.remove(this.orbitGroup); if (this.fireRing) this.game.scene.remove(this.fireRing); if (this.drone) this.drone.dispose(); if (this.turret) this.turret.dispose(); }
 }

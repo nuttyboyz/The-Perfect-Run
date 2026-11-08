@@ -14,7 +14,7 @@ export const CONFIG = {
   jump: 7.8,
   gravity: 22,
   mapHalf: 160,
-  minSpawnDist: 28,
+  minSpawnDist: 45, // nothing ever appears closer than this to any player
 };
 
 export const CLASSES = [
@@ -74,9 +74,9 @@ export const WEAPONS = [
   { id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 190, rate: 1.25, range: 6.2, arc: 110, kb: 17, desc: 'A long-handled demolition hammer. Slow, and nothing stands up to it.' },
   { id: 'chainsaw', name: 'Chainsaw', kind: 'melee', dmg: 24, rate: 0.26, range: 6.2, arc: 90, kb: 3, desc: 'Roaring two-handed saw. Shreds everything in front at a frantic pace.' },
   { id: 'whip', name: 'Bullwhip', kind: 'melee', dmg: 36, rate: 0.5, range: 9.5, arc: 50, desc: 'A long lash with the longest reach of any melee weapon.' },
-  { id: 'alienblaster', name: 'Alien Blaster', kind: 'gun', dmg: 82, rate: 0.14, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [1, 0.12, 0.1], beamLen: 9, kick: 0.35, desc: 'Strange alien pistol. Fires fast semi-auto bursts of short red beams that hit very hard.' },
-  { id: 'pistol', name: 'Striker Pistol', kind: 'gun', dmg: 24, rate: 0.22, mag: 17, reload: 1.1, spread: 0.008, auto: false, desc: 'Polymer service pistol. Fast and reliable, 17 in the mag.' },
-  { id: 'revolver', name: 'Combat Revolver', kind: 'gun', dmg: 55, rate: 0.55, mag: 6, reload: 1.8, spread: 0.004, auto: false, desc: 'Railed tactical wheelgun. Six heavy rounds.' },
+  { id: 'alienblaster', tap: true, name: 'Alien Blaster', kind: 'gun', dmg: 82, rate: 0.14, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [1, 0.12, 0.1], beamLen: 9, kick: 0.35, desc: 'Strange alien pistol. Fires fast semi-auto bursts of short red beams that hit very hard.' },
+  { id: 'pistol', tap: true, name: 'Striker Pistol', kind: 'gun', dmg: 24, rate: 0.22, mag: 17, reload: 1.1, spread: 0.008, auto: false, desc: 'Polymer service pistol. Fast and reliable, 17 in the mag.' },
+  { id: 'revolver', tap: true, name: 'Combat Revolver', kind: 'gun', dmg: 55, rate: 0.55, mag: 6, reload: 1.8, spread: 0.004, auto: false, desc: 'Railed tactical wheelgun. Six heavy rounds.' },
   { id: 'smg', name: 'Tactical SMG', kind: 'gun', dmg: 12, rate: 0.068, mag: 36, reload: 1.6, spread: 0.035, auto: true, desc: 'Compact and flat-shooting. Sprays fast at close range.' },
   { id: 'ar', name: 'Carbine', kind: 'gun', dmg: 19, rate: 0.11, mag: 30, reload: 1.8, spread: 0.016, auto: true, desc: 'Short-barrel carbine with a red dot. All-round automatic.' },
   { id: 'shotgun', name: 'Combat Shotgun', kind: 'gun', dmg: 11, pellets: 9, rate: 0.6, mag: 7, reload: 2.1, spread: 0.085, auto: false, desc: 'Semi-auto 12 gauge. Nine pellets of pure argument.' },
@@ -89,8 +89,8 @@ export const WEAPONS = [
   // spin (spin-up seconds), spreadMax / moveMul (minigun: spread widening, slower movement).
   { id: 'sniper', scope: true, scopeFov: 6, name: 'Sniper Rifle', kind: 'gun', dmg: 140, rate: 1.15, mag: 5, reload: 2.8, spread: 0.0005, auto: false, pierce: 2, kick: 1.4, desc: 'Chassis bolt-action. One slow shot that goes through two enemies.' },
   { id: 'pdw', name: 'Suppressed PDW', kind: 'gun', dmg: 15, rate: 0.085, mag: 40, reload: 1.5, spread: 0.012, auto: true, quiet: true, tracer: [0.75, 0.8, 0.85], kick: 0.2, desc: 'Compact and silenced. Tight, steady automatic fire.' },
-  { id: 'hpistol', name: 'Heavy Pistol', kind: 'gun', dmg: 44, rate: 0.3, mag: 8, reload: 1.5, spread: 0.005, auto: false, kick: 0.8, desc: 'Big-bore semi-auto with a compensator. Hits hard, eight rounds.' },
-  { id: 'magnum', name: 'Magnum Revolver', kind: 'gun', dmg: 92, rate: 0.8, mag: 6, reload: 2.4, spread: 0.002, auto: false, kick: 1.3, desc: 'Stainless, compensated hand cannon. Slow, heavy rounds.' },
+  { id: 'hpistol', tap: true, name: 'Heavy Pistol', kind: 'gun', dmg: 44, rate: 0.3, mag: 8, reload: 1.5, spread: 0.005, auto: false, kick: 0.8, desc: 'Big-bore semi-auto with a compensator. Hits hard, eight rounds.' },
+  { id: 'magnum', tap: true, name: 'Magnum Revolver', kind: 'gun', dmg: 92, rate: 0.8, mag: 6, reload: 2.4, spread: 0.002, auto: false, kick: 1.3, desc: 'Stainless, compensated hand cannon. Slow, heavy rounds.' },
   { id: 'sawedoff', name: 'Shorty Pump', kind: 'gun', dmg: 11, pellets: 10, rate: 0.55, mag: 5, reload: 2.2, spread: 0.115, auto: false, kick: 1.2, desc: 'Fourteen-inch pump with a bird\'s-head grip. Devastating up close.' },
   { id: 'crossbow', scope: true, scopeFov: 18, name: 'Crossbow', kind: 'gun', bolt: true, boltSpeed: 95, dmg: 95, rate: 0.9, mag: 1, reload: 1.6, spread: 0.001, auto: false, pierce: 2, quiet: true, tracer: [0.85, 0.7, 0.45], kick: 0.4, desc: 'Silent. One heavy bolt that skewers two enemies.' },
   { id: 'longbow', name: 'Longbow', kind: 'gun', bow: true, dmg: 110, rate: 0.5, mag: 1, reload: 0, spread: 0, auto: false, proj: 'arrow', speed: 75, minSpeed: 22, draw: 0.9, nock: 0.5, pierce: 2, quiet: true, kick: 0.3, range: 120, tracer: [0.85, 0.75, 0.55], adsBack: 0.55, adsUp: 0.06, desc: 'Hold to draw, let go to loose. A quick tap lobs a weak arrow; a full draw flies flat and fast and skewers two enemies.' },
@@ -100,7 +100,7 @@ export const WEAPONS = [
   // range: how far the shot reaches (default 160). rapid: hits and effects are thinned like the minigun's.
   // energy: the magazine is a charge bar shown as a percentage; the reload is the recharge. shoulder: braced on the shoulder.
   { id: 'pulse', name: 'Pulse Cannon', kind: 'gun', dmg: 20, rate: 0.06, mag: 100, reload: 3.0, spread: 0.02, auto: true, rapid: true, energy: true, shoulder: true, quiet: true, tracer: [0.5, 0.9, 1], kick: 0.1, bar: 'REPULSOR', adsHide: true, desc: 'Shoulder-mounted repulsor cannon. Hold fire for a steady stream until the charge bar runs dry, then wait for it to recharge.' },
-  { id: 'icegun', name: 'Ice Gun', kind: 'gun', dmg: 16, rate: 0.3, mag: 14, reload: 1.9, spread: 0.006, auto: false, ice: 5, quiet: true, tracer: [0.55, 0.9, 1], kick: 0.3, adsHide: true, desc: 'Cryo rifle. Anything it hits is sealed in a block of ice for 5 seconds.' },
+  { id: 'icegun', tap: true, name: 'Ice Gun', kind: 'gun', dmg: 16, rate: 0.3, mag: 14, reload: 1.9, spread: 0.006, auto: false, ice: 5, quiet: true, tracer: [0.55, 0.9, 1], kick: 0.3, adsHide: true, desc: 'Cryo rifle. Anything it hits is sealed in a block of ice for 5 seconds.' },
   // Tier 3 actives: used from their slot with the attack button (they replace the fists while selected).
   // Tier 3, gear: one piece goes with your two weapons. A `gear` item is passive (it never takes the weapon slot);
   // Laser Vision is a weapon of its own that key 3 selects. eyes: fired from the eyes, nothing held in the hands.
@@ -238,9 +238,9 @@ export const MOBS = {
   troll: { name: 'Cave Troll', tier: 2, model: 'brute', hp: 300, speed: 3.6, dmg: 22, range: 2.8, rate: 1.7, radius: 1.0, height: 2.7, scale: 1.55, color: 0x7a6a4a, w: 0.9, cap: 4, regen: 0.02 },
   ogre: { name: 'Ogre Smasher', tier: 3, model: 'brute', hp: 460, speed: 3.2, dmg: 20, range: 3.2, rate: 2.2, radius: 1.25, height: 3.2, scale: 1.9, color: 0x8a5a4a, w: 0.8, cap: 2, slam: { r: 4.6, d: 1.1, dmg: 26, cd: 5 } },
   // Goblins (the Haunted Forest's tribe): small raiders in packs, a shaman that lobs curses, and the warchief.
-  goblin: { name: 'Goblin Raider', tier: 1, model: 'runner', hp: 46, speed: 6.8, dmg: 7, range: 1.8, rate: 0.75, radius: 0.45, height: 1.35, scale: 0.8, color: 0x5a9a2c, w: 1.1, cap: 10, share: 0.3, pack: [3, 5] },
-  gobshaman: { name: 'Goblin Shaman', tier: 2, model: 'spitter', hp: 95, speed: 4.4, dmg: 14, range: 24, rate: 1.8, radius: 0.5, height: 1.5, scale: 0.9, ranged: true, color: 0x8aff30, w: 0.9, cap: 3, hold: [12, 20], pspd: 20, pstyle: 1 },
-  gobchief: { name: 'Goblin Warchief', tier: 3, model: 'brute', hp: 380, speed: 5.0, dmg: 24, range: 2.4, rate: 1.4, radius: 0.8, height: 2.2, scale: 1.3, color: 0x6a4a1c, w: 0.9, cap: 2, slam: { r: 4.0, d: 1.0, dmg: 22, cd: 6 } },
+  goblin: { name: 'Raider', tier: 1, model: 'runner', hp: 46, speed: 6.8, dmg: 7, range: 1.8, rate: 0.75, radius: 0.45, height: 1.35, scale: 0.8, color: 0x5a9a2c, w: 1.1, cap: 10, share: 0.3, pack: [3, 5] },
+  gobshaman: { name: 'Hexcaller', tier: 2, model: 'spitter', hp: 95, speed: 4.4, dmg: 14, range: 24, rate: 1.8, radius: 0.5, height: 1.5, scale: 0.9, ranged: true, color: 0x8aff30, w: 0.9, cap: 3, hold: [12, 20], pspd: 20, pstyle: 1 },
+  gobchief: { name: 'Warchief', tier: 3, model: 'brute', hp: 380, speed: 5.0, dmg: 24, range: 2.4, rate: 1.4, radius: 0.8, height: 2.2, scale: 1.3, color: 0x6a4a1c, w: 0.9, cap: 2, slam: { r: 4.0, d: 1.0, dmg: 22, cd: 6 } },
   // Humans (the Scorched Desert's outlaws, the Abyss's hired killers): cutthroats, deserters with rifles, shadow blades and a hedge witch.
   // (The hero-built ones, cutthroat, shadow blade and the knights, carry 200k+ vertices each, hence the low caps.)
   bandit: { name: 'Cutthroat', tier: 1, model: 'grunt', hp: 56, speed: 5.8, dmg: 9, range: 2.0, rate: 0.9, radius: 0.5, height: 1.84, scale: 1, color: 0x8a5a3a, w: 1.0, cap: 2, hard: 4, share: 0.2, pack: [1, 2] },
@@ -630,7 +630,7 @@ export function rerollOffer(current) {
 // XP: each kill feeds the bar, each full bar grants a random level-up power-up.
 export const XP = {
   kill: { 1: 4, 2: 8, 3: 14 }, mini: 60, boss: 200, perRound: 0.08,
-  need: (lv) => Math.round(40 + 22 * lv + lv * lv * 1.0), // levels come slowly enough that a build grows over the whole run
+  need: (lv) => Math.round(50 + 34 * lv + lv * lv * 3.2), // about 8-10 power-ups a round for a good player: each pick matters (2026-11-08)
 };
 
 export function freshStats() {
@@ -674,7 +674,7 @@ export const DASH = { cd: 3, dist: 7, t: 0.17, dmg: 30 };
 // Elite enemies: a normal enemy now and then carries a glowing modifier. hp: health multiplier, speed: speed multiplier.
 // 1 Explosive (blows up when it dies), 2 Shielded (a glowing shell soaks the first hits), 3 Swift (fast and fragile), 4 Splitting (two smaller copies burst out when it dies).
 export const ELITE = {
-  chance: (round) => Math.min(0.3, 0.07 + 0.04 * round), pcMul: 3, shield: 0.6, splitHp: 0.35, blast: { r: 4.2, d: 0.7, dmg: 30 },
+  chance: (round) => Math.min(0.3, round === 0 ? 0.04 : 0.07 + 0.04 * round), pcMul: 3, shield: 0.6, splitHp: 0.35, blast: { r: 4.2, d: 0.7, dmg: 30 },
   kinds: [null,
     { id: 1, name: 'Explosive', color: [1, 0.45, 0.1], hp: 1.3, speed: 1.05 },
     { id: 2, name: 'Shielded', color: [0.35, 0.8, 1], hp: 1.2, speed: 1 },

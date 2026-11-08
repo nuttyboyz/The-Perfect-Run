@@ -33,6 +33,8 @@ import { Unlocks, charUnlocked, gearUnlocked, speedUnlocked } from './unlocks.js
 import { installFog, SUN_OFFSET, buildComposer, applyBiomeLook } from './look.js';
 import { addPP, runReward } from './meta.js';
 import { Bot } from './bot.js';
+import { Dailies } from './dailies.js';
+import { ChestFx } from './chest.js';
 
 const QUALITY = { low: 0, medium: 1, high: 2 };
 // Shared by both couch seats so they always run at the same speed.
@@ -60,6 +62,7 @@ export class Game {
     this.bot = null; this.brain = null; this.duelMode = false; this.autoplay = false;
     this.pad = opts.pad === 'kb' ? new KeyPad() : new PadInput(opts.pad === undefined ? 'any' : opts.pad);
     this.hitSrc = new Map();
+    this.hitInfo = new Map(); // mob id -> { head, wk } of the player's last hit on it, for the Daily Challenges
     this.settings = Object.assign({ quality: 'high', sens: 1, vol: 0.6, name: this.seat === 2 ? 'Player 2' : 'Runner' + Math.floor(Math.random() * 900 + 100), fps: false, roundLen: 10, hard: false, speed: 1, view: 'third', layout: 'ds', sensAds: 1, invertY: false, music: true, musicVol: 1, sfx: true, fov: 70, shake: true, dmgNums: true }, LS.get(this.lsKey('settings'), {}));
     if (this.seat === 1 && !this.isBot && Profile.playName()) this.settings.name = Profile.playName(); // signed-in players play under their profile name
     this.settings.roundLen = this.settings.roundLen === 0 ? 0 : 10; // 10-minute rounds, or 0 = Endless (Nutty 2026-11-05)
@@ -83,6 +86,7 @@ export class Game {
     this.ui = new UIClass(this);
     this.allyTags = new AllyTags(this);
     this.pickups = new HealthPickups(this);
+    this.chests = new ChestFx(this);
     if (!this.isBot) this.gov = new Governor(this); // holds 60+ fps by stepping quality tiers (perf.js)
     this.onResize();
     this.records = LS.get('records', { runs: 0, wins: 0, bestRound: 0, bestKills: 0, totalKills: 0 });
@@ -812,6 +816,7 @@ export class Game {
     this.publish();
     if (!this.headless) { this.ui.updateHud(dt); this.allyTags.update(); }
     this.pickups.update(vdt);
+    this.chests.update(vdt);
     this.render(this.scene, this.camera);
   }
 
@@ -873,6 +878,7 @@ export class Game {
     this.duelArena = this.duel ? (((w.ar | 0) % DUEL_BIOMES.length) + DUEL_BIOMES.length) % DUEL_BIOMES.length : 0; // which Duel Arena the host picked for this match
     if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) this.loadRound(w.sd, w.rd);
     this.round = w.rd;
+    if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) Dailies.best('round', this.round + 1); }
     this.tl = w.tl;
     this.endless = w.rl === 0;
     this.voteTally = w.vt;
@@ -949,6 +955,7 @@ export class Game {
     this.timers = [];
     this.removeBedMesh();
     this.pickups.clear();
+    this.chests.clear((pu) => { if (this.player) this.player.takePowerup(pu); }); // a power-up left in a chest is yours anyway
     this.hitSrc = new Map();
     this.world = new World(this.scene, seed, rd, this.q, this.duel ? DUEL.stage : (this.forceStage ?? stageIdx(this.runSeed, rd)), { duel: this.duel, arena: this.duelArena });
     this.fx.heightAt = (x, z) => this.world.heightAt(x, z);
@@ -1075,9 +1082,9 @@ export class Game {
         const v = this.views.mobs.get(id);
         if (v) { this.views.mobs.delete(id); if (v.rig && !v.base.bomb) this.views.dying.push(v); else v.dispose(); }
         if (killer === me) {
-          const pcGain = Math.round(CONFIG.pcPerKill * p.stats.greed);
+          const pcGain = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed)); // PC bonuses stop at double
           p.totalKills++;
-          this.countKill(id);
+          this.countKill(id, v);
           this.pickups.dropCoins(X, Z, pcGain); // the PC drops as a coin where it died: walk over it
           this.audio.play('kill');
           this.ui.hitmarker(true);
@@ -1109,7 +1116,7 @@ export class Game {
         if (K) {
           this.fx.explosion([X, this.world.heightAt(X, Z) + 1.2, Z], 0.9);
           for (let i = 0; i < 18; i++) this.fx.glow.emit({ p: [X, this.world.heightAt(X, Z) + 1.2, Z], v: [(Math.random() - 0.5) * 9, Math.random() * 6, (Math.random() - 0.5) * 9], life: 0.7, s0: 0.8, s1: 0.1, c0: [...K.color, 1], c1: [...K.color, 0] });
-          if (killer === me) { const pc = Math.round(CONFIG.pcPerKill * p.stats.greed * ELITE.pcMul); this.pickups.dropCoins(X, Z, pc, 3); this.ui.toast(K.name + ' elite down: grab the coins', 'good'); }
+          if (killer === me) { const pc = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed) * ELITE.pcMul); this.pickups.dropCoins(X, Z, pc, 3); } // no message: the gold coins on the ground say it
         }
         break;
       }
@@ -1155,10 +1162,12 @@ export class Game {
         if (p.alive || !p.out) {
           p.pc += CONFIG.pcPerBoss;
           this.runStats.pcEarned += CONFIG.pcPerBoss;
+          if (this.dailyOn()) Dailies.add('pc', CONFIG.pcPerBoss);
           this.ui.coinPop(CONFIG.pcPerBoss);
           p.addXp(XP.boss);
         }
         this.runStats.bosses++;
+        if ((p.alive || !p.out) && this.dailyOn()) { Dailies.add('bosses'); if (!p.deaths) Dailies.add('cleanBoss'); }
         if (!this.runStats.cpuUsed) { Unlocks.add('bosses'); if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('bossesSpace'); }
         if (!this.runStats.cpuUsed && BOSSES[bossIdx(this.runSeed, this.round)].name === 'The Visitor' && Unlocks.grant('visitor')) { this.ui.banner('The Visitor unlocked', 'Pick them in character select'); }
         this.ui.banner('Boss defeated', '+' + CONFIG.pcPerBoss + ' PC' + (killer === me ? ' · Final blow!' : ''));
@@ -1609,10 +1618,16 @@ export class Game {
       }
     }
     if (t.kind === 'mob') this.hitSrc.set(t.id, o.src || 'player'); // who landed the last hit, for the kill counters
+    if (t.kind === 'mob' && !o.chain) {
+      const w = p.weapon || {};
+      this.hitInfo.set(t.id, { head: !!o.head, wk: o.src ? 'gear' : w.kind === 'gear' ? 'gear' : w.kind === 'melee' ? 'melee' : (w.bow || w.bolt) ? 'bow' : 'gun' });
+      if (o.head && !o.silent && this.dailyOn()) Dailies.add('headHits');
+    }
     this.queueHit(t.id, dmg, o);
     // Against the other duelist the host scales hits down; show and count what actually lands.
     const eff = t.kind === 'player' ? Math.max(1, Math.round(dmg * DUEL.pvp)) : dmg;
     p.damageDealt += dmg;
+    if (t.kind !== 'player' && dmg > 0 && this.dailyOn()) Dailies.add('dmg', Math.round(dmg));
     if (p.stats.lifesteal) p.heal(eff * p.stats.lifesteal);
     if (!o.silentNum && !o.silent) this.ui.damageNumber(this.project(pos), o.shown != null ? Math.round(o.shown * (eff / (dmg || 1))) : eff, o.head ? 'crit' : o.crit ? 'pcrit' : o.zone === 'arm' || o.zone === 'leg' ? 'limb' : t.kind === 'boss' ? 'boss' : '');
     if (!o.silent) { this.ui.hitmarker(false); this.audio.play('hit'); }
@@ -1888,6 +1903,19 @@ export class Game {
       return;
     }
     const tree = p.nearTree();
+    // A power-up floating over a chest you opened: Use (E / Square) takes it.
+    const wait = this.chests.nearest(p);
+    if (wait) {
+      const info = puInfo(wait.pu, p.cls);
+      this.ui.prompt(this.ui.ctlB('use') + ' Take ' + info.name);
+      if (this.input.pressed.has('KeyE')) {
+        this.chests.take(wait);
+        p.takePowerup(wait.pu);
+        this.audio.play('buy');
+        this.ui.toast(info.name + ' · ' + info.desc, 'good');
+      }
+      return;
+    }
     const crateNear = this.world.crates.some((c) => !c.opened && Math.hypot(c.x - p.pos.x, c.z - p.pos.z) < 3);
     if (tree && !p.board && !crateNear) {
       const high = p.pos.y > tree.gy + 1.2;
@@ -1929,6 +1957,7 @@ export class Game {
     if (p.pc < cost) { this.ui.toast('Need ' + cost + ' PC to open this crate', 'bad'); this.audio.play('deny'); return; }
     p.pc -= cost;
     p.cratesOpened = (p.cratesOpened || 0) + 1;
+    if (this.dailyOn()) Dailies.add('crates');
     const r = mulberry32((this.world.seed ^ (c.id * 7919) ^ (this.hitSeq + this.reqSeq * 31)) >>> 0);
     // Half of all crates hold a special power-up (a new effect), the rest are a stat or mastery.
     let pu;
@@ -1941,21 +1970,18 @@ export class Game {
       const rest = POWERUPS.filter((q) => q.kind !== 'special');
       pu = rest[Math.floor(r() * rest.length)];
     }
-    p.takePowerup(pu);
+    // The power-up isn't handed over yet: it rises out of the chest and waits for you to grab it.
     this.request('crate', c.id);
-    this.openCrateVisual(c);
-    this.audio.play('crate');
-    const info = puInfo(pu, p.cls);
-    this.ui.toast(info.name + ' · ' + info.desc, 'good');
+    this.openCrateVisual(c, pu);
   }
 
-  openCrateVisual(c) {
+  // Swap the closed chest for the animated one and play the opening (chest.js). pu: what's inside, for the opener.
+  openCrateVisual(c, pu) {
+    if (c.opened) return;
     c.opened = true;
     c.mesh.visible = false;
-    const pos = [c.x, c.y + 0.6, c.z];
-    for (let i = 0; i < 30; i++) this.fx.spark.emit({ p: pos, v: [(Math.random() - 0.5) * 6, Math.random() * 8, (Math.random() - 0.5) * 6], life: 1, s0: 0.25, s1: 0.05, c0: [1, 0.85, 0.4, 1], c1: [1, 0.5, 0.1, 0], g: 9 });
-    this.fx.glow.emit({ p: pos, life: 0.4, s0: 4, s1: 6, c0: [1, 0.8, 0.4, 1], c1: [1, 0.6, 0.2, 0] });
-    this.fx.dustBurst([c.x, c.y, c.z], 0.5, [0.45, 0.32, 0.2]);
+    this.chests.open(c, pu);
+    this.fx.dustBurst([c.x, c.y, c.z], 0.4, [0.45, 0.32, 0.2]);
   }
 
   // ---------------- shop ----------------
@@ -1970,8 +1996,8 @@ export class Game {
 
   // Everything you can buy gets 10% dearer with each round.
   // Crates also get 3% dearer with every one you open this run, so a build grows over the whole run instead of all at once.
-  cratePrice() { return Math.round(this.price(CONFIG.cratePrice) * (1 + 0.03 * (this.player ? this.player.cratesOpened || 0 : 0))); }
-  price(base) { return Math.round(base * Math.pow(1.1, this.round || 0)); }
+  cratePrice() { return Math.round(this.price(CONFIG.cratePrice) * (1 + 0.06 * (this.player ? this.player.cratesOpened || 0 : 0))); }
+  price(base) { return Math.round(base * Math.pow(1.3, this.round || 0)); } // prices keep pace with what a round pays
 
   buy(item) {
     const p = this.player;
@@ -2082,9 +2108,25 @@ export class Game {
   }
 
   // Lifetime kill counters for the gear unlocks: where it happened, whether you were airborne, and what did the killing.
-  countKill(mobId) {
+  // Daily Challenges count your own runs: not the CPU's, not the Duel Arena, and couch seat 2 shares seat 1's account.
+  dailyOn() { return !this.isBot && !this.duel && this.seat !== 2 && !(this.runStats && this.runStats.cpuUsed); }
+
+  countKill(mobId, v) {
     const p = this.player, hard = seedFlags(this.runSeed).hard;
-    if (this.runStats.cpuUsed) { this.hitSrc.delete(mobId); return; } // the CPU's kills are not yours
+    if (this.runStats.cpuUsed) { this.hitSrc.delete(mobId); this.hitInfo.delete(mobId); return; } // the CPU's kills are not yours
+    if (this.dailyOn()) {
+      const h = this.hitInfo.get(mobId) || { wk: 'gun' };
+      const wk = this.hitSrc.get(mobId) && this.hitSrc.get(mobId) !== 'player' ? 'gear' : h.wk;
+      Dailies.add('kills');
+      if (h.head) Dailies.add('headKills');
+      Dailies.add(wk + 'Kills');
+      if (!p.onGround) Dailies.add('airKills');
+      if (p.board) Dailies.add('boardKills');
+      if (v && v.elite) Dailies.add('eliteKills');
+      if (v && v.mini) Dailies.add('champKills');
+      Dailies.best('runKills', p.totalKills);
+    }
+    this.hitInfo.delete(mobId);
     Unlocks.add('kills');
     if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('killsSpace');
     if (!p.onGround) { Unlocks.add('killsAir'); if (hard) Unlocks.add('killsAirHard'); }
@@ -2202,6 +2244,11 @@ export class Game {
     if (cpu) this.ui.toast('CPU run: nothing counts toward the Unlockables', '');
     if (!cpu && win && hardRun && Unlocks.grant('space')) this.ui.toast('Hidden map unlocked: Crash Site Prime', 'good');
     if (!cpu) { Unlocks.add('runs'); Unlocks.max('bestRound', roundsReached); }
+    if (this.dailyOn()) {
+      Dailies.add('runs');
+      if (win) { Dailies.add('wins'); if (hardRun) Dailies.add('winsHard'); if (!p.deaths) Dailies.add('cleanWins'); }
+      Dailies.flush();
+    }
     if (win && !cpu) {
       Unlocks.add('wins'); Unlocks.add(hardRun ? 'winsHard' : 'winsNormal');
       const ws = (this.loadout.w || []).map((id) => WEAPON_BY_ID[id]).filter((w) => w && TIER(w) !== 3);

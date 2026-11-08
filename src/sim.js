@@ -95,7 +95,9 @@ export class HostSim {
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
   hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.15, this.round) * (this.hard() ? 1.5 : 1); } // +15% health every round
-  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1); } // +20% damage every round
+  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // +20% damage every round
+  // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
+  easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
 
   ev(...data) {
     const e = [data[0], this.seq++, ...data.slice(1)];
@@ -410,9 +412,10 @@ export class HostSim {
         return [x, z];
       }
       // Groups appear well out of sight in any direction (a little more often ahead, so a walk runs into them), never close.
-      const ahead = Math.random() < 0.55;
+      // (2026-11-08: fewer straight ahead and farther out, so a group never seems to pop up in front of you)
+      const ahead = Math.random() < 0.3;
       const ang = ahead ? p.ry + (Math.random() - 0.5) * Math.PI * 1.2 : p.ry + Math.PI + (Math.random() - 0.5) * Math.PI * 1.2;
-      const dist = (ahead ? 62 : 48) + Math.random() * 28;
+      const dist = (ahead ? 78 : 55) + Math.random() * 28;
       const x = p.x + Math.sin(ang) * dist, z = p.z + Math.cos(ang) * dist;
       if (Math.hypot(x, z) > 128) continue;
       if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
@@ -482,8 +485,9 @@ export class HostSim {
         for (const m of this.mobs.values()) {
           let near = 1e9;
           for (const p of alive) near = Math.min(near, Math.hypot(p.x - m.x, p.z - m.z));
-          if (near < (m.roam ? 175 : 95)) continue;
-          const pt = this.pickSpawnPoint(players);
+          if (near < (m.roam ? 175 : 110)) continue;
+          // Moved somewhere out of sight on the map, not next to you: running away really gets you away.
+          const pt = this.pickSpawnPoint(players, true);
           if (pt) { m.x = m.hx = m.wx = pt[0]; m.z = m.hz = m.wz = pt[1]; m.roam = 1; m.wt = 0; }
         }
       }
@@ -491,19 +495,28 @@ export class HostSim {
     if (this.seedDue) {
       // A fresh round: fill most of the map with roaming groups right away, so there is always something out there.
       this.seedDue = false;
-      for (let i = 0; i < 30; i++) if (!this.spawnGroup(players, true, 0.8)) break;
+      // Round 1 starts thin (about a third of the crowd) so a new player can find their feet.
+      for (let i = 0; i < 30; i++) if (!this.spawnGroup(players, true, this.round === 0 ? 0.3 : 0.55)) break;
       return;
     }
     this.spawnCd -= dt;
     if (this.spawnCd > 0) return;
-    this.spawnGroup(players, Math.random() < 0.5);
+    this.spawnGroup(players, Math.random() < 0.5, this.ramp());
+  }
+
+  // The crowd builds over the opening of a round instead of being all there at once:
+  // round 1 grows from a third to full over 2.5 minutes, later rounds from about half over the first minute.
+  ramp() {
+    if (this.phase !== 'play' || this.duel) return 1;
+    const t = this.rt || 0;
+    return this.round === 0 ? Math.min(1, 0.3 + (t / 150) * 0.7) : Math.min(1, 0.55 + (t / 60) * 0.45);
   }
 
   // Per-type alive caps were tuned for a 16-mob field; they grow with the budget so a big field still fills up.
   capOf(B, n = 1) { return B.cap == null ? null : Math.min(B.hard ?? Infinity, Math.ceil(B.cap * this.mobBudget(n) / 16)); } // hard: never more, whatever the budget (the heavy hero-built bodies)
 
   // How many mobs the field holds at once (small swarmers and minions count for less, see cost).
-  mobBudget(n) { return Math.min(230, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.hard() ? 1.25 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
+  mobBudget(n) { return Math.min(230, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.72 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
 
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {
@@ -518,7 +531,7 @@ export class HostSim {
     // A group appears, then a lull: a few seconds of walking before the next one. Lulls shrink as rounds go on
     // and when the field is thin, so you are never left with nothing to fight for long.
     const quiet = load < target * 0.5;
-    this.spawnCd = Math.max(1.4, (quiet ? 2.5 : 5) - this.round * 0.5 - n * 0.5) * 0.7 * (0.8 + Math.random() * 0.5);
+    this.spawnCd = Math.max(this.round === 0 ? 3 : 1.4, (quiet ? 2.5 : 5) - this.round * 0.5 - n * 0.5) * 0.7 * (0.8 + Math.random() * 0.5);
     if (!pt) { this.spawnCd = 1; return true; }
     const r = this.round;
     if (!this.lineup) this.lineup = this.pickLineup(r);

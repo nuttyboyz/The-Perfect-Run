@@ -507,6 +507,24 @@ export function setupLobbyBg(menu, q) {
       };
     }
   }
+  // A photographer's key light on the hero (Nutty 2026-11-08: the knight read as a black shape against the bright forest).
+  // It shines from just above and to the right of the camera, so the front of the character is always lit and polished
+  // armour catches a highlight; a cooler fill from the other side keeps the shadow side from going black.
+  {
+    const key = new THREE.DirectionalLight(0xfff0dc, 2.4), fill = new THREE.DirectionalLight(0xbfd0ff, 0.9);
+    grp.add(key, key.target, fill, fill.target);
+    const fw = new THREE.Vector3(), rt = new THREE.Vector3(), UPV = new THREE.Vector3(0, 1, 0);
+    const up2 = menu.update.bind(menu);
+    menu.update = (dt, mouse) => {
+      up2(dt, mouse);
+      if (!grp.visible || !menu.camera) return;
+      const c = menu.camera.position;
+      menu.camera.getWorldDirection(fw); rt.crossVectors(fw, UPV).normalize();
+      const aim = c.clone().addScaledVector(fw, 6);
+      key.position.copy(c).addScaledVector(rt, 2.5).addScaledVector(UPV, 3); key.target.position.copy(aim);
+      fill.position.copy(c).addScaledVector(rt, -3).addScaledVector(UPV, 0.5); fill.target.position.copy(aim);
+    };
+  }
   const sd = menu.setDay.bind(menu);
   menu.setDay = (day) => {
     sd(day);

@@ -63,6 +63,7 @@
       <button class="btn duel-btn" id="btn-duel">Duel Arena <small>1v1 in a random arena · vs CPU or a friend</small></button>
       <button class="btn pshop-btn" id="btn-pshop">Perfect Shop <small>Permanent Power-Ups · <b id="title-pp">0</b> PP</small></button>
       <button class="btn unlocks-btn" id="btn-unlocks">Unlockables <small>Gear &amp; More!</small></button>
+      <button class="btn daily-btn" id="btn-daily">Daily Challenges <small><b id="title-daily">0 / 3</b> done today · earn PP</small></button>
       <div class="view-toggle" id="view-toggle"><span>Camera</span><button data-view="first">First person</button><button data-view="third">Third person</button></div>
       <div class="menu-row">
       <button class="btn small" id="btn-help">How to play</button>
@@ -202,6 +203,17 @@
     <h2>Unlockables</h2>
     <p class="muted" id="ul-sub"></p>
     <div id="ul-grid" class="ul-grid"></div>
+    <button class="btn small ghost" data-back="s-title">Back</button>
+  </div>
+</section>
+
+<!-- ============ DAILY CHALLENGES ============ -->
+<section class="screen" id="s-daily">
+  <div class="panel unlocks daily">
+    <h2>Daily Challenges</h2>
+    <p class="muted" id="dl-sub"></p>
+    <div id="dl-grid" class="ul-grid dl-grid"></div>
+    <p class="muted dl-note">Three new challenges every day at midnight: one Easy, one Medium, and a Hard one (Elite every third day). PP is paid the moment you finish one. Runs the CPU plays and Duel Arena matches don't count.</p>
     <button class="btn small ghost" data-back="s-title">Back</button>
   </div>
 </section>

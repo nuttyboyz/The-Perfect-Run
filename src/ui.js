@@ -11,6 +11,8 @@ import { coinDataURL } from './textures.js';
 import { setFocus, connectedPads, KEYPAD_HELP } from './pad.js';
 import { CHARACTERS, CHAR_BY_ID } from './characters.js';
 import { skinsOf, skinIsFree, skinUnlocked } from './skins.js';
+import { Dailies, msToReset } from './dailies.js';
+import { puIcon, hasPuIcon } from './puicons.js';
 
 // Every control the game ever names, as the button it is on each layout. Settings > Controller layout picks
 // the column (DualShock by default); 'kp' is player 2's right-hand keyboard half in couch co-op.
@@ -206,6 +208,8 @@ export class UI {
     };
     this.$('#btn-pshop').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-pshop'); renderPShop(this); };
     this.$('#btn-unlocks').onclick = () => { g.audio.play('ui'); this.screen('s-unlocks'); this.renderUnlocks(); };
+    this.$('#btn-daily').onclick = () => { g.audio.play('ui'); this.screen('s-daily'); this.renderDaily(); };
+    if (g.seat === 1 && !g.isBot) Dailies.onDone = (d, pp) => { this.toast('Daily Challenge done: ' + d.text + ' · +' + pp + ' PP', 'good'); g.audio.play('crate', 0.7); };
     this.$('#btn-help').onclick = () => { g.audio.play('ui'); this.screen('s-help'); };
     this.$('#btn-settings').onclick = () => { g.audio.play('ui'); this.openSettings('s-title'); };
     this.$$('.fs-toggle').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.toggleFullscreen(); }));
@@ -381,6 +385,7 @@ export class UI {
     this.$('#hud').classList.remove('on');
     this.game.duelMode = false;
     this.$('#title-pp').textContent = getMeta().pp.toLocaleString();
+    { const el = this.$('#title-daily'); if (el) el.textContent = Dailies.today().filter((d) => d.done).length + ' / 3'; }
   }
 
   refreshPartyList() {
@@ -969,7 +974,9 @@ export class UI {
     if (pk !== this.puKey) {
       this.puKey = pk;
       const cnt = new Map(); for (const q of p.powerups) cnt.set(q.id, (cnt.get(q.id) || 0) + 1);
-      this.setH('#powerups', [...cnt].map(([id, n]) => { const q = POWERUP_BY_ID[id], i = puInfo(q, p.cls); return `<span title="${esc(i.name + ': ' + i.desc)}">${q.icon || '•'}${n > 1 ? '×' + n : ''}</span>`; }).join(''));
+      // Only the 8 power-ups you hold most of stay on screen; the rest fold into "+N" (the pause menu lists them all).
+      const all = [...cnt].sort((a, b) => b[1] - a[1]), top = all.slice(0, 8), more = all.length - top.length;
+      this.setH('#powerups', top.map(([id, n]) => { const q = POWERUP_BY_ID[id], i = puInfo(q, p.cls); return `<span class="${hasPuIcon(q) ? 'pi' : ''}" title="${esc(i.name + ': ' + i.desc)}">${hasPuIcon(q) ? puIcon(q) : q.icon || '•'}${n > 1 ? '<b>×' + n + '</b>' : ''}</span>`; }).join('') + (more > 0 ? `<span class="pu-more" title="${esc(all.slice(8).map(([id, n]) => puInfo(POWERUP_BY_ID[id], p.cls).name + (n > 1 ? ' ×' + n : '')).join(', '))}">+${more}</span>` : ''));
     }
     this.setH('#blessings', p.blessings.map((x) => `<span title="${esc(x.name + ': ' + x.desc)}">${x.icon}</span>`).join(''));
     this.setT('#fps', g.settings.fps ? (g.fps || '') + ' FPS' + (g.gov ? ' · ' + g.gov.name + (g.gov.gpu ? ' · ' + g.gov.gpu : '') : '') : '');
@@ -1108,7 +1115,7 @@ export class UI {
     this.$('#elem-cards').innerHTML = opts.map((e, i) => {
       const info = puInfo(e, p.cls);
       const n = e.el ? p.stats.elem[e.el] : p.powerups.filter((q) => q.id === e.id).length;
-      return `<button class="elem-card${i === 0 ? ' sel pad-first' : ''}" data-i="${i}" style="--ec:${e.color || '#ffb347'}"><div class="b-icon">${e.icon || '•'}</div><div class="b-name">${esc(info.name)}${n ? ` <small>×${n}</small>` : ''}</div><div class="b-desc">${esc(info.desc)}</div><kbd>${i === 9 ? 0 : i + 1}</kbd></button>`;
+      return `<button class="elem-card${i === 0 ? ' sel pad-first' : ''}" data-i="${i}" style="--ec:${e.color || '#ffb347'}"><div class="b-icon">${hasPuIcon(e) ? `<span class="pu-ic">${puIcon(e)}</span>` : e.icon || '•'}</div><div class="b-name">${esc(info.name)}${n ? ` <small>×${n}</small>` : ''}</div><div class="b-desc">${esc(info.desc)}</div><kbd>${i === 9 ? 0 : i + 1}</kbd></button>`;
     }).join('');
     this.$$('.elem-card').forEach((b) => (b.onclick = () => this.game.pickElem(+b.dataset.i)));
     // The tumbling die under the cards says a reroll is available; click it (or R) for a whole new set.
@@ -1147,6 +1154,16 @@ export class UI {
     this.$('#de-lobby').onclick = () => { this.game.audio.play('ui'); this.game.backToLobby(); };
   }
 
+  renderDaily() {
+    const list = Dailies.today();
+    const ms = msToReset(), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60;
+    this.$('#dl-sub').textContent = list.filter((d) => d.done).length + ' of 3 done · new challenges in ' + h + 'h ' + m + 'm';
+    this.$('#dl-grid').innerHTML = list.map((d) => {
+      const pct = Math.round(100 * d.cur / Math.max(1, d.need));
+      return `<div class="ul-card pad-nav ${d.done ? 'got' : ''}" tabindex="0"><div class="dl-tier"><span class="ul-tag t${d.tier}">${d.tierName}</span><span class="dl-pp">+${d.pp} PP</span></div><div class="ul-name">${esc(d.text)}</div>` +
+        (d.done ? '<div class="ul-state">✓ Done · PP paid</div>' : `<div class="ul-bar"><i style="width:${pct}%"></i></div><div class="ul-state">${d.cur.toLocaleString()} / ${d.need.toLocaleString()}</div>`) + '</div>';
+    }).join('');
+  }
   renderUnlocks() {
     const gear = WEAPONS.filter((w) => GEAR_GOALS[w.id]);
     const row = (name, how, done, cur, need, tag) => {
@@ -1204,10 +1221,13 @@ export class UI {
     this.$('#toasts').appendChild(t);
     t._t1 = setTimeout(() => t.classList.add('out'), 2600);
     t._t2 = setTimeout(() => t.remove(), 3200);
-    while (this.$('#toasts').children.length > 4) this.$('#toasts').firstChild.remove();
+    while (this.$('#toasts').children.length > 2) this.$('#toasts').firstChild.remove(); // never more than two messages over the fight
   }
 
   levelUp(lv, pu, info) {
+    // A round banner is up: show the level-up just after it, so the two never stack.
+    const bn = this.$('#banner');
+    if (bn && bn.classList.contains('on') && performance.now() - (this.bannerAt || 0) < 3000) { clearTimeout(this.luT); this.luT = setTimeout(() => this.levelUp(lv, pu, info), 3000 - (performance.now() - this.bannerAt)); return; }
     let el = this.$('#levelup');
     if (!el) { el = document.createElement('div'); el.id = 'levelup'; this.$('#hud').appendChild(el); }
     el.innerHTML = `<b>LEVEL ${lv + 1}</b><span>${pu ? esc((pu.icon || '') + ' ' + info.name) + ' · ' + esc(info.desc) : 'Choose one of ten power-ups'}</span>`;
@@ -1222,6 +1242,8 @@ export class UI {
     b.classList.remove('on');
     void b.offsetWidth;
     b.classList.add('on');
+    this.bannerAt = performance.now();
+    const lu = this.$('#levelup'); if (lu) lu.classList.remove('show'); // the round banner wins the middle of the screen
   }
 
   killfeed(text) {

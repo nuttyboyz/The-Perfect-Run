@@ -52,6 +52,11 @@ export class Bot {
     this.stat = { stuck: 0, idle: 0, deaths: 0, unspentPC: [], crates: 0, picks: [] };
     this.lastPhase = null; this.lastRound = -1; this.lastAlive = true;
     this.phaseStart = 0;
+    // How well the CPU plays a run: 1 = the old sharp shooter, lower = a more human player (slower turns, a beat of
+    // reaction before tracking a new target, shaky aim that really misses, standing still to shoot, looking where it walks).
+    // Duels keep the sharp CPU. Tests can set window.__cpuSkill.
+    this.skill = mode === 'duel' ? 1 : (typeof window !== 'undefined' && window.__cpuSkill != null ? window.__cpuSkill : 0.45);
+    this.aimId = null; this.react = 0; this.stopT = 0; this.lookT = 0;
   }
 
   // ---------- menus and choices (run every frame, also while the game is frozen) ----------
@@ -135,11 +140,13 @@ export class Bot {
     I.mouseDown = I.mouseClicked = false; I.ax = I.ay = 0; I.padSprint = false; I.dx = I.dy = 0;
     if (!p || !p.alive || p.out || p.frozenUntil > g.now) return I; // sealed in ice: no aiming either
     this.swapT -= dt; this.errT -= dt; this.strafeT -= dt; this.abT -= dt; this.jumpT -= dt; this.dashT -= dt;
-    if (this.errT <= 0) { this.errT = rnd(0.25, 0.5); this.err = [rnd(-1, 1), rnd(-0.6, 0.6), rnd(-1, 1)]; }
+    if (this.errT <= 0) { this.errT = this.skill < 1 ? rnd(0.5, 1.2) : rnd(0.25, 0.5); this.err = [rnd(-1, 1), rnd(-0.6, 0.6), rnd(-1, 1)]; }
+    this.aimed = false; this.stopT -= dt;
     if (this.strafeT <= 0) { this.strafeT = rnd(0.7, 2.2); this.strafe = Math.random() < 0.3 ? -this.strafe : this.strafe; if (Math.random() < 0.25) this.strafe *= -1; }
     if (p.board) I.pressed.add('KeyE'); // never ride a skateboard
     if (this.mode === 'duel') this.duelStep(dt, I); else this.runStep(dt, I);
     this.antiStuck(dt, I);
+    if (this.skill < 1 && !this.aimed && this.mode === 'run') this.lookWhereWalking(dt, I);
     return I;
   }
 
@@ -159,6 +166,7 @@ export class Bot {
 
   // Turn to face and aim at a target point; the shot flies from the muzzle to g.aim.point.
   aimAt(t, dt, lead = 0) {
+    if (this.skill < 1) return this.aimHuman(t, dt, lead);
     const g = this.g, p = g.player;
     let tx = t.x, ty = t.y + t.h * 0.62, tz = t.z;
     const dist = Math.hypot(tx - p.pos.x, tz - p.pos.z);
@@ -173,6 +181,53 @@ export class Bot {
     p.yaw += angDiff(p.yaw, want) * Math.min(1, dt * 22);
     const wp = Math.atan2(-ey, Math.hypot(ex, ez));
     p.pitch += (Math.max(-1.0, Math.min(1.1, wp)) - p.pitch) * Math.min(1, dt * 22);
+  }
+
+  // A human-like aim: a short reaction before tracking a new target, a turn speed that has limits and eases in,
+  // and an error that wanders. The shot goes where the crosshair really points, so misses are real misses.
+  aimHuman(t, dt, lead) {
+    const g = this.g, p = g.player, S = this.skill;
+    this.aimed = true;
+    if (t.id !== this.aimId) { this.aimId = t.id; this.react = rnd(0.18, 0.45) * (1.7 - S); }
+    this.react -= dt;
+    let tx = t.x, ty = t.y + t.h * 0.62, tz = t.z;
+    const dist = Math.hypot(tx - p.pos.x, tz - p.pos.z);
+    const v = this.prev.get(t.id);
+    if (lead && v && S > 0.6) { const k = dist / lead; tx += v.x * k; tz += v.z * k; } // only good players lead their shots
+    const sloppy = (0.3 + dist * 0.045) * (1.6 - S);
+    tx += this.err[0] * sloppy; ty += this.err[1] * sloppy * 0.7; tz += this.err[2] * sloppy;
+    const ex = tx - p.pos.x, ez = tz - p.pos.z, ey = ty - (p.pos.y + 1.5);
+    if (this.react <= 0) {
+      const maxRate = (2.2 + 5 * S) * dt, ease = Math.min(1, dt * (3 + 7 * S));
+      const dy = angDiff(p.yaw, Math.atan2(ex, ez)) * ease;
+      p.yaw += Math.max(-maxRate, Math.min(maxRate, dy));
+      const wp = Math.max(-1.0, Math.min(1.1, Math.atan2(-ey, Math.hypot(ex, ez))));
+      p.pitch += Math.max(-maxRate, Math.min(maxRate, (wp - p.pitch) * ease));
+    }
+    // Where the crosshair actually is, at the target's distance.
+    const ch = Math.cos(p.pitch), r = Math.max(2, dist);
+    g.aim.point.set(p.pos.x + Math.sin(p.yaw) * r, p.pos.y + 1.5 - Math.tan(p.pitch) * r, p.pos.z + Math.cos(p.yaw) * r);
+    g.aim.target = null;
+    this.offAim = Math.abs(angDiff(p.yaw, Math.atan2(t.x - p.pos.x, t.z - p.pos.z))); // how far off the real target we point
+    void ch;
+  }
+
+  // Walking with nothing to shoot: turn smoothly to face the way we go (and glance around now and then), like a person would.
+  lookWhereWalking(dt, I) {
+    const p = this.g.player;
+    if (!I.ax && !I.ay) return;
+    const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+    const wx = fx * I.ay - fz * I.ax, wz = fz * I.ay + fx * I.ax; // the world direction of this move
+    this.lookT -= dt;
+    if (this.lookT <= -2.5) this.lookT = rnd(3, 7);
+    const glance = this.lookT < 0 ? Math.sin(this.lookT * 2.4) * 0.7 : 0; // a look to the side while walking
+    const want = Math.atan2(wx, wz) + glance;
+    const d = angDiff(p.yaw, want) * Math.min(1, dt * 3);
+    p.yaw += d;
+    p.pitch += (0.05 - p.pitch) * Math.min(1, dt * 2);
+    // Keep walking the same world direction after the turn.
+    const nfx = Math.sin(p.yaw), nfz = Math.cos(p.yaw), l = Math.hypot(wx, wz) || 1;
+    I.ay = (wx * nfx + wz * nfz) / l; I.ax = (-wx * nfz + wz * nfx) / l;
   }
 
   trackVel(list, dt) {
@@ -210,7 +265,8 @@ export class Bot {
     let rad = dist > pref + 2 ? 1 : dist < pref - 2 ? -1 : 0;
     if (wp.kind === 'melee') rad = dist > pref + 0.4 ? 1 : 0;
     if (opts.covered && wp.kind !== 'melee') rad = 0.5; // a wall is in the way: slide round it rather than walk into it
-    const tang = opts.covered ? 1.3 : wp.kind === 'melee' && dist < pref + 1 ? 0.5 : 0.95;
+    const S = this.skill;
+    const tang = (opts.covered ? 1.3 : wp.kind === 'melee' && dist < pref + 1 ? 0.5 : 0.95) * (S < 1 ? 0.25 + 0.6 * S : 1);
     let mx = ux * rad + -uz * this.strafe * tang, mz = uz * rad + ux * this.strafe * tang;
     // Shoot and scoot: when there is somewhere to be, keep heading there while the guns work.
     if (opts.goal) {
@@ -223,23 +279,26 @@ export class Bot {
       const rx = p.pos.x - a.x, rz = p.pos.z - a.z, rim = Math.hypot(rx, rz);
       if (rim > a.r - 7) { const k = (rim - (a.r - 7)) / 4; mx -= (rx / rim) * k * 1.6; mz -= (rz / rim) * k * 1.6; }
     }
-    this.walk(I, mx, mz, dist > 22);
+    // A less practised player plants their feet to shoot every so often.
+    if (S < 1 && wp.kind !== 'melee' && this.stopT <= -1.5 && Math.random() < dt * (1.2 - S)) this.stopT = rnd(0.6, 1.6);
+    if (!(S < 1 && this.stopT > 0 && !opts.goal)) this.walk(I, mx, mz, dist > 22);
     this.aimAt(tgt, dt, wp.proj ? wp.speed : 0);
-    // Fire when the shot can land.
-    if (dist <= maxRange(wp) && p.reloadT <= 0 && !p.dash && !opts.covered) {
+    // Fire when the shot can land (a human fires once they think they are on target, which is not always true).
+    const onTarget = S >= 1 || wp.kind === 'melee' || (this.react <= 0 && (this.offAim || 0) < 0.12 + (1 - S) * 0.35);
+    if (onTarget && dist <= maxRange(wp) && p.reloadT <= 0 && !p.dash && !opts.covered) {
       I.mouseDown = true;
       if (p.fireCd <= 0) I.mouseClicked = true;
     }
     if (wp.kind === 'gun' && p.ammo[p.cur] < wp.mag * 0.25 && dist > 12 && p.reloadT <= 0) I.pressed.add('KeyR');
     // Jump now and then, dash to close or to dodge.
-    if (this.jumpT <= 0) { this.jumpT = rnd(1.5, 4); if (p.onGround) I.keys.add('Space'); }
+    if (this.jumpT <= 0) { this.jumpT = S < 1 ? rnd(3, 8) : rnd(1.5, 4); if (p.onGround) I.keys.add('Space'); }
     if (this.dashT <= 0 && p.cds.d <= 0) {
-      if (dist > 14 || Math.random() < 0.3) { I.pressed.add('KeyX'); }
-      this.dashT = rnd(1.2, 3.5);
+      if (S >= 1 ? dist > 14 || Math.random() < 0.3 : Math.random() < 0.25 + 0.3 * S) { I.pressed.add('KeyX'); }
+      this.dashT = S < 1 ? rnd(3, 7) : rnd(1.2, 3.5);
     }
     // Abilities when something is close enough to feel them.
     if (this.abT <= 0) {
-      this.abT = rnd(0.5, 1.2);
+      this.abT = S < 1 ? rnd(1.5, 4) : rnd(0.5, 1.2);
       const range = opts.abilityRange || 22;
       if (dist < range) for (const k of ['r', 'q', 'e']) if (p.cds[k] <= 0 && Math.random() < 0.6) { I.pressed.add(KEY[k]); break; }
     }

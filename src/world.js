@@ -7,6 +7,7 @@ import { BIOMES, CONFIG, DUEL, DUEL_BIOMES } from './data.js';
 import { duelHeight, buildDunes, buildFrost, buildDuelScenery } from './arenas.js';
 import { placeBoards } from './skate.js';
 import { placeDice } from './dice.js';
+import { chestParts, chestMats } from './chest.js';
 import { propLibrary, stoneMat, WIND, crystalCluster } from './props.js';
 import { makeTerrainMaterial } from './terrain.js';
 import { skyMaterial } from './look.js';
@@ -813,42 +814,37 @@ export class World {
   buildCrates() {
     if (!this.crateCount) return;
     const r = this.rng;
-    const cm = TX.crateMaps();
-    const mat = new THREE.MeshStandardMaterial({ map: cm.map, normalMap: cm.normalMap, roughness: 0.75, metalness: 0.0 });
-    const geo = new THREE.BoxGeometry(1.1, 0.8, 0.8);
-    const runeGeo = new THREE.PlaneGeometry(0.4, 0.4);
-    const runeMat = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+    // Treasure chests (src/chest.js): a wooden body and domed lid with iron straps, a thin line of gold light leaking
+    // from the seam, and a faint beam above so they can be spotted from afar.
+    const P = chestParts(), M = chestMats();
     const beamMat = new THREE.ShaderMaterial({
       uniforms: { uT: { value: 0 } },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; vec4 p=vec4(position,1.);\n#ifdef USE_INSTANCING\np=instanceMatrix*p;\n#endif\ngl_Position=projectionMatrix*modelViewMatrix*p; }`,
       fragmentShader: `uniform float uT; varying vec2 vUv; void main(){ float a = pow(1.0-vUv.y, 2.0) * 0.16 * (0.75+0.25*sin(uT*3.0+vUv.y*10.)); gl_FragColor = vec4(vec3(1.0,0.8,0.35)*a, a); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
-    this.animated.push((t) => (beamMat.uniforms.uT.value = t));
+    const seamMat = M.seam.clone();
+    this.animated.push((t) => { beamMat.uniforms.uT.value = t; seamMat.opacity = 0.55 + 0.35 * Math.sin(t * 2.6); });
     const beamGeo = new THREE.CylinderGeometry(0.15, 0.45, 9, 12, 1, true).translate(0, 4.5, 0);
-    // There are many crates, so each part (box, rune faces, light beam) is one instanced mesh and a crate
-    // is hidden by collapsing its instances.
+    // There are many chests, so each part is one instanced mesh and an opened chest is hidden by collapsing its
+    // instances (the opening itself is a separate animated model, ChestFx).
     const N = this.crateCount;
-    const boxes = new THREE.InstancedMesh(geo, mat, N);
-    const runes = new THREE.InstancedMesh(runeGeo, runeMat, N * 2);
+    const woods = new THREE.InstancedMesh(P.closedWood, M.wood, N);
+    const irons = new THREE.InstancedMesh(P.closedIron, M.iron, N);
+    const seams = new THREE.InstancedMesh(P.seam, seamMat, N);
     const beams = new THREE.InstancedMesh(beamGeo, beamMat, N);
-    boxes.castShadow = boxes.receiveShadow = true;
-    for (const m of [boxes, runes, beams]) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
-    const dummy = new THREE.Object3D(), root = new THREE.Object3D(), none = new THREE.Matrix4().makeScale(0, 0, 0);
+    woods.castShadow = woods.receiveShadow = irons.castShadow = irons.receiveShadow = true;
+    const all = [woods, irons, seams, beams];
+    for (const m of all) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
+    const root = new THREE.Object3D(), none = new THREE.Matrix4().makeScale(0, 0, 0);
     const place = (c, on) => {
       const k = c.id;
-      if (!on) { boxes.setMatrixAt(k, none); runes.setMatrixAt(k * 2, none); runes.setMatrixAt(k * 2 + 1, none); beams.setMatrixAt(k, none); }
+      if (!on) for (const m of all) m.setMatrixAt(k, none);
       else {
         root.position.set(c.x, c.y, c.z); root.rotation.y = c.ry; root.updateMatrix();
-        dummy.position.set(0, 0.4, 0); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
-        boxes.setMatrixAt(k, new THREE.Matrix4().multiplyMatrices(root.matrix, dummy.matrix));
-        for (const [n, sg] of [[0, 1], [1, -1]]) {
-          dummy.position.set(0, 0.4, sg * 0.405); dummy.rotation.set(0, sg < 0 ? Math.PI : 0, 0); dummy.updateMatrix();
-          runes.setMatrixAt(k * 2 + n, new THREE.Matrix4().multiplyMatrices(root.matrix, dummy.matrix));
-        }
-        beams.setMatrixAt(k, root.matrix);
+        for (const m of all) m.setMatrixAt(k, root.matrix);
       }
-      for (const m of [boxes, runes, beams]) m.instanceMatrix.needsUpdate = true;
+      for (const m of all) m.instanceMatrix.needsUpdate = true;
     };
     let id = 0;
     for (let tries = 0; this.crates.length < N && tries < 4000; tries++) {
@@ -859,10 +855,10 @@ export class World {
       c.mesh = { get visible() { return !c.opened; }, set visible(v) { place(c, v); } };
       this.crates.push(c);
       place(c, true);
-      this.addCollider(x, z, 0.7, y + 0.85); // the box is 0.8 m tall: a jump (or a flight) clears it
+      this.addCollider(x, z, 0.7, y + 0.95); // the chest is under a metre tall: a jump (or a flight) clears it
       this.blobs.push({ x, z, y, r: 1.1 });
     }
-    boxes.count = this.crates.length; runes.count = this.crates.length * 2; beams.count = this.crates.length;
+    for (const m of all) m.count = this.crates.length;
   }
 
   buildSpawn() {
