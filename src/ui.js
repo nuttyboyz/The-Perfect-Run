@@ -1012,6 +1012,11 @@ export class UI {
     const xpf = hold ? 1 : Math.min(1, p.xp / p.xpNeed);
     this.setW('#xp-fill', xpf);
     this.setT('#xp-text', 'LV ' + (p.level + 1 - p.elemPending));
+    this.setT('#xp-pct', hold ? 'LEVEL UP!' : Math.floor(xpf * 100) + '%');
+    { const xb = this.$('#xpbar'), near = xpf >= 0.85 && !hold; if (xb && xb._near !== near) { xb._near = near; xb.classList.toggle('near', near); } }
+    // Each XP gain makes the bar flash and its tip spark.
+    if (this._xpLast !== undefined && p.xp > this._xpLast && !hold) { const xb = this.$('#xpbar'); if (xb) { xb.classList.remove('gain'); void xb.offsetWidth; xb.classList.add('gain'); } }
+    this._xpLast = p.xp;
     const pk = p.powerups.length + ':' + p.level;
     if (pk !== this.puKey) {
       this.puKey = pk;
