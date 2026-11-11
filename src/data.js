@@ -280,7 +280,7 @@ export const STAGE_FLY = { abyss: ['gloomwing', 'skyhunter'], space: ['wasp'] };
 export const ZONE_K = { head: 2.0, body: 1.0, arm: 0.8, leg: 0.6 }; // head = always a critical hit (yellow); legs are the weakest spot
 export function zoneOf(t, y, d2) {
   const rel = (y - t.y) / (t.h || 1), r = t.r || 0.5;
-  if (rel > (t.kind === 'boss' ? 0.86 : 0.82)) return 'head';
+  if (rel > (t.big ? 0.73 : t.kind === 'boss' ? 0.86 : 0.82)) return 'head'; // big: Big Head mutator (much larger head)
   if (rel < 0.45) return 'leg';
   if (d2 > r * r * 0.36) return 'arm';
   return 'body';
@@ -425,6 +425,8 @@ export const NPCS = {
   zombie: { name: 'Zombie', role: 'Summoned', cost: 0, summoned: true, life: 25, hp: 110, dmg: 14, rate: 0.8, range: 2.2, speed: 4.2, hunt: 45, color: 0x6a8a5a, desc: 'Raised by the Zombie Staff.' },
   medic: { name: 'Ranger-Medic', role: 'Support', cost: 90, hp: 120, dmg: 16, rate: 1.0, range: 20, heal: 8, healRate: 2.0, speed: 7, color: 0x4a8a6a, desc: 'Ranged fighter who also heals.' },
 };
+// Necromancer mutator: a fallen enemy back on its feet for 10 s (its body, health and hits are set from the enemy it was).
+NPCS.thrall = { name: 'Risen', role: 'Summoned', cost: 0, summoned: true, risen: true, life: 10, hp: 100, dmg: 14, rate: 0.85, range: 2.3, speed: 4.4, hunt: 40, color: 0x5aff9a, desc: 'Raised by the Necromancer mutator.' };
 export const NPC_TYPES = Object.keys(NPCS);
 
 export const BLESSINGS = [

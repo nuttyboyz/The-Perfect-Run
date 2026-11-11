@@ -8,17 +8,26 @@
 // pr: render resolution per CSS pixel (capped at the screen's own density). msaa: samples on the scene target.
 // shadow: shadow map size. every: redraw the shadow map every Nth frame. mobShadow: enemies cast shadows within this
 // many metres of the camera. bloomDiv: bloom works at 1/N of the screen.
+// grass: share of grass and fern tufts drawn. fx: share of particles kept. lod: how far enemies keep their detailed bodies.
 export const TIERS = [
-  { name: 'Ultra', pr: 1.5, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 40 },
-  { name: 'High', pr: 1.0, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 26 },
-  { name: 'Medium', pr: 1.0, msaa: 2, bloom: true, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 16 },
-  { name: 'Low', pr: 0.85, msaa: 0, bloom: false, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 10 },
-  { name: 'Very low', pr: 0.72, msaa: 0, bloom: false, bloomDiv: 3, shadow: 512, every: 3, mobShadow: 0 },
-  { name: 'Lowest', pr: 0.6, msaa: 0, bloom: false, bloomDiv: 3, shadow: 512, every: 4, mobShadow: 0 },
+  { name: 'Ultra', pr: 1.5, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 40, grass: 1, fx: 1, lod: 1.2 },
+  { name: 'High', pr: 1.0, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 26, grass: 1, fx: 1, lod: 1 },
+  { name: 'Medium', pr: 1.0, msaa: 2, bloom: true, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 16, grass: 0.8, fx: 0.85, lod: 0.85 },
+  { name: 'Low', pr: 0.85, msaa: 0, bloom: false, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 10, grass: 0.55, fx: 0.7, lod: 0.65 },
+  { name: 'Very low', pr: 0.72, msaa: 0, bloom: false, bloomDiv: 3, shadow: 512, every: 3, mobShadow: 0, grass: 0.35, fx: 0.5, lod: 0.5 },
+  { name: 'Lowest', pr: 0.6, msaa: 0, bloom: false, bloomDiv: 3, shadow: 512, every: 4, mobShadow: 0, grass: 0.2, fx: 0.35, lod: 0.4 },
+  { name: 'Rescue', pr: 0.5, msaa: 0, bloom: false, bloomDiv: 3, shadow: 512, every: 6, mobShadow: 0, grass: 0, fx: 0.25, lod: 0.3 },
 ];
 
 // Read by views (MobView) every frame.
-export const PERF = { mobShadow: 26 };
+export const PERF = { mobShadow: 26, grass: 1, fx: 1, lod: 1, tier: 'High' };
+// Ground cover: show only the governor's share of each grass/fern batch (instances are in random order, so cutting the
+// count thins the field evenly). Called on every tier change and whenever a new round's world is built.
+export function applyGrass(world) {
+  if (!world || !world.grassMeshes) return;
+  for (const m of world.grassMeshes) { m.count = Math.floor(m.userData.full * PERF.grass); m.visible = m.count > 0; }
+  world._grassK = PERF.grass;
+}
 
 export class Governor {
   constructor(game) {
@@ -43,7 +52,8 @@ export class Governor {
   apply(t) {
     const g = this.g, T = TIERS[t], r = g.renderer;
     this.tier = t;
-    PERF.mobShadow = T.mobShadow;
+    PERF.mobShadow = T.mobShadow; PERF.grass = T.grass; PERF.fx = T.fx; PERF.lod = T.lod; PERF.tier = T.name;
+    applyGrass(g.world);
     // Resolution.
     const pr = Math.min(window.devicePixelRatio || 1, T.pr) * (g.split ? 0.85 : 1);
     g.basePixelRatio = pr; g.pixelScale = 1;
@@ -78,6 +88,7 @@ export class Governor {
   }
 
   tick(dt) {
+    if (this.g.world && this.g.world._grassK !== PERF.grass) applyGrass(this.g.world); // a new round's map
     if (this.settleT > 0) { this.settleT -= dt; return; }
     this.samples.push(dt);
     this.winT += dt;
@@ -89,7 +100,10 @@ export class Governor {
     g.fps = Math.round(fps);
     const medFps = 1 / Math.max(med, 1e-4);
     const low = this.target * 0.92;
-    if (medFps < low && this.tier < TIERS.length - 1) {
+    // Stutter: the median can look fine while every few frames hitch. Lots of long frames is lag too.
+    let longF = 0; for (const x of s) if (x > 1 / 28) longF++;
+    const stutter = n >= 10 && longF / n > 0.12;
+    if ((medFps < low || stutter) && this.tier < TIERS.length - 1) {
       // Too slow: step down (two tiers when far under). A tier that fails right after we climbed into it counts as failed.
       if (this.tier === this.upTier && g.now - this.upAt < 20) this.fails[this.tier]++;
       this.apply(Math.min(TIERS.length - 1, this.tier + (medFps < this.target * 0.6 ? 2 : 1)));

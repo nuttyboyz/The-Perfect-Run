@@ -8,7 +8,7 @@
 // 'chop' is a heavy downward blow on a narrower arc that hits harder.
 
 // The new attack motions are switched on for review first (test link / melee viewer) and go live once Nutty approves.
-export const MELEE_V2 = false;
+export const MELEE_V2 = true;
 
 const M = (type, k, extra = {}) => ({ type, k, ...extra });
 

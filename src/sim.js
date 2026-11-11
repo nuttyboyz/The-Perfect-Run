@@ -1,6 +1,7 @@
 // Host-authoritative simulation: enemies, bosses, the Demon Huntress, bought
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
+import { NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
 import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm } from './data.js';
 
 const q10 = (v) => Math.round(v * 10);
@@ -25,6 +26,7 @@ export class HostSim {
     this.roundLen = opts.roundLen ?? 600; // 0 = endless: the round ends when the altar is used
     this.rt = 0;
     this.mobs = new Map();
+    this.mu = 0; // mutator bits (mutators.js)
     this.npcs = new Map();
     this.boss = null;
     this.demon = null;
@@ -47,7 +49,7 @@ export class HostSim {
   // Rebuild from the last snapshot when the previous host disappears.
   static fromSnapshot(game, w) {
     const s = new HostSim(game, { roundLen: w.rl });
-    s.phase = w.ph; s.round = w.rd; s.seed = w.sd; s.runSeed = w.rs || 0; s.tl = w.tl; s.arena = w.ar ?? (w.du ? 0 : -1);
+    s.phase = w.ph; s.round = w.rd; s.seed = w.sd; s.runSeed = w.rs || 0; s.mu = (w.mu | 0) & MU_MASK; s.tl = w.tl; s.arena = w.ar ?? (w.du ? 0 : -1);
     if (w.du) {
       // A duel carries on under the new host: same arena, clock and winner; a power-up round counts the picks already made.
       s.duel = true; s.roundLen = DUEL.len; s.winner = w.wn || '';
@@ -75,6 +77,7 @@ export class HostSim {
       const type = NPC_TYPES[n[1]];
       const npc = s.newNpc(type, n[2], n[3] / 10, n[4] / 10, n[0]);
       npc.hp = npc.maxHp * (n[5] / 100);
+      if (n[9]) { npc.mt = n[9] - 1; npc.wi = n[10] | 0; npc.dmg = npc.maxHp * 0.3; }
       s.npcs.set(n[0], npc);
       s.nextId = Math.max(s.nextId, n[0] + 1);
     }
@@ -109,7 +112,7 @@ export class HostSim {
   // Duel Arena: one 10 minute match in one of the three arenas (see DUEL_BIOMES). Phases: dcount (3, 2, 1) -> duel <-> dpick (every 30 s the
   // game stops until everyone has chosen a power-up) -> dend (winner announced).
   startDuel() {
-    this.duel = true;
+    this.duel = true; this.mu = 0;
     this.roundLen = DUEL.len;
     this.round = 0;
     this.runSeed = (Math.random() * 2 ** 31) | 0;
@@ -167,6 +170,7 @@ export class HostSim {
   // flags: { space: the hidden space map is unlocked and joins the stage pool, hard: Hard mode }; both ride in the seed's low bits (see seedFlags).
   startRun(roundLen, flags = {}) {
     this.duel = false;
+    this.mu = (flags.mu | 0) & MU_MASK; // mutators (see mutators.js)
     this.roundLen = roundLen;
     this.round = 0;
     this.runSeed = (((Math.random() * 2 ** 31) | 0) & ~3) | (flags.space ? SEED_SPACE : 0) | (flags.hard ? SEED_HARD : 0); // sets this run's stage order and difficulty
@@ -288,6 +292,9 @@ export class HostSim {
     if (lock) m.frozen = Math.max(m.frozen, lock);
     if (launch && !m.base.fly && m.mode !== 'leap') { m.lvy = Math.max(m.lvy || 0, launch * (m.base.radius >= 1 || m.mini ? 0.6 : 1)); m.frozen = Math.max(m.frozen, 0.1); }
     if (burn) m.burn = Math.max(m.burn, burn);
+    if ((this.mu & LOWGRAV) && Math.hypot(kx || 0, kz || 0) >= 30 && !m.base.fly && m.mode !== 'leap' && !(m.base.radius >= 1 || m.mini)) {
+      m.lvy = Math.max(m.lvy || 0, Math.min(6.5, 2.2 + Math.hypot(kx, kz) * 0.04)); // Low Gravity: a big hit sends it drifting up
+    }
     if (kx || kz) {
       const k = (m.base.radius >= 1 || m.mini ? 0.35 : 1) * guard;
       m.kx += (kx / 10) * k; m.kz += (kz / 10) * k;
@@ -305,7 +312,7 @@ export class HostSim {
 
   applyRequest(from, r, players) {
     const [, kind, arg] = r;
-    if (kind === 'npc' && NPCS[arg] && NPCS[arg].summoned) { // hired helpers are gone; only Zombie Staff summons remain
+    if (kind === 'npc' && NPCS[arg] && NPCS[arg].summoned && !NPCS[arg].risen) { // hired helpers are gone; only Zombie Staff summons remain
       const owner = players.find((p) => p.id === from);
       const x = owner ? owner.x + 2 : this.world.spawn.x, z = owner ? owner.z + 2 : this.world.spawn.z;
       const k = NPCS[arg].summoned ? 5 : 1;
@@ -608,7 +615,9 @@ export class HostSim {
 
   killMob(m, killer) {
     this.mobs.delete(m.id);
-    this.ev('d', m.id, killer, q10(m.x), q10(m.z), m.ti);
+    const rise = this.canRise(m);
+    this.ev('d', m.id, killer, q10(m.x), q10(m.z), m.ti, rise ? 1 : 0);
+    if (rise) this.raiseThrall(m, killer);
     if (m.base.bomb && !(m.fuse > 0)) this.primeBomb(m, 0.45); // shot before it reached anyone: it still goes off, a beat later
     if (m.mini) this.ev('mk', m.id, killer, q10(m.x), q10(m.z), (Math.random() * 1e6) | 0);
     if (m.el) {
@@ -621,6 +630,26 @@ export class HostSim {
         this.mobs.set(c.id, c);
       }
     }
+  }
+
+  // Necromancer mutator: the fallen get back up and fight for whoever killed them, then fall for good.
+  canRise(m) {
+    if (!(this.mu & NECRO) || this.duel) return false;
+    const B = m.base;
+    if (B.fly || B.bomb || B.summoned || B.swarm) return false;
+    let n = 0; for (const x of this.npcs.values()) if (x.mt != null) n++;
+    return n < THRALL_MAX;
+  }
+  raiseThrall(m, killer) {
+    const owner = this.lastPlayers.some((q) => q.id === killer) ? killer : (this.lastPlayers[0] || {}).id || '';
+    const n = this.newNpc('thrall', owner, m.x, m.z);
+    n.mt = m.ti; n.wi = m.wi | 0;
+    n.maxHp = n.hp = Math.max(80, m.maxHp * 0.7);
+    n.dmg = m.maxHp * 0.3; // a few blows fell one of its old friends, whatever the round
+    n.spd = Math.min(5.2, Math.max(3.6, (m.speed || 4) * 1.1));
+    n.wake = THRALL_RISE; n.life = THRALL_LIFE + THRALL_RISE; n.yaw = m.yaw || 0;
+    this.npcs.set(n.id, n);
+    this.ev('ns', n.id, 'thrall');
   }
 
   // ---------- special abilities ----------
@@ -820,7 +849,7 @@ export class HostSim {
       m.frozen = Math.max(0, m.frozen - dt);
       if (m.lvy) {
         // Hurled into the air (Pillar Burst): rises, falls, and lands stunned.
-        m.fy = Math.max(0, (m.fy || 0) + m.lvy * dt); m.lvy -= 26 * dt;
+        m.fy = Math.max(0, (m.fy || 0) + m.lvy * dt); m.lvy -= 26 * (this.mu & LOWGRAV ? GRAV_K : 1) * dt;
         if (m.fy <= 0 && m.lvy < 0) { m.fy = 0; m.lvy = 0; m.stag = Math.max(m.stag, 0.9); m.atk = Math.max(m.atk, 1); }
         else m.frozen = Math.max(m.frozen, 0.1);
       }
@@ -883,10 +912,11 @@ export class HostSim {
             m.lx1 = m.x + (dx / d) * reach; m.lz1 = m.z + (dz / d) * reach;
           }
         } else if (m.mode === 'leap') {
-          sp = 0; m.modeT += dt / L.t;
+          const lg = this.mu & LOWGRAV ? 1 : 0;
+          sp = 0; m.modeT += dt / (L.t * (lg ? 1.7 : 1));
           const u = Math.min(1, m.modeT);
           m.x = m.lx0 + (m.lx1 - m.lx0) * u; m.z = m.lz0 + (m.lz1 - m.lz0) * u;
-          m.fy = 4 * L.h * u * (1 - u);
+          m.fy = 4 * L.h * (lg ? 2.2 : 1) * u * (1 - u);
           if (u >= 1) {
             m.fy = 0; m.mode = 'orbit'; m.cd = L.cd * (0.8 + Math.random() * 0.4); m.anim = 1;
             if (Math.hypot(t.x - m.x, t.z - m.z) < base.range + 1.1 && Math.abs((t.y || 0) - w.heightAt(m.x, m.z)) < 2.2) this.hitTarget(t, base.dmg * ds * (m.mini ? MINI.dmgMul : 1), m.id);
@@ -1250,6 +1280,7 @@ export class HostSim {
       n.anim = Math.max(0, n.anim - dt * 3);
       const owner = players.find((p) => p.id === n.owner);
       if (d.life) { n.life -= dt; if (n.life <= 0) { this.npcs.delete(n.id); this.ev('nd', n.id, q10(n.x), q10(n.z)); continue; } }
+      if (n.wake > 0) { n.wake -= dt; n.moving = 0; continue; } // still getting back up
       // Find a mob to fight.
       let foe = null, fd = 1e9;
       if (d.dmg) {
@@ -1281,7 +1312,7 @@ export class HostSim {
         if (dd <= d.range + (foe.boss ? 3 : 0.4) + body && n.atk <= 0) {
           n.atk = d.rate;
           n.anim = 1;
-          const dmg = d.dmg * (1 + this.round * 0.3);
+          const dmg = n.dmg ?? d.dmg * (1 + this.round * 0.3);
           if (d.range > 5) this.ev('nf', n.id, q10(foe.x), q10(foe.z));
           if (foe.pl) this.ev('a', foe.pl.id, Math.max(1, Math.round(dmg * DUEL.pvp)), 'pvp'); // the victim's own game applies it, like any duel hit
           else if (foe.boss) { this.boss.hp -= dmg; if (this.boss.hp <= 0) this.killBoss(n.owner); }
@@ -1293,7 +1324,7 @@ export class HostSim {
         if (dd > 60) { n.x = owner.x + 2; n.z = owner.z + 2; }
       }
       const dx = gx - n.x, dz = gz - n.z, dd = Math.hypot(dx, dz);
-      const step = d.speed * dt;
+      const step = (n.spd ?? d.speed) * dt;
       if (dd > 0.5) {
         // Hunting a duelist behind cover: with a wall in the way a summon follows it sideways, keeping the same side until the line is clear.
         // (Low ray: summons are stopped by every block, however short.)
@@ -1333,10 +1364,11 @@ export class HostSim {
       m.push([x.id, x.ti, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), flags, Math.round(x.yaw * 10), Math.round(x.anim * 9), Math.round((x.fy || 0) * 10), x.mini ? 1 : 0, x.el | 0, x.wi | 0]);
     }
     const n = [];
-    for (const x of this.npcs.values()) n.push([x.id, x.ti, x.owner, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), Math.round(x.yaw * 10), Math.round(x.anim * 9), x.moving ? 1 : 0]);
+    for (const x of this.npcs.values()) n.push([x.id, x.ti, x.owner, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), Math.round(x.yaw * 10), Math.round(x.anim * 9), x.moving ? 1 : 0, x.mt != null ? x.mt + 1 : 0, x.wi | 0]);
     const b = this.boss;
     const dm = this.demon;
     return {
+      mu: this.mu | 0,
       ph: this.phase, rd: this.round, sd: this.seed, rs: this.runSeed, tl: this.roundLen === 0 && this.phase === 'play' ? 0 : Math.round(this.tl * 10) / 10, rl: this.roundLen,
       m, n,
       b: b ? [b.idx, q10(b.x), q10(b.z), Math.max(1, Math.round((b.hp / b.maxHp) * 1000)), Math.round(b.anim * 9), Math.round(b.yaw * 10), b.mode === 'charge' ? 1 : 0, b.mode === 'laser' ? Math.round(b.ly * 100) : b.mode === 'laser-wind' ? 9999 : null] : 0,

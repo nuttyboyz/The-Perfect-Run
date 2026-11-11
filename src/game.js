@@ -35,6 +35,8 @@ import { addPP, runReward } from './meta.js';
 import { Bot } from './bot.js';
 import { Dailies } from './dailies.js';
 import { ChestFx } from './chest.js';
+import { MutatorFx } from './mufx.js';
+import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY } from './mutators.js';
 
 const QUALITY = { low: 0, medium: 1, high: 2 };
 // Shared by both couch seats so they always run at the same speed.
@@ -63,7 +65,7 @@ export class Game {
     this.pad = opts.pad === 'kb' ? new KeyPad() : new PadInput(opts.pad === undefined ? 'any' : opts.pad);
     this.hitSrc = new Map();
     this.hitInfo = new Map(); // mob id -> { head, wk } of the player's last hit on it, for the Daily Challenges
-    this.settings = Object.assign({ quality: 'high', sens: 1, vol: 0.6, name: this.seat === 2 ? 'Player 2' : 'Runner' + Math.floor(Math.random() * 900 + 100), fps: false, roundLen: 10, hard: false, speed: 1, view: 'third', layout: 'ds', sensAds: 1, invertY: false, music: true, musicVol: 1, sfx: true, fov: 70, shake: true, dmgNums: true }, LS.get(this.lsKey('settings'), {}));
+    this.settings = Object.assign({ quality: 'high', sens: 1, vol: 0.6, name: this.seat === 2 ? 'Player 2' : 'Runner' + Math.floor(Math.random() * 900 + 100), fps: false, roundLen: 10, hard: false, speed: 1, view: 'third', layout: 'ds', sensAds: 1, invertY: false, music: true, musicVol: 1, sfx: true, fov: 70, shake: true, dmgNums: true, mu: 0 }, LS.get(this.lsKey('settings'), {}));
     if (this.seat === 1 && !this.isBot && Profile.playName()) this.settings.name = Profile.playName(); // signed-in players play under their profile name
     this.settings.roundLen = this.settings.roundLen === 0 ? 0 : 10; // 10-minute rounds, or 0 = Endless (Nutty 2026-11-05)
     if (this.isBot) Object.assign(this.settings, { name: 'CPU', vol: 0, view: 'first' });
@@ -145,6 +147,7 @@ export class Game {
     this.scene.add(this.hemi);
     this.scene.fog = new THREE.FogExp2(0x333344, 0.012);
     this.fx = new FX(this.scene, this.camera, this.q);
+    this.muFx = new MutatorFx(this);
     this.el = new Elements(this.fx, this.scene);
     this.setupComposer();
     this.onResize();
@@ -490,7 +493,7 @@ export class Game {
 
   setReady(r) { this.ready = r; this.party.set({ rdy: r ? 1 : 0 }); }
 
-  lbInfo() { return { code: this.partyCode, rl: this.settings.roundLen, dm: this.duelMode ? 1 : 0, hd: this.settings.hard ? 1 : 0, pub: this.partyPublic === false ? 0 : 1 }; }
+  lbInfo() { return { code: this.partyCode, rl: this.settings.roundLen, dm: this.duelMode ? 1 : 0, hd: this.settings.hard ? 1 : 0, pub: this.partyPublic === false ? 0 : 1, mu: this.settings.mu & MU_MASK }; }
   setPublic(on) { this.partyPublic = !!on; if (this.isHost && this.party) this.party.set({ lb: this.lbInfo() }); }
 
   // Quickplay: join a random open public party (co-op first, not full); if none is open, host a public one for others to find.
@@ -504,6 +507,7 @@ export class Game {
     await this.createParty(true);
     return 'created';
   }
+  setMu(mask) { this.settings.mu = mask & MU_MASK; this.saveSettings(); if (this.isHost && this.party) this.party.set({ lb: this.lbInfo() }); }
   setHard(on) { this.settings.hard = !!on; this.saveSettings(); if (this.isHost && this.party) this.party.set({ lb: this.lbInfo() }); }
   setDuelMode(on) {
     this.duelMode = !!on;
@@ -553,7 +557,7 @@ export class Game {
       const n = this.lobbyMembers().length;
       if (n !== 2) { this.ui.toast(n < 2 ? 'A duel needs a second fighter' : 'A duel is for exactly two players', 'bad'); return; }
       this.sim.startDuel();
-    } else this.sim.startRun(this.settings.roundLen === 0 ? 0 : 10 * 60, { space: Unlocks.has('space'), hard: !!this.settings.hard });
+    } else this.sim.startRun(this.settings.roundLen === 0 ? 0 : 10 * 60, { space: Unlocks.has('space'), hard: !!this.settings.hard, mu: this.settings.mu & MU_MASK });
     this.sim.lastPlayers = this.lobbyMembers().map((p) => ({ id: p.id }));
     const k = this.party && this.party.kind;
     SPEED.n = 1; // every run starts at normal speed; T or D-pad down cycles it once Game speed is unlocked
@@ -574,6 +578,7 @@ export class Game {
     this.myVote = null;
     this.phase = null;
     this.runStats = { pcEarned: 0, roundsCleared: 0, bosses: 0, start: performance.now() };
+    this.muFx.reset(); this._muRound = -1;
     this.player.invulnUntil = this.now + 6; // a few seconds to get your bearings before the first mobs arrive
     this.brain = this.isBot ? new Bot(this, 'duel') : this.autoplay && this.party.kind === 'solo' && !this.duelMode ? new Bot(this, 'run') : null;
     if (this.brain && this.brain.mode === 'run') this.runStats.cpuUsed = true;
@@ -604,6 +609,7 @@ export class Game {
   }
 
   backToLobby() {
+    MU.on = 0;
     if (this.isHost) { const last = this.sim ? this.sim.arena : -1; this.sim = new HostSim(this); this.sim.phase = 'lobby'; this.sim.arena = last; this.party.set({ w: this.sim.snapshot() }); } // arena: so the next duel moves on from this one
     this.teardownGame();
     this.party.set({ ig: 0, rdy: 0, out: 0, al: 1 }); // a stale 'out' from the failed run would end the next run the moment it starts
@@ -679,6 +685,7 @@ export class Game {
     this.isHost = true;
     this.duelMode = !!lb.dm; this.partyPublic = lb.pub !== 0;
     if (lb.rl != null) this.settings.roundLen = lb.rl === 0 ? 0 : 10;
+    this.settings.mu = (lb.mu | 0) & MU_MASK;
     this.sim = new HostSim(this); this.sim.phase = 'lobby';
     this.party.promoted = false;
     this.party.set({ host: 1, rdy: 0, lb: this.lbInfo(), w: this.sim.snapshot() });
@@ -817,6 +824,7 @@ export class Game {
     if (!this.headless) { this.ui.updateHud(dt); this.allyTags.update(); }
     this.pickups.update(vdt);
     this.chests.update(vdt);
+    this.muFx.update(vdt);
     this.render(this.scene, this.camera);
   }
 
@@ -874,10 +882,13 @@ export class Game {
     if (w.ep !== this.epoch) { this.epoch = w.ep; this.lastEv = 0; }
     if (w.ph === 'lobby') { if (!this.isHost) this.backToLobby(); return; }
     this.runSeed = w.rs || 0;
+    MU.on = w.du ? 0 : (w.mu | 0) & MU_MASK;
+    if (MU.on && this.runStats) this.runStats.mutated = true; // a mutator run counts toward nothing
     this.duel = !!w.du; this.dp = w.dp || 0; this.dpt = w.pt || 0; this.duelWinner = w.wn || '';
     this.duelArena = this.duel ? (((w.ar | 0) % DUEL_BIOMES.length) + DUEL_BIOMES.length) % DUEL_BIOMES.length : 0; // which Duel Arena the host picked for this match
     if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) this.loadRound(w.sd, w.rd);
     this.round = w.rd;
+    if (w.ph === 'play' && MU.on && this.round !== this._muRound) { this._muRound = this.round; this.ui.mutatorBanner(muList(MU.on)); this.audio.play('mu_sting', 0.8); }
     if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) Dailies.best('round', this.round + 1); }
     this.tl = w.tl;
     this.endless = w.rl === 0;
@@ -916,7 +927,7 @@ export class Game {
       v.size = this.duel && v.def.summoned ? 2 : 1;
       v.apply(row);
     }
-    for (const [id, v] of this.views.npcs) if (!seenN.has(id)) { if (v.rig) this.el.hellFade([v.x, v.y, v.z]); v.dispose(); this.views.npcs.delete(id); }
+    for (const [id, v] of this.views.npcs) if (!seenN.has(id)) { this.views.npcs.delete(id); if (v.thrall && v.rig) { this.views.dying.push(v); this.audio.play('necro_fall', 0.6 * this.distVol(v.x, v.z)); continue; } if (v.rig) this.el.hellFade([v.x, v.y, v.z]); v.dispose(); }
     // Crates.
     if (w.oc) for (const id of w.oc) { const c = this.world.crates[id]; if (c && !c.opened) this.openCrateVisual(c); }
     // Events.
@@ -955,6 +966,7 @@ export class Game {
     this.timers = [];
     this.removeBedMesh();
     this.pickups.clear();
+    this.muFx.clearRound();
     this.chests.clear((pu) => { if (this.player) this.player.takePowerup(pu); }); // a power-up left in a chest is yours anyway
     this.hitSrc = new Map();
     this.world = new World(this.scene, seed, rd, this.q, this.duel ? DUEL.stage : (this.forceStage ?? stageIdx(this.runSeed, rd)), { duel: this.duel, arena: this.duelArena });
@@ -1075,17 +1087,23 @@ export class Game {
         break;
       }
       case 'd': {
-        const [, , id, killer, x, z, ti] = e;
+        const [, , id, killer, x, z, ti, risen] = e;
         const X = x / 10, Z = z / 10, y = this.world.heightAt(X, Z);
-        this.fx.blood([X, y + 1, Z]);
-        this.fx.dustBurst([X, y, Z], 0.5, [0.25, 0.22, 0.2]);
         const v = this.views.mobs.get(id);
-        if (v) { this.views.mobs.delete(id); if (v.rig && !v.base.bomb) this.views.dying.push(v); else v.dispose(); }
+        if (muOn(PINATA)) this.muFx.pinata(X, y, Z, v ? v.vh : 2); // Piñata: confetti and candy instead of blood
+        else this.fx.blood([X, y + 1, Z]);
+        this.fx.dustBurst([X, y, Z], 0.5, [0.25, 0.22, 0.2]);
+        if (v) {
+          this.views.mobs.delete(id);
+          if (risen) v.risen = true; // Necromancer: the body drops, then gets back up as yours (the thrall takes over from here)
+          if (v.rig && !v.base.bomb && (risen || !muOn(PINATA))) this.views.dying.push(v); else v.dispose(); // a piñata bursts: no body left
+        }
         if (killer === me) {
           const pcGain = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed)); // PC bonuses stop at double
           p.totalKills++;
           this.countKill(id, v);
           this.pickups.dropCoins(X, Z, pcGain); // the PC drops as a coin where it died: walk over it
+          this.muFx.kill(X, y, Z, pcGain); // Jackpot: every 20th kill bursts into gold
           this.audio.play('kill');
           this.ui.hitmarker(true);
           const tier = (MOBS[MOB_TYPES[ti]] || { tier: 1 }).tier;
@@ -1168,8 +1186,8 @@ export class Game {
         }
         this.runStats.bosses++;
         if ((p.alive || !p.out) && this.dailyOn()) { Dailies.add('bosses'); if (!p.deaths) Dailies.add('cleanBoss'); }
-        if (!this.runStats.cpuUsed) { Unlocks.add('bosses'); if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('bossesSpace'); }
-        if (!this.runStats.cpuUsed && BOSSES[bossIdx(this.runSeed, this.round)].name === 'The Visitor' && Unlocks.grant('visitor')) { this.ui.banner('The Visitor unlocked', 'Pick them in character select'); }
+        if (this.counts()) { Unlocks.add('bosses'); if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('bossesSpace'); }
+        if (this.counts() && BOSSES[bossIdx(this.runSeed, this.round)].name === 'The Visitor' && Unlocks.grant('visitor')) { this.ui.banner('The Visitor unlocked', 'Pick them in character select'); }
         this.ui.banner('Boss defeated', '+' + CONFIG.pcPerBoss + ' PC' + (killer === me ? ' · Final blow!' : ''));
         break;
       }
@@ -1189,6 +1207,7 @@ export class Game {
       }
       case 'ns': {
         const [, , id, type] = e;
+        if (type === 'thrall') { this.timers.push({ t: 0.5, fn: () => { const nv = this.views.npcs.get(id); if (!nv) return; const y = this.world.heightAt(nv.x, nv.z); this.fx.shockwave([nv.x, y, nv.z], 2.6, 0x5aff9a, 0.5); for (let i = 0; i < 18; i++) this.fx.glow.emit({ p: [nv.x + (Math.random() - 0.5) * 1.2, y + 0.1, nv.z + (Math.random() - 0.5) * 1.2], v: [0, 2 + Math.random() * 3, 0], life: 0.7, s0: 0.5, s1: 0.1, c0: [0.4, 1, 0.55, 0.9], c1: [0.1, 0.7, 0.3, 0] }); this.audio.play('necro_rise', 0.7 * this.distVol(nv.x, nv.z)); } }); break; }
         this.timers.push({ t: 0.1, fn: () => { const nv = this.views.npcs.get(id); if (!nv) return; if (nv.rig) { this.el.hellPit([nv.x, nv.y, nv.z]); this.audio.play('hell_rise', 0.5 * this.distVol(nv.x, nv.z)); } else this.fx.shockwave([nv.x, nv.y, nv.z], 3, 0x9affb0, 0.6); } });
         break;
       }
@@ -2109,11 +2128,13 @@ export class Game {
 
   // Lifetime kill counters for the gear unlocks: where it happened, whether you were airborne, and what did the killing.
   // Daily Challenges count your own runs: not the CPU's, not the Duel Arena, and couch seat 2 shares seat 1's account.
-  dailyOn() { return !this.isBot && !this.duel && this.seat !== 2 && !(this.runStats && this.runStats.cpuUsed); }
+  dailyOn() { return !this.isBot && !this.duel && this.seat !== 2 && !(this.runStats && (this.runStats.cpuUsed || this.runStats.mutated)); }
+  // Unlockables, records and PP: never from a run the CPU touched or one with mutators on.
+  counts() { return !(this.runStats && (this.runStats.cpuUsed || this.runStats.mutated)); }
 
   countKill(mobId, v) {
     const p = this.player, hard = seedFlags(this.runSeed).hard;
-    if (this.runStats.cpuUsed) { this.hitSrc.delete(mobId); this.hitInfo.delete(mobId); return; } // the CPU's kills are not yours
+    if (!this.counts()) { this.hitSrc.delete(mobId); this.hitInfo.delete(mobId); return; } // the CPU's kills are not yours; mutator kills are just for fun
     if (this.dailyOn()) {
       const h = this.hitInfo.get(mobId) || { wk: 'gun' };
       const wk = this.hitSrc.get(mobId) && this.hitSrc.get(mobId) !== 'player' ? 'gear' : h.wk;
@@ -2232,16 +2253,18 @@ export class Game {
   endRun(win) {
     const p = this.player;
     const roundsReached = (this.round || 0) + 1;
-    const r = this.records;
+    const mutated = !!this.runStats.mutated;
+    const r = mutated ? { ...this.records } : this.records; // a mutator run leaves the records alone
     r.runs++;
     if (win) r.wins++;
     r.bestRound = Math.max(r.bestRound, roundsReached);
     r.bestKills = Math.max(r.bestKills, p.totalKills);
     r.totalKills += p.totalKills;
-    LS.set('records', r);
+    if (!mutated) LS.set('records', r);
     const hardRun = seedFlags(this.runSeed).hard;
-    const cpu = !!this.runStats.cpuUsed; // a run the CPU played (even partly) earns nothing
-    if (cpu) this.ui.toast('CPU run: nothing counts toward the Unlockables', '');
+    const cpu = !!this.runStats.cpuUsed || mutated; // a run the CPU played (even partly), or with mutators on, earns nothing
+    if (this.runStats.cpuUsed) this.ui.toast('CPU run: nothing counts toward the Unlockables', '');
+    else if (mutated) this.ui.toast('Mutator run: just for fun, nothing counts', '');
     if (!cpu && win && hardRun && Unlocks.grant('space')) this.ui.toast('Hidden map unlocked: Crash Site Prime', 'good');
     if (!cpu) { Unlocks.add('runs'); Unlocks.max('bestRound', roundsReached); }
     if (this.dailyOn()) {
@@ -2255,7 +2278,7 @@ export class Game {
       if (ws.length && ws.every((w) => w.kind === 'gun') && Unlocks.grant('gunsWin')) this.ui.toast('Turret Pack unlocked', 'good');
     }
     const reward = runReward({ win, round: roundsReached, kills: p.totalKills, bosses: this.runStats.bosses || 0 });
-    if (this.seat === 1) { addPP(reward); this.runStats.pp = (this.runStats.pp || 0) + reward; } // couch seat 2 shares seat 1's wallet
+    if (this.seat === 1 && !cpu) { addPP(reward); this.runStats.pp = (this.runStats.pp || 0) + reward; } // couch seat 2 shares seat 1's wallet
     const stats = {
       pp: this.runStats.pp, win, round: roundsReached, kills: p.totalKills, pc: this.runStats.pcEarned, dmg: Math.round(p.damageDealt), deaths: p.deaths || 0,
       blessings: p.blessings.map((b) => b.name), cls: p.cls.name, time: Math.round((performance.now() - this.runStats.start) / 1000), records: r,

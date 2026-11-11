@@ -3,6 +3,7 @@
 // arm IK with gripping fingers, horizontal melee swings, casting).
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 import { assetGLTF } from './assets.js';
 import { retargetClip, boneKey, tposeArms } from './retarget.js';
 import { buildSkeleton, boneMaterial } from './skeleton.js';
@@ -498,8 +499,9 @@ export class CharacterRig {
             gp = eye.clone().add(V(-0.3 + bobX, -0.7 + bob + L * 0.6, 0.52).multiplyScalar(K).applyQuaternion(yaw));
             gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.1 - L * 0.12, -0.08, 0, 'YXZ')));
           } else if (mvPose) {
-            const pivot = eye.clone().add(V(0, -0.24, 0.02).multiplyScalar(K).applyQuaternion(aimQ));
-            const p2 = { az: mvPose.az * 0.75, el: mvPose.el * 0.85 - 0.12, r: mvPose.r };
+            const pivot = eye.clone().add(V(0, -0.15, 0.16).multiplyScalar(K).applyQuaternion(aimQ));
+            // squeezed so the whole swing stays in the first-person view (downward strikes most of all: the camera can't see your feet)
+            const p2 = { az: mvPose.az * 0.6, el: mvPose.el >= 0 ? mvPose.el * 0.6 : mvPose.el * 0.28, r: mvPose.r };
             const ca = Math.cos(p2.az), ce = Math.cos(p2.el);
             const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), ca * ce).normalize().applyQuaternion(aimQ);
             gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.36 : twoH ? 0.42 : 0.48) * p2.r * K);
@@ -678,7 +680,7 @@ export class CharacterRig {
 
     // First person: collapse the head (and anything worn on it) so the camera sees out.
     const hb = B.get('Head');
-    if (hb) { const k = this.firstPerson ? 0.001 : 1; if (hb.scale.x !== k) { hb.scale.setScalar(k); hb.updateMatrixWorld(true); } }
+    if (hb) { const k = this.firstPerson ? 0.001 : muOn(BIG_HEAD) ? HEAD_SCALE * 0.92 : 1; /* Big Head mutator: yours too */ if (hb.scale.x !== k) { hb.scale.setScalar(k); hb.updateMatrixWorld(true); } }
 
     // --- death: topple backwards ---
     if (st.dead) this.deadT = Math.min(1, this.deadT + dt * 1.8); else this.deadT = Math.max(0, this.deadT - dt * 4);

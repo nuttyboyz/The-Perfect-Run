@@ -483,7 +483,7 @@ export class World {
         const c = new THREE.Color().setRGB(0.85 + tv * 0.3, 0.85 + tw * 0.3, 0.85 + tv * 0.2);
         items.push({ m, x, z, c });
       }
-      this.addInstanced([{ geo: tuftGeo, mat }], items, { cast: false });
+      for (const im of this.addInstanced([{ geo: tuftGeo, mat }], items, { cast: false })) { im.userData.full = im.count; (this.grassMeshes ||= []).push(im); }
     }
     // Pebbles: small clusters of displaced stones.
     if (spec.pebbles[Q]) {

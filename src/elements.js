@@ -2,6 +2,7 @@
 // so the caster and every other player render the same thing from one event.
 // Gameplay callbacks (hitTest / onHit / onStep / onTick) are only passed by
 // the caster; remote copies render visuals only.
+import { muOn, LOWGRAV } from './mutators.js';
 import * as THREE from 'three';
 import * as TX from './textures.js';
 import { mulberry32, makeNoise } from './rng.js';
@@ -348,7 +349,7 @@ export class Elements {
     fx.add({
       dur: 5,
       update: (dt) => {
-        vel.y -= 17 * dt;
+        vel.y -= 17 * (muOn(LOWGRAV) ? 0.4 : 1) * dt;
         pos.addScaledVector(vel, dt);
         traveled += speed * dt;
         m.position.copy(pos);

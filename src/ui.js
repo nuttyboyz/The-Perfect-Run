@@ -1,6 +1,7 @@
 // DOM UI: title, join, lobby (class + weapon wall), HUD, shop, vote,
 // blessings, summary, settings. Game logic lives in game.js.
 import { renderPShop, gemURL } from './metashop.js';
+import { MUTATORS, muOn, BOTTOMLESS } from './mutators.js';
 import { getMeta } from './meta.js';
 import { Profile } from './profile.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, NPCS, NPC_TYPES, BIOMES, BOSSES, DASH, DUEL, POWERUP_BY_ID, puInfo, TIER, splitLoadout, loadoutFull } from './data.js';
@@ -494,6 +495,18 @@ export class UI {
     this.$('#difficulty').onchange = (e) => { g.audio.play('ui'); g.setHard(e.target.value === 'hard'); };
     this.$('#difficulty').value = g.settings.hard ? 'hard' : 'normal';
     this.$('#round-len').value = String(g.settings.roundLen);
+    // Mutators: the host taps them on and off; everyone else sees the host's picks.
+    const muBox = this.$('#mu-chips');
+    muBox.innerHTML = MUTATORS.map((m) => `<button type="button" class="mu-chip" data-b="${m.bit}"><i></i>${esc(m.name)}</button>`).join('');
+    const muDesc = (b) => { const m = b && MUTATORS.find((x) => x.bit === +b.dataset.b); this.$('#mu-desc').textContent = m ? m.desc : 'Point at a mutator to see what it does.'; };
+    muDesc(null);
+    muBox.onclick = (e) => { const b = e.target.closest('.mu-chip'); if (!b || !g.isHost) return; g.audio.play('ui'); g.setMu((g.settings.mu | 0) ^ +b.dataset.b); this.renderMuChips(); muDesc(b); };
+    muBox.onmouseover = (e) => muDesc(e.target.closest('.mu-chip'));
+    muBox.onfocusin = (e) => muDesc(e.target.closest('.mu-chip'));
+    muBox.onmouseleave = () => muDesc(null);
+    const muField = this.$('#mu-field');
+    this.$('#mu-sum').onclick = () => { g.audio.play('ui'); muField.classList.toggle('open'); if (muField.classList.contains('open') && g.pad && g.pad.active && muBox.firstChild) setFocus(this.root, muBox.firstChild); };
+    if (!this._muClose) { this._muClose = (e) => { if (!muField.contains(e.target)) muField.classList.remove('open'); }; document.addEventListener('pointerdown', this._muClose); }
     this.$('#btn-ready').onclick = () => {
       g.audio.play('ui');
       if (!loadoutFull(g.loadout.w)) { g.lobbyStep = 2; this.renderLobby(); this.toast('Take 3 items off the wall first (any mix, weapons are optional)', 'bad'); return; }
@@ -544,7 +557,7 @@ export class UI {
       root.appendChild(a);
       const q = (s) => a.querySelector(s);
       this._arc = { el: a, moves: [
-        ['#lobby-title', '.arc-opts'], ['#couch-warn', '.arc-opts'], ['#mode-field', '.arc-opts'], ['#vis-field', '.arc-opts'], ['#cpu-field', '.arc-opts'], ['#diff-field', '.arc-opts'], ['#round-field', '.arc-opts'],
+        ['#lobby-title', '.arc-opts'], ['#couch-warn', '.arc-opts'], ['#mode-field', '.arc-opts'], ['#vis-field', '.arc-opts'], ['#cpu-field', '.arc-opts'], ['#diff-field', '.arc-opts'], ['#round-field', '.arc-opts'], ['#mu-field', '.arc-opts'],
         ['#btn-leave', '.arc-leave'], ['#stage-name', '.arc-name'], ['#skin-row', '.arc-skins'], ['#class-cards', '.arc-orbs'], ['#class-detail', '.arc-abil'],
         ['#invite', '.arc-party'], ['#members', '.arc-party'], ['#couch-pad', '.arc-party'],
         ['.slots', '.arc-wall-in'], ['#wall', '.arc-wall-in'], ['#btn-ready', '.arc-ready'], ['#char-cards', '.arc-roster'],
@@ -585,6 +598,33 @@ export class UI {
       }));
     }
     this.$$('.skin-chip', row).forEach((b) => b.classList.toggle('sel', b.dataset.sk === lo.sk));
+  }
+
+  // The mutator chips show the host's picks (lb.mu); only the host can change them.
+  renderMuChips() {
+    const g = this.game, box = this.$('#mu-chips');
+    if (!box) return;
+    const host = g.party && g.hostPeer(g.party.peers());
+    const mask = g.isHost ? g.settings.mu | 0 : (host && host.p.lb && host.p.lb.mu) | 0;
+    for (const b of box.children) { b.classList.toggle('on', (mask & +b.dataset.b) !== 0); b.disabled = !g.isHost; }
+    const on = MUTATORS.filter((m) => mask & m.bit), sum = this.$('#mu-sum');
+    if (sum) { sum.textContent = !on.length ? 'Off' : on.length === 1 ? on[0].name : on.length + ' on'; sum.classList.toggle('lit', on.length > 0); }
+  }
+
+  // Round start with mutators on: each one's name in dripping blood-red letters, gone after about 3 seconds.
+  mutatorBanner(list) {
+    let el = document.getElementById('mu-banner');
+    if (el) el.remove();
+    if (!list.length) return;
+    el = document.createElement('div'); el.id = 'mu-banner';
+    list.forEach((m, i) => {
+      const d = document.createElement('div');
+      d.textContent = m.name.toUpperCase() + ' APPLIED';
+      d.style.animationDelay = (i * 0.14) + 's, ' + (2.5 + i * 0.05) + 's';
+      el.appendChild(d);
+    });
+    (this.root.querySelector('#hud') || this.root).appendChild(el);
+    clearTimeout(this._muT); this._muT = setTimeout(() => el.remove(), 3600);
   }
 
   renderLobby() {
@@ -649,6 +689,8 @@ export class UI {
     this.$('#cpu-field').classList.toggle('on', g.party.kind === 'solo' && !duel);
     this.$('#round-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
     this.$('#diff-field').style.display = duel ? 'none' : ''; // Duel Mode has no difficulty, CPU Run or mutators
+    this.$('#mu-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
+    this.renderMuChips();
     const startWord = duel ? 'Start the duel' : 'Start the run';
     this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch ? 'Couch duel' : 'Duel party ' + (g.partyCode || '')) : couch ? 'Couch co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
     // Couch co-op: publish which step this seat is on so the other seat can show it.
@@ -905,7 +947,7 @@ export class UI {
         this.$('.ws-img', el).style.backgroundImage = shot ? `url(${shot})` : '';
       }
       this.setT(el._nm ||= this.$('.ws-name', el), w.name);
-      this.setT(el._am ||= this.$('.ws-ammo', el), w.deploy && p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : gear ? (w.id === 'turret' ? (p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : p.turretCd > 0 ? 'Ready in ' + Math.ceil(p.turretCd) + ' s' : w.hud) : (w.hud || 'Passive')) : w.summon || w.heal ? (p.staffCd > 0 ? 'Ready in ' + Math.ceil(p.staffCd) + ' s' : w.heal ? 'Raise to heal' : 'Slam to summon') : w.kind === 'melee' || w.bow ? '∞' : (i === p.cur && p.reloadT > 0 ? (w.cool ? 'Cooling' : w.energy ? 'Recharging' : 'Reloading') : w.energy ? Math.round(p.ammo[i] / p.magOf(w) * 100) + '% charge' : p.ammo[i] + ' / ' + p.magOf(w)));
+      this.setT(el._am ||= this.$('.ws-ammo', el), w.deploy && p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : gear ? (w.id === 'turret' ? (p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : p.turretCd > 0 ? 'Ready in ' + Math.ceil(p.turretCd) + ' s' : w.hud) : (w.hud || 'Passive')) : w.summon || w.heal ? (p.staffCd > 0 ? 'Ready in ' + Math.ceil(p.staffCd) + ' s' : w.heal ? 'Raise to heal' : 'Slam to summon') : w.kind === 'melee' || w.bow || (w.kind === 'gun' && muOn(BOTTOMLESS)) ? '∞' : (i === p.cur && p.reloadT > 0 ? (w.cool ? 'Cooling' : w.energy ? 'Recharging' : 'Reloading') : w.energy ? Math.round(p.ammo[i] / p.magOf(w) * 100) + '% charge' : p.ammo[i] + ' / ' + p.magOf(w)));
     });
     // Charge bar of an energy weapon (Pulse Cannon, Laser Vision).
     const eb = this.$k('#energybar'), en = !!wp.energy && p.alive;

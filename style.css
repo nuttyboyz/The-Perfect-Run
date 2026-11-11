@@ -982,3 +982,34 @@ body.split .lobby-left .btn.big small { font-size: .62em; }
 #elem.ten .pu-ic { width: 2.6rem; height: 2.6rem; }
 #powerups span.pi { position: relative; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: none; background: none; }
 #powerups span.pi b { position: absolute; right: -4px; bottom: -3px; font-size: .62rem; background: rgba(0,0,0,.75); border-radius: 6px; padding: 0 3px; color: #ffe9a8; }
+
+/* Mutators (lobby toggles + the blood-red banner when a round starts) */
+.mu-field > span em { font-style: normal; text-transform: none; letter-spacing: 0; color: #c98a8a; margin-left: .4em; font-size: .8em; }
+.mu-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mu-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(0,0,0,.45); color: #d8cfc4; font: 600 .86rem/1.1 var(--ui, system-ui), sans-serif; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.mu-chip i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); box-sizing: border-box; }
+.mu-chip:hover:not(:disabled), .mu-chip:focus-visible, .mu-chip.pad-focus { border-color: #ff6a6a; color: #fff; }
+.mu-chip.on { background: linear-gradient(180deg, #8a0f16, #4a060a); border-color: #ff3b3b; color: #fff; box-shadow: 0 0 12px rgba(255,40,40,.35); }
+.mu-chip.on i { background: #ff2a2a; border-color: #ffb0b0; box-shadow: 0 0 8px #ff2a2a; }
+.mu-chip:disabled { cursor: default; opacity: .85; }
+.mu-desc { margin: 4px 2px 0; min-height: 1.2em; font-size: .8rem; color: var(--muted); }
+.arc-opts .field.mu-field { flex-direction: column; align-items: stretch; border-radius: calc(18 * var(--u)); padding: calc(8 * var(--u)) calc(12 * var(--u)); gap: calc(6 * var(--u)); }
+.arc-opts .mu-chip { font-size: calc(14 * var(--u)); padding: calc(5 * var(--u)) calc(11 * var(--u)) calc(5 * var(--u)) calc(8 * var(--u)); }
+.arc-opts .mu-desc { font-size: calc(12.5 * var(--u)); }
+#mu-banner { position: fixed; left: 0; right: 0; top: 47%; display: flex; flex-direction: column; align-items: center; gap: .15em; pointer-events: none; z-index: 8; }
+#mu-banner div { font-family: 'Nosifer', 'Creepster', Impact, fantasy; font-size: clamp(1.6rem, 4.6vw, 3.6rem); line-height: 1.25; letter-spacing: .04em; color: #d10a14; text-shadow: 0 0 2px #3a0003, 0 3px 0 #5a0006, 0 6px 18px rgba(0,0,0,.85), 0 0 28px rgba(200,0,10,.45); opacity: 0; transform: translateY(-14px) scale(1.12); animation: muIn .5s cubic-bezier(.2,1.4,.4,1) forwards, muOut .6s ease-in forwards; text-align: center; padding: 0 16px; }
+@keyframes muIn { to { opacity: 1; transform: none; } }
+@keyframes muOut { from { opacity: 1; } to { opacity: 0; transform: translateY(18px); filter: blur(2px); } }
+
+.mu-field { position: relative; }
+.mu-sum, .mu-note { display: none; }
+.arc-opts .mu-field > span em { display: none; }
+.arc-opts .field.mu-field { flex-direction: row; align-items: center; border-radius: 999px; padding: calc(4 * var(--u)) calc(6 * var(--u)) calc(4 * var(--u)) calc(16 * var(--u)); gap: calc(8 * var(--u)); }
+.arc-opts .mu-sum { display: inline-flex; align-items: center; gap: .4em; background: transparent; border: 0; color: #fff; font: 600 calc(17 * var(--u))/1 var(--ui, system-ui), sans-serif; padding: calc(6 * var(--u)) calc(10 * var(--u)) calc(6 * var(--u)) calc(6 * var(--u)); cursor: pointer; white-space: nowrap; }
+.arc-opts .mu-sum::after { content: ''; width: .45em; height: .45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translateY(-.15em); margin-left: .35em; opacity: .8; }
+.arc-opts .mu-sum.lit { color: #ff5a5a; text-shadow: 0 0 10px rgba(255,40,40,.5); }
+.arc-opts .mu-pop { display: none; position: absolute; top: calc(100% + 8px); right: 0; width: min(440px, 80vw); padding: 12px; border-radius: 14px; background: rgba(14,8,10,.94); border: 1px solid rgba(255,80,80,.35); box-shadow: 0 12px 40px rgba(0,0,0,.6); z-index: 40; }
+.arc-opts .mu-field.open .mu-pop { display: block; }
+.arc-opts .mu-pop .mu-chip { font-size: .9rem; padding: 6px 12px 6px 9px; }
+.arc-opts .mu-pop .mu-desc { font-size: .82rem; color: #e6d8cc; min-height: 2.4em; }
+.arc-opts .mu-pop .mu-note { display: block; margin: 6px 2px 0; font-size: .74rem; color: #c98a8a; }

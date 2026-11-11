@@ -8,6 +8,7 @@ import { MOBS, MOB_TYPES, MOB_ARM_IDS, armedBase, BOSSES, NPCS, NPC_TYPES, CLASS
 import { makeHumanoid, makeMob, makeBoss, makeDemon, makeNameplate } from './models.js';
 import { makeCharacterModel, flushSwipes, setCharacterScale, STEP_KIND, stepAccum } from './characters.js';
 import { makeMobRig, MOB_LOOKS } from './mobrig.js';
+import { muOn, LOWGRAV, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 import { makeOrbitBlades, makeFireRing, auraRadius } from './duelfx.js';
 import { makeJetpack, jetFx } from './jetpack.js';
 import { makeWings, setWings } from './wings.js';
@@ -271,6 +272,7 @@ export class MobView {
       this.shad = shad;
       for (const o of this.shMeshes) o.castShadow = shad;
     }
+    this.bar.position.y = (this.vh * (muOn(BIG_HEAD) && this.rig ? 1.22 : 1) + 0.35) / this.model.scale.x; // clear of a Big Head
     setBar(this.bar, this.hp, camera, this.mini || bd < 30 || (this.hp < 0.999 && bd < 55));
     if (this.mini) {
       if (Math.random() < 0.18) fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 2, this.y + 0.1, this.z + (Math.random() - 0.5) * 2], v: [0, 1.4, 0], life: 0.8, s0: 0.9, s1: 0.2, c0: [1, 0.8, 0.3, 0.5], c1: [1, 0.55, 0.1, 0] });
@@ -302,12 +304,25 @@ export class MobView {
     else if (this.flags & 4 && Math.random() < 0.2) fx.glow.emit({ p: [this.x, this.y + 0.3, this.z], v: [0, 0.4, 0], life: 0.6, s0: 1.2, s1: 1.6, c0: [0.6, 0.85, 1, 0.3], c1: [0.6, 0.85, 1, 0] });
   }
   target() {
+    if (muOn(BIG_HEAD)) return { id: this.id, kind: 'mob', x: this.x, y: this.y, z: this.z, r: this.base.radius, h: this.vh * 1.17, big: 1, view: this }; // the swollen head sticks up above the body
     return { id: this.id, kind: 'mob', x: this.x, y: this.y, z: this.z, r: this.base.radius, h: this.vh, view: this };
   }
   // Killed: play the fall, then remove. Returns false when finished.
   dying(dt) {
     if (!this.rig) return false;
     this.bar.visible = false;
+    // Necromancer: the body only drops; the risen thrall takes its place once it is down.
+    if (this.risen && this.rig.dieT > 0.5) return false;
+    // Low Gravity: once it has toppled, the body drifts up off the ground, turning slowly, and dwindles away.
+    if (muOn(LOWGRAV) && this.rig.dieT > 0.35) {
+      const t = this.rig.dieT - 0.35;
+      this.model.position.y += dt * (0.5 + t * 0.35);
+      this.model.rotation.y += dt * 0.5;
+      if (t > 2.4) { const k = Math.max(0.001, 1 - (t - 2.4) / 0.8); this.model.scale.setScalar(this.s0 * k); if (k <= 0.001) return false; }
+      else this.s0 = this.model.scale.x;
+      this.rig.die(dt);
+      return true;
+    }
     if (this.air && this.fy > 0) {
       // A shot flyer drops out of the sky before it settles.
       this.fvy += 22 * dt;
@@ -427,6 +442,7 @@ export class DemonView {
   dispose() { this.scene.remove(this.model); }
 }
 
+let _thrallRingMat = null, _thrallRingGeo = null;
 export class NpcView {
   constructor(scene, row, ownerName) {
     this.scene = scene;
@@ -435,7 +451,17 @@ export class NpcView {
     this.def = NPCS[this.type];
     const look = { sellsword: 'veteran', hunter: 'nyx', warden: 'scalefang', medic: 'veteran', cleric: 'bonelord' }[this.type] || 'veteran';
     // Zombies (Zombie Staff) are the rotting mob-rig body, not a character avatar.
-    this.rig = this.type === 'zombie' ? makeMobRig('zombie' + (this.id % 6)) : null;
+    // Necromancer thralls are the very enemy that just died, back on its feet with a green ghost-light.
+    this.mt = (row[9] | 0) - 1;
+    this.thrall = this.type === 'thrall';
+    if (this.thrall && this.mt >= 0) { const mtp = MOB_TYPES[this.mt], wi = row[10] | 0; this.mtype = mtp; this.rig = makeMobRig(wi ? mtp + '@' + MOB_ARM_IDS[wi - 1] : mtp); }
+    if (!this.rig) this.rig = this.type === 'zombie' || this.thrall ? makeMobRig('zombie' + (this.id % 6)) : null;
+    if (this.thrall && this.rig) { // a soft green ring of grave-light under its feet marks a risen ally (its own textures stay as they are)
+      _thrallRingMat = _thrallRingMat || new THREE.MeshBasicMaterial({ color: 0x4dff88, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+      _thrallRingGeo = _thrallRingGeo || new THREE.RingGeometry(0.55, 0.85, 40).rotateX(-Math.PI / 2);
+      this.ring = new THREE.Mesh(_thrallRingGeo, _thrallRingMat); this.ring.position.y = 0.06; this.ring.renderOrder = 3;
+      this.rig.root.add(this.ring);
+    }
     this.model = this.rig ? this.rig.root : makeCharacterModel(look, () => makeHumanoid({ color: this.def.color, accent: this.def.role === 'Support' ? 0x7dff8a : 0xff6a4a, cape: this.def.role === 'Support', hood: this.type === 'cleric' || this.type === 'medic', skin: 0xb08a6a }));
     const w = { sellsword: 'sword', zombie: null, hunter: 'dmr', warden: 'axe', medic: 'pistol', cleric: null }[this.type];
     if (!this.rig) this.model.userData.setWeapon(w);
@@ -451,13 +477,14 @@ export class NpcView {
     scene.add(this.model);
     this.x = row[3] / 10; this.z = row[4] / 10; this.y = 0;
     this.tx = this.x; this.tz = this.z; this.yaw = 0; this.t = 0; this.anim = 0; this.spawnT = 0;
-    this.vh = this.rig ? MOB_LOOKS.zombie0.h : 1.9;
+    this.vh = this.rig ? (this.mtype && MOB_LOOKS[this.mtype] ? MOB_LOOKS[this.mtype].h : MOB_LOOKS.zombie0.h) : 1.9;
     if (this.rig) this.bar.position.y = this.vh + 0.3;
   }
   apply(row) { this.tx = row[3] / 10; this.tz = row[4] / 10; this.hp = row[5] / 100; this.tyaw = row[6] / 10; this.anim = Math.max(this.anim, row[7] / 9); }
   update(dt, world, camera, fx) {
     this.t += dt;
     this.spawnT += dt;
+    this.fxRef = fx;
     const ox = this.x, oz = this.z;
     if (Math.hypot(this.tx - this.x, this.tz - this.z) > 20) { this.x = this.tx; this.z = this.tz; }
     const k = Math.min(1, dt * 10);
@@ -466,14 +493,15 @@ export class NpcView {
     this.y = world.heightAt(this.x, this.z);
     this.yaw = lerpA(this.yaw, this.tyaw ?? 0, Math.min(1, dt * 8));
     // A summoned zombie claws up out of the ground over ~0.7 s once the pit has opened, still and groaning as it rises.
-    const rise = this.rig ? Math.min(1, Math.max(0, (this.spawnT - 0.15) / 0.7)) : 1, er = 1 - (1 - rise) ** 3;
+    const rise = this.thrall ? Math.min(1, Math.max(0, (this.spawnT - 0.5) / 0.6)) : this.rig ? Math.min(1, Math.max(0, (this.spawnT - 0.15) / 0.7)) : 1, er = 1 - (1 - rise) ** 3;
+    if (this.thrall) this.model.visible = this.spawnT > 0.5; // the body drops first, then this one climbs out where it lay
     this.model.position.set(this.x, this.y - (1 - er) * this.vh * 1.05 * (this.size || 1), this.z);
     this.model.rotation.y = this.yaw;
     if (this.rig && this.size) this.model.scale.setScalar(this.size); // duel: summoned zombies are twice as big
     this.anim = Math.max(0, this.anim - dt * 3);
     if (this.rig) {
       this.rig.update({ speed: rise < 1 ? 0 : speed, attack: rise < 1 ? 0 : this.anim, frozen: 0 }, dt, 0);
-      if (fx) this.hellFx(dt, fx, rise);
+      if (fx) { if (this.thrall) this.necroFx(dt, fx, rise); else this.hellFx(dt, fx, rise); }
     } else this.model.userData.anim({ speed, gun: this.gun, weapon: true, melee: !this.gun && this.anim > 0 ? 1 - this.anim : 0, cast: this.type === 'cleric' && this.anim > 0 ? 1 : 0 }, dt, this.t);
     setBar(this.bar, this.hp ?? 1, camera);
   }
@@ -493,6 +521,32 @@ export class NpcView {
       for (const sx of [-1, 1]) { e.v.set(sx * 0.035 * s, 0.07 * s, 0.085 * s).applyQuaternion(e.q).add(e.p); fx.glow.emit({ p: [e.v.x, e.v.y, e.v.z], life: 0.06, s0: 0.14, s1: 0.14, c0: [0.9, 0.85, 0.5, 0.22], c1: [0.9, 0.85, 0.5, 0.15] }); }
     }
   }
+  // Necromancer thrall: a green ghost-light clinging to it, wisps rising off it and burning green eyes.
+  necroFx(dt, fx, rise) {
+    if (rise <= 0) return;
+    if (this.ring) this.ring.scale.setScalar(1 + 0.1 * Math.sin(this.t * 4));
+    const H = this.vh, R = () => Math.random() - 0.5, y = this.model.position.y;
+    if (Math.random() < 0.45) fx.glow.emit({ p: [this.x + R() * 0.7, y + H * (0.15 + Math.random() * 0.8), this.z + R() * 0.7], v: [R() * 0.4, 1.1 + Math.random(), R() * 0.4], life: 0.8, s0: 0.45, s1: 0.08, c0: [0.35, 1, 0.55, 0.75], c1: [0.1, 0.8, 0.4, 0] });
+    if (Math.random() < 0.25) fx.fire.emit({ p: [this.x + R() * 0.5, y + H * (0.5 + Math.random() * 0.45), this.z + R() * 0.5], v: [0, 1.4, 0], life: 0.5, s0: 0.32, s1: 0.05, c0: [0.4, 1, 0.5, 0.8], c1: [0.05, 0.6, 0.25, 0], turb: 2 });
+    fx.glow.emit({ p: [this.x, y + H * 0.55, this.z], life: 0.05, s0: H * 1.25, s1: H * 1.25, c0: [0.3, 1, 0.5, 0.12], c1: [0.3, 1, 0.5, 0.08] });
+    const hd = this.rig.bn.head;
+    if (hd) {
+      const e = this._eye || (this._eye = { p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3() }), s = H / 1.8;
+      hd.getWorldPosition(e.p); hd.getWorldQuaternion(e.q);
+      for (const sx of [-1, 1]) { e.v.set(sx * 0.035 * s, 0.07 * s, 0.085 * s).applyQuaternion(e.q).add(e.p); fx.glow.emit({ p: [e.v.x, e.v.y, e.v.z], life: 0.06, s0: 0.16, s1: 0.16, c0: [0.4, 1, 0.5, 0.5], c1: [0.4, 1, 0.5, 0.3] }); }
+    }
+  }
+  // A thrall's ten seconds are up: it falls for good, the green light bleeding out of it.
+  dying(dt) {
+    if (!this.rig) return false;
+    this.bar.visible = false;
+    this.deadT = (this.deadT || 0) + dt;
+    if (this.ring) this.ring.visible = false;
+    if (this.fxRef && this.deadT < 1) for (let i = 0; i < 2; i++) this.fxRef.smoke.emit({ p: [this.x + (Math.random() - 0.5) * 0.6, this.y + Math.random() * this.vh * 0.6, this.z + (Math.random() - 0.5) * 0.6], v: [0, 0.8, 0], life: 1.1, s0: 0.3, s1: 1, c0: [0.15, 0.4, 0.2, 0.35], c1: [0.1, 0.2, 0.1, 0] });
+    return this.rig.die(dt);
+  }
   chest() { return [this.x, this.y + 1.4, this.z]; }
-  dispose() { this.scene.remove(this.model); }
+  dispose() {
+    this.scene.remove(this.model);
+  }
 }

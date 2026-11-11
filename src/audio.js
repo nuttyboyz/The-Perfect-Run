@@ -259,6 +259,13 @@ export class Audio {
       case 'heal_staff': this.tone({ freq: 523, to: 784, dur: 0.5, type: 'sine', gain: 0.12 * v }); this.tone({ freq: 784, to: 1175, dur: 0.6, type: 'sine', gain: 0.1 * v, delay: 0.12 }); this.tone({ freq: 1568, to: 1760, dur: 0.8, type: 'triangle', gain: 0.05 * v, delay: 0.25 }); this.noiseHit({ dur: 0.5, freq: 5000, type: 'highpass', gain: 0.06 * v }); break;
       case 'heal': this.tone({ freq: 660, to: 990, dur: 0.3, type: 'sine', gain: 0.1 * v }); break;
       case 'ui': this.tone({ freq: 1000, dur: 0.05, type: 'triangle', gain: 0.08 * v }); break;
+      // Mutators.
+      case 'pinata': this.noiseHit({ dur: 0.09, freq: 3200, type: 'highpass', gain: 0.55 * v }); this.noiseHit({ dur: 0.25, freq: 900, gain: 0.25 * v, delay: 0.02 }); [1047, 1319, 1568].forEach((f, i) => this.tone({ freq: f, dur: 0.09, type: 'triangle', gain: 0.07 * v, delay: 0.05 + i * 0.05 })); break;
+      case 'candy': this.tone({ freq: 1568, to: 2093, dur: 0.07, type: 'triangle', gain: 0.1 * v }); break;
+      case 'jackpot': [784, 988, 1175, 1568, 1976].forEach((f, i) => this.tone({ freq: f, dur: 0.16, type: 'square', gain: 0.07 * v, delay: i * 0.07 })); for (let i = 0; i < 10; i++) this.tone({ freq: 1320 + (i % 3) * 260, dur: 0.06, type: 'triangle', gain: 0.08 * v, delay: 0.4 + i * 0.06 }); this.noiseHit({ dur: 0.5, freq: 5000, type: 'highpass', gain: 0.12 * v, delay: 0.35 }); break;
+      case 'necro_rise': this.tone({ freq: 110, to: 220, dur: 0.9, type: 'sawtooth', gain: 0.07 * v }); this.tone({ freq: 165, to: 330, dur: 0.9, type: 'sine', gain: 0.1 * v, delay: 0.05 }); this.noiseHit({ dur: 0.8, freq: 600, gain: 0.12 * v }); break;
+      case 'necro_fall': this.tone({ freq: 220, to: 70, dur: 0.6, type: 'sine', gain: 0.12 * v }); this.noiseHit({ dur: 0.5, freq: 500, gain: 0.1 * v }); break;
+      case 'mu_sting': this.tone({ freq: 55, to: 40, dur: 1.4, type: 'sawtooth', gain: 0.18 * v }); this.tone({ freq: 82, to: 60, dur: 1.4, type: 'sine', gain: 0.25 * v }); this.noiseHit({ dur: 0.6, freq: 300, gain: 0.35 * v }); [311, 294].forEach((f, i) => this.tone({ freq: f, dur: 0.7, type: 'triangle', gain: 0.06 * v, delay: 0.15 + i * 0.35 })); break;
       case 'round': [392, 523, 659, 784].forEach((f, i) => this.tone({ freq: f, dur: 0.4, type: 'triangle', gain: 0.12 * v, delay: i * 0.12 })); break;
       case 'bless': [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone({ freq: f, dur: 0.8, type: 'sine', gain: 0.1 * v, delay: i * 0.1 })); break;
     }

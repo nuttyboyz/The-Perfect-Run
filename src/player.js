@@ -1,5 +1,6 @@
 // The local player: movement, weapons, abilities, damage, beds and death.
 import * as THREE from 'three';
+import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK } from './mutators.js';
 import { CONFIG, DUEL, GRAV, HEAL, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
@@ -172,7 +173,7 @@ export class LocalPlayer {
     const sprint = k.has('ShiftLeft') || k.has('ShiftRight') || !!input.padSprint;
     this.sprinting = sprint && f > 0.3;
     if (this.stagT > 0) this.stagT -= dt;
-    const speed = (sprint && f > 0.3 ? CONFIG.sprint : CONFIG.walk) * this.stats.speed * (this.hasteUntil > g.now ? 1.45 : 1) * (1 - 0.35 * this.ads) * (this.spinMove || 1) * (this.stagT > 0 ? 0.35 : 1) * (this.slowUntil > g.now ? 0.55 : 1);
+    const speed = (sprint && f > 0.3 ? CONFIG.sprint : CONFIG.walk) * this.stats.speed * (this.hasteUntil > g.now ? 1.45 : 1) * (1 - 0.35 * this.ads) * (this.spinMove || 1) * (this.stagT > 0 ? 0.35 : 1) * (this.slowUntil > g.now ? 0.55 : 1) * (muOn(LOWGRAV) ? LOWGRAV_WALK : 1); // Low Gravity: a slightly slower, floatier stride
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     let mx = fx * f - fz * s, mz = fz * f + fx * s;
     const ml = Math.hypot(mx, mz);
@@ -211,7 +212,7 @@ export class LocalPlayer {
     if (this.drone) this.drone.update(dt, { x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw }, this.alive);
     this.turretStep(dt, input);
     if (this.gravPull) this.gravStep(dt);
-    if (!this.climb) { if (!this.jet.on && !this.wing.soar) this.vel.y -= CONFIG.gravity * dt; this.pos.addScaledVector(this.vel, dt); }
+    if (!this.climb) { if (!this.jet.on && !this.wing.soar) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt); }
     if (this.knock) { // a shove from the other duelist's hit: slides you back, fading over about 0.4 s
       this.pos.x += this.knock.x * dt; this.pos.z += this.knock.z * dt;
       const kd = Math.exp(-5 * dt); this.knock.x *= kd; this.knock.z *= kd;
@@ -238,6 +239,10 @@ export class LocalPlayer {
     if (input.pressed.has('Digit3')) this.swap(2);
     if (input.wheel) this.swap(this.nextSlot(input.wheel < 0 ? -1 : 1));
     if (input.pressed.has('KeyR')) this.reload();
+    if (muOn(BOTTOMLESS)) { // Bottomless Clip mutator: every gun stays topped up, so there is never a reload
+      for (let i = 0; i < this.weapons.length; i++) { const w = WEAPON_BY_ID[this.weapons[i]]; if (w && w.kind === 'gun') this.ammo[i] = this.magOf(w); }
+      if (this.reloadT > 0 && this.weapon.kind === 'gun') this.reloadT = 0;
+    }
     if (this.reloadT > 0) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) { this.ammo[this.cur] = this.magOf(this.weapon); g.audio.play(this.weapon.energy ? 'charged' : 'reloaded'); }

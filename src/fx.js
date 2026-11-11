@@ -1,5 +1,7 @@
 // Low-level effect primitives: GPU point particles, pooled flash lights,
 // ground decals, lightning ribbons, shockwaves and timed mesh effects.
+import { PERF } from './perf.js';
+import { muOn, LOWGRAV } from './mutators.js';
 import * as THREE from 'three';
 import { Ballistics } from './ballistics.js';
 import * as TX from './textures.js';
@@ -80,6 +82,7 @@ export class ParticleSystem {
   // o: {p:[x,y,z], v:[x,y,z], life, s0, s1, c0:[r,g,b,a], c1, g, drag, rot, rotV, turb}
   emit(o) {
     if (this.count >= this.max) return;
+    if (PERF.fx < 1 && Math.random() > PERF.fx) return; // the frame governor thins particles on slow machines
     const i = this.count++;
     const i3 = i * 3, i4 = i * 4;
     this.pos[i3] = o.p[0]; this.pos[i3 + 1] = o.p[1]; this.pos[i3 + 2] = o.p[2];
@@ -646,7 +649,7 @@ export class FX {
       dur: 20,
       update: (dt) => {
         age += dt;
-        if (rocket) { v = Math.min(speed, v + (speed - speed * 0.35) * dt * 4); vel.setLength(v); } else vel.y -= 17 * dt;
+        if (rocket) { v = Math.min(speed, v + (speed - speed * 0.35) * dt * 4); vel.setLength(v); } else vel.y -= 17 * (muOn(LOWGRAV) ? 0.4 : 1) * dt;
         const step = vel.length() * dt, n = Math.max(1, Math.ceil(step / 0.55));
         last.copy(pos);
         for (let i = 0; i < n; i++) {

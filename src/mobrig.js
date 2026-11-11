@@ -10,6 +10,7 @@ import { getTemplate, bonesOf } from './characters.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MOB_SIZE, MOB_TALL } from './data.js';
 import { animateTail } from './lizard.js';
+import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 
 // h: standing height in metres. hunch: forward lean of the spine (radians).
 // float: hover height for spirits. bulk: horizontal thickening.
@@ -958,6 +959,14 @@ export class MobRig {
     if (lv !== this.lod) { this.lod = lv; this.bodies.forEach((m, i) => { m.geometry = lodSet(this.full[i])[lv]; }); }
   }
 
+  // Big Head mutator: the head bone (and whatever it wears) blown up; back to normal when it is off.
+  headSize() {
+    const h = this.bn && this.bn.head;
+    if (!h) return;
+    if (!this._hb) this._hb = h.scale.clone();
+    const k = muOn(BIG_HEAD) ? HEAD_SCALE : 1;
+    if (k !== 1 || this._hk !== 1) { h.scale.copy(this._hb).multiplyScalar(k); this._hk = k; }
+  }
   update(st, dt, far = 0) {
     if (!this.ok) return;
     if (st.hit) this.flImp += this.look.slam ? 0.4 : 1;
@@ -997,6 +1006,7 @@ export class MobRig {
     } else if (this.tail.length) animateTail(this.model, this.t, dt, 0, this.yr, 1.6);
     this.mixer.update(frozen ? 0 : dt);
     for (const [b, sc] of this.keepScale) b.scale.copy(sc);
+    this.headSize();
     root.updateMatrixWorld(true);
     // Axes of the body's own frame (+Z forward, +X its left, so a tilted flyer pitches about its own side).
     const e = this.pivot.matrixWorld.elements;
@@ -1150,6 +1160,7 @@ export class MobRig {
     if (this.mixer) {
       this.mixer.update(dt * Math.max(0, 1 - t * 2));
       for (const [b, sc] of this.keepScale) b.scale.copy(sc);
+      this.headSize();
       this.root.updateMatrixWorld(true);
       // limbs go slack: arms fling out and trail, head lags the fall
       const b = this.b, w = Math.sin(Math.PI * Math.min(1, t / 0.9)) * (1 - ss(t, 0.9, 1.6) * 0.4);

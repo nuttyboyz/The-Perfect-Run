@@ -2,6 +2,7 @@
 // draws 30+ of them twice (colour + shadow), which is what held the frame rate in the 20s-40s. Far away nobody can
 // see that detail, so a vertex-clustering pass (cells a fixed fraction of the body's height) builds lighter copies
 // that keep the skin indices/weights, so they animate exactly like the full mesh.
+import { PERF } from './perf.js';
 import * as THREE from 'three';
 
 const cache = new WeakMap(); // full geometry -> [full, mid, far]
@@ -58,4 +59,4 @@ export function lodSet(g) {
 }
 
 // LOD level for a distance in metres (0 full, 1 mid, 2 far).
-export const lodLevel = (d) => (d < 8 ? 0 : d < 24 ? 1 : 2);
+export const lodLevel = (d) => { const k = PERF.lod || 1; return d < 8 * k ? 0 : d < 24 * k ? 1 : 2; }; // the frame governor shrinks these on slow machines

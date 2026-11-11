@@ -15,6 +15,7 @@
 //     tips: [[x,y,z], [x,y,z]], tipSeg: [upperSegIndex, lowerSegIndex],   string attachment points in B
 //     string: { r, mat, serving },  arrow: parts in W (nock at the origin, head toward +Z, ~0.72 m),
 //     brace, drawLen, arrowY (arrow pass above the grip), cant, muzzle, support, cardTilt }
+import { muOn, LOWGRAV } from './mutators.js';
 import * as THREE from 'three';
 import { grainTexture, mats, build, lathe, sweep, helix, slab, rod, cyl, at, BX, V3 } from './weapons.js';
 
@@ -421,7 +422,7 @@ export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 
     update: (dt) => {
       st.age += dt;
       if (st.stuck) return st.age < 12;
-      vel.y -= 9.8 * dt;
+      vel.y -= 9.8 * (muOn(LOWGRAV) ? 0.4 : 1) * dt;
       const step = vel.length() * dt;
       last.copy(pos);
       dir.copy(vel).normalize();
