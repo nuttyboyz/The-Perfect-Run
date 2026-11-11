@@ -1,7 +1,7 @@
 // Host-authoritative simulation: enemies, bosses, the Demon Huntress, bought
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
-import { NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
+import { BULLET_TIME, BT_SLOW, BT_IN, BT_OUT, NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
 import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm } from './data.js';
 
 const q10 = (v) => Math.round(v * 10);
@@ -744,6 +744,15 @@ export class HostSim {
     const players = this.readPlayers(peers);
     this.lastPlayers = players;
     this.processInputs(peers, players);
+    // Bullet Time: while any player holds aim, everything the host simulates (enemies, bosses, their shots, the
+    // round clock) runs in slow motion. The players themselves run on their own clocks at full speed.
+    if ((this.mu & BULLET_TIME) && !this.duel) {
+      const want = (this.phase === 'play' || this.phase === 'boss') && players.some((q) => q.alive && !q.out && q.raw && q.raw.bt) ? BT_SLOW : 1;
+      const k = this.btK ?? 1;
+      this.btK = k + (want - k) * Math.min(1, dt * (want < k ? BT_IN : BT_OUT));
+      if (Math.abs(this.btK - want) < 0.005) this.btK = want;
+      dt *= this.btK;
+    } else this.btK = 1;
     if (this.phase === 'lobby' || this.phase === 'over' || this.phase === 'win') { this.pruneEvents(); return; }
     if (this.duel) { this.updateDuel(dt, players); if (this.phase === 'duel') { this.updateDots(dt, players); this.updateWells(dt, players); this.updateNpcs(dt, players); } else this.wells.length = 0; this.pruneEvents(); return; }
 
@@ -1368,7 +1377,7 @@ export class HostSim {
     const b = this.boss;
     const dm = this.demon;
     return {
-      mu: this.mu | 0,
+      mu: this.mu | 0, bt: Math.round((this.btK ?? 1) * 100),
       ph: this.phase, rd: this.round, sd: this.seed, rs: this.runSeed, tl: this.roundLen === 0 && this.phase === 'play' ? 0 : Math.round(this.tl * 10) / 10, rl: this.roundLen,
       m, n,
       b: b ? [b.idx, q10(b.x), q10(b.z), Math.max(1, Math.round((b.hp / b.maxHp) * 1000)), Math.round(b.anim * 9), Math.round(b.yaw * 10), b.mode === 'charge' ? 1 : 0, b.mode === 'laser' ? Math.round(b.ly * 100) : b.mode === 'laser-wind' ? 9999 : null] : 0,

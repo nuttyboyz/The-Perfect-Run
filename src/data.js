@@ -5,7 +5,7 @@ export const CONFIG = {
   rounds: 6,
   voteSeconds: 10,
   pcPerKill: 2,
-  pcPerBoss: 200,
+  pcPerBoss: 300, ppPerBoss: 3,
   cratePrice: 30,
   bedPrice: 60,
   baseHp: 100,
@@ -30,7 +30,7 @@ export const CLASSES = [
     tagline: 'The earth bends to you.',
     q: { id: 'boulder', name: 'Boulder Toss', cd: 5, desc: 'Rip a boulder out of the ground and hurl it at your crosshair. It smashes on impact, stunning and scattering everything nearby.' },
     r: { id: 'rockarmor', name: 'Rock Armor', cd: 10, desc: 'Stone slabs clamp on to your body and you take no damage at all until Rock Armor is ready again. Every hit the armor takes shocks the ground, knocking back and stunning enemies around you.' },
-    e: { id: 'pillars', name: 'Pillar Burst', cd: 10, desc: 'Stamp the ground: a pillar of rock erupts under every enemy within 12 m, launching, stunning and crushing them.' },
+    e: { id: 'pillars', name: 'Pillar Burst', cd: 10, desc: 'Stamp the ground: tall, jagged spikes of rock erupt under every enemy within 12 m, launching, stunning and crushing them. No shot gets through the rocks while they stand.' },
   },
   {
     id: 'tempest', name: 'Tempest', element: 'Storm', color: 0x2c3f8f, accent: 0x8fb4ff, css: '#b57bff',

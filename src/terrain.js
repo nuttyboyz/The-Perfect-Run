@@ -46,7 +46,7 @@ const MAP_BLOCK = /* glsl */ `
   vec3 bw = vec3(0.0, 1.0, 0.0);
   vec2 uRy = tp * uInv.w, uRx = vWP.zy * uInv.w, uRz = vWP.xy * uInv.w;
   if (wR > 0.004) {
-    bw = pow(abs(vWN), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
+    bw = pow(abs(vWN), vec3(4.0)); bw /= max(bw.x + bw.y + bw.z, 1e-5);
     vec2 gy1 = dpx.xz * uInv.w, gy2 = dpy.xz * uInv.w;
 #ifdef TERR_TRI
     cR = bw.y * textureGrad(tR, uRy, gy1, gy2) + bw.x * textureGrad(tR, uRx, dpx.zy * uInv.w, dpy.zy * uInv.w) + bw.z * textureGrad(tR, uRz, dpx.xy * uInv.w, dpy.xy * uInv.w);
@@ -154,7 +154,7 @@ export function makeTerrainMaterial(biome, q) {
       .replace('#include <common>', '#include <common>\n' + FRAG_PARS)
       .replace('#include <map_fragment>', MAP_BLOCK)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = clamp(terrRough, 0.04, 1.0);')
-      .replace('#include <normal_fragment_maps>', 'normal = normalize(normal + (viewMatrix * vec4(terrDelta, 0.0)).xyz);')
+      .replace('#include <normal_fragment_maps>', 'normal = prSafeN(normal + (viewMatrix * vec4(terrDelta, 0.0)).xyz);')
       .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance += terrEmit;');
   };
   mat.customProgramCacheKey = () => 'terrain' + q + biome.id;

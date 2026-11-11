@@ -14,22 +14,37 @@ import { CHARACTERS, CHAR_BY_ID } from './characters.js';
 import { skinsOf, skinIsFree, skinUnlocked } from './skins.js';
 import { Dailies, msToReset } from './dailies.js';
 import { puIcon, hasPuIcon } from './puicons.js';
+import { ControlsScreen, loadBinds, bindsJSON, kbPhys, padPhys, keyName, PAD_NAMES } from './controls.js';
 
 // Every control the game ever names, as the button it is on each layout. Settings > Controller layout picks
 // the column (DualShock by default); 'kp' is player 2's right-hand keyboard half in couch co-op.
+const CLIP_MS = 3900; // length of one skill clip on the Element page
+const FLIP_LOBBY = document.documentElement.dataset.lobby === 'flip' || new URLSearchParams(location.search).get('lobby') === 'flip'; // flip-book select screen (test)
+
 export const CTL = {
   ds: { move: 'L stick', look: 'R stick', jump: '✕', dash: '○', use: '□', reload: '□', next: '◀ ▶', ab1: 'L1', ab2: '△', ult: 'R1', aim: 'L2', block: 'L2', fire: 'R2', sprint: 'L3', camera: 'R3', bed: 'L2 + R3', shop: 'Share', pause: 'Options', prev: '◀', nxt: '▶', speed: '▼', takeover: '▲', cpu: '▲', up: 'L stick up', down: 'L stick down', side: 'L stick left / right', select: '✕', back: '○', fs: 'F11' },
   xbox: { move: 'L stick', look: 'R stick', jump: 'A', dash: 'B', use: 'X', reload: 'X', next: '◀ ▶', ab1: 'LB', ab2: 'Y', ult: 'RB', aim: 'LT', block: 'LT', fire: 'RT', sprint: 'L3', camera: 'R3', bed: 'LT + R3', shop: 'View', pause: 'Menu', prev: '◀', nxt: '▶', speed: '▼', takeover: '▲', cpu: '▲', up: 'L stick up', down: 'L stick down', side: 'L stick left / right', select: 'A', back: 'B', fs: 'F11' },
   kb: { move: 'W A S D', look: 'Mouse', jump: 'Space', dash: 'X', use: 'E', reload: 'R', next: 'Wheel', ab1: 'Q', ab2: 'G', ult: 'F', aim: 'Right click / C', block: 'Right click / C', fire: 'Left click', sprint: 'Shift', camera: 'V', bed: 'B', shop: 'Tab', pause: 'Esc', prev: '1', nxt: '2', speed: 'T', takeover: 'P', cpu: 'P', up: 'W', down: 'S', side: 'A D', select: 'Enter', back: 'Esc', fs: 'F11' },
   kp: { move: '↑ ↓', look: 'PgUp PgDn', jump: '/', dash: "'", use: ';', reload: ';', next: '9 0', ab1: '[', ab2: 'P', ult: ']', aim: 'Shift', block: 'Shift', fire: 'Enter', sprint: 'R Shift', camera: 'R3', bed: 'B', shop: '=', pause: 'Backspace', prev: '9', nxt: '0', speed: 'N', takeover: '\\', cpu: '\\', up: '↑', down: '↓', side: '← →', select: 'Enter', back: 'Backspace', fs: 'F11' },
 };
+const CTL0 = JSON.parse(JSON.stringify(CTL));
+// Button prompts follow the player's remaps (Controls screen): rewrite the names in place from the defaults.
+export function applyBindLabels() {
+  for (const L of Object.keys(CTL0)) Object.assign(CTL[L], CTL0[L]);
+  const k = CTL.kb, K = (c) => keyName(kbPhys(c));
+  Object.assign(k, { jump: K('Space'), dash: K('KeyX'), use: K('KeyE'), reload: K('KeyR'), ab1: K('KeyQ'), ab2: K('KeyG'), ult: K('KeyF'), aim: 'Right click / ' + K('KeyC'), block: 'Right click / ' + K('KeyC'), sprint: K('ShiftLeft'), camera: K('KeyV'), bed: K('KeyB'), shop: K('Tab'), prev: K('Digit1'), nxt: K('Digit2'), speed: K('KeyT'), takeover: K('KeyP'), cpu: K('KeyP') });
+  for (const L of ['ds', 'xbox']) {
+    const N = PAD_NAMES[L], B = (i) => N[padPhys(i)], c = CTL[L];
+    Object.assign(c, { jump: B(0), dash: B(1), use: B(2), reload: B(2), ab2: B(3), ab1: B(4), ult: B(5), aim: B(6), block: B(6), fire: B(7), shop: B(8), pause: B(9), sprint: B(10), camera: B(11), cpu: B(12), takeover: B(12), speed: B(13), prev: B(14), nxt: B(15), next: B(14) + ' ' + B(15), bed: B(6) + ' + ' + B(11) });
+  }
+}
 const isPad = (L) => L === 'ds' || L === 'xbox';
 const ctlOf = (L) => CTL[L] || CTL.ds;
 // The full "how to play" controls list for one layout.
 export function helpRows(L) {
   const c = ctlOf(L), pad = isPad(L);
   return [
-    [c.move, 'Move'], [c.look, 'Aim'], [c.fire, 'Attack'], [c.sprint, pad ? 'Sprint (press the stick)' : 'Sprint'], [c.jump, 'Jump · double-tap: Jetpack · press again in the air and hold: Web Swing'], [c.dash, 'Dash'],
+    [c.move, 'Move'], [c.look, 'Aim'], [c.fire, 'Attack'], [c.sprint, pad ? 'Sprint (press the stick)' : 'Sprint'], [c.jump, 'Jump · with the Jetpack equipped: double-tap to fly · with Web Swing equipped: press again in the air and hold'], [c.dash, 'Dash'],
     [c.ab1 + ' · ' + c.ab2, 'Element abilities'], [c.ult, 'Ultimate'], [c.aim, 'Aim down sights, or block with a shield'],
     pad ? [c.prev + ' ' + c.nxt, 'Swap weapon'] : ['1 2 3 / ' + c.next, 'Swap weapon'], [c.reload, 'Reload'], [c.use, 'Open crate · ride the skateboard · use the altar (hold)'], [c.bed, 'Place bed'],
     [c.shop, 'Shop'], [c.camera, 'First / third person'], [c.speed, 'Game speed (solo and couch)'], ...([[c.cpu, 'CPU Run: hand the run to the CPU, and the same again to take it back']]), [c.pause, 'Menu'],
@@ -44,7 +59,7 @@ export const padName = (s, layout) => layout === 'ds' ? String(s).split(' ').map
 const shortRows = (L) => { const c = CTL[L] || CTL.ds, pad = isPad(L); return [[c.move, 'Move'], [c.look, 'Aim'], [c.fire, 'Attack · hold ' + c.aim + ' to aim or block'], [c.jump, 'Jump · double-tap: jetpack · again in the air and hold: web swing'], [c.sprint, 'Sprint · with the jetpack on: descend'], [c.dash, 'Dash'], [c.ab1 + ' ' + c.ab2 + ' ' + c.ult, 'Abilities'], [c.reload, 'Reload / use'], [pad ? c.prev + ' ' + c.nxt : '1 2 3', 'Swap weapon'], [c.shop, 'Shop'], [c.pause, 'Menu']]; };
 export function controlsHtml(kind, layout = 'ds') {
   // kind: 'kb' = player 2's keyboard half, 'pad' = a controller (in the chosen layout's names), 'p1' = whatever Settings says.
-  const rows = kind === 'kb' ? KEYPAD_HELP : shortRows(kind === 'pad' && !isPad(layout) ? 'ds' : layout);
+  const rows = kind === 'kb' ? KEYPAD_HELP : kind === 'kbm' ? shortRows('kb') : shortRows(kind === 'pad' && !isPad(layout) ? 'ds' : layout);
   return rows.map(([k, v]) => `<li><kbd>${esc(k)}</kbd> ${esc(v)}</li>`).join('');
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,10 +118,14 @@ export class UI {
   setH(e, v) { if (typeof e === 'string') e = this.$k(e); if (e && e._h !== v) { e._h = v; e.innerHTML = v; } }
   setC(e, cls, on) { if (typeof e === 'string') e = this.$k(e); on = !!on; if (e && e.classList.contains(cls) !== on) e.classList.toggle(cls, on); }
 
+  // Main menu: Daily Challenges shows how many of today's three are done.
+  dailyTitle() { const el = this.$('#title-daily'); if (el) { try { el.textContent = Dailies.today().filter((d) => d.done).length + '/3'; } catch {} } }
   screen(id) {
+    if (id === 's-title') this.dailyTitle();
     // Menus and lobbies never show the run's "You are out" / "You died" overlay.
     const dead = this.$('#dead'); if (dead && id) dead.classList.remove('on');
     if (id !== 's-couch') this.couchStop();
+    if (id !== 's-settings' && this.game.draft) { if (this.game.draftDirty) this.revertDraft(); this.game.draft = false; this.game.draftDirty = false; } // Settings closed some other way
     this.$$('.screen').forEach((s) => s.classList.toggle('on', s.id === id));
     this.root.dataset.screen = id || '';
     if (id === 's-title' && this.ringPlace) requestAnimationFrame(this.ringPlace);
@@ -124,7 +143,7 @@ export class UI {
     const over = () => {
       const r = s.getBoundingClientRect();
       let top = 0, bot = s.clientHeight, right = s.clientWidth;
-      s.querySelectorAll('*').forEach((e) => { if (!e.offsetParent && getComputedStyle(e).position !== 'fixed') return; const b = e.getBoundingClientRect(); if (!b.height) return; top = Math.min(top, b.top - r.top); bot = Math.max(bot, b.bottom - r.top); right = Math.max(right, b.right - r.left); });
+      s.querySelectorAll('*').forEach((e) => { const sc = e.closest('.scrolls'); if (sc && sc !== e) return; if (!e.offsetParent && getComputedStyle(e).position !== 'fixed') return; const b = e.getBoundingClientRect(); if (!b.height) return; top = Math.min(top, b.top - r.top); bot = Math.max(bot, b.bottom - r.top); right = Math.max(right, b.right - r.left); });
       return Math.min(s.clientHeight / (bot - top), s.clientWidth / right);
     };
     let z = 1;
@@ -219,6 +238,28 @@ export class UI {
     document.addEventListener('webkitfullscreenchange', this.fsHandler);
     this.syncFullscreen();
     this.$$('[data-back]').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.screen(b.dataset.back); }));
+    // A Home button on every menu screen, so controller players never need Esc.
+    this.$$('.screen').forEach((scr) => {
+      if (scr.id === 's-title' || scr.id === 's-lobby' || scr.querySelector('.home-btn')) return;
+      const hb = document.createElement('button');
+      hb.type = 'button'; hb.className = 'home-btn'; hb.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h4.5v-5.5h4v5.5h4.5V10"/></svg><span>Home</span>';
+      hb.onclick = () => { g.audio.play('ui'); this.screen('s-title'); };
+      scr.appendChild(hb);
+    });
+    // Esc (player 1's keyboard) presses the open menu screen's Back button.
+    if (g.seat === 1 && !this.escBack) {
+      this.escBack = (e) => {
+        if (e.key !== 'Escape' || g.mode === 'game') return;
+        if ([...document.querySelectorAll('.overlay.on, .pad-modal')].some((m) => m.offsetParent || m.classList.contains('on'))) return;
+        const scr = this.root.querySelector('.screen.on');
+        const back = scr && [...scr.querySelectorAll('[data-back], #btn-leave')].find((b) => b.offsetParent);
+        if (back && scr.id !== 's-title') { e.preventDefault(); back.click(); }
+      };
+      window.addEventListener('keydown', this.escBack);
+    }
+    this.$$('#help-tabs button').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.$$('#help-tabs button').forEach((x) => x.classList.toggle('sel', x === b)); this.$$('#s-help .help-pane').forEach((x) => x.classList.toggle('on', x.dataset.t === b.dataset.t)); }));
+    { const hg = this.$('#help-gear'), GI = { webswing: '🕸️', jetpack: '🚀', wings: '🪽', drone: '🛸', turret: '🔫', zombiestaff: '🧟', gravgun: '🧲', healstaff: '✚', laser: '👁️', alienblaster: '👽' };
+      if (hg) hg.innerHTML = WEAPONS.filter((w) => GEAR_GOALS[w.id]).map((w) => '<li><i>' + (GI[w.id] || '⚙️') + '</i><span><b>' + esc(w.name) + '.</b> ' + esc(w.how || '') + '</span></li>').join(''); }
     this.$('#join-go').onclick = () => this.join(this.$('#join-code').value);
     this.$('#join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.join(this.$('#join-code').value); });
   }
@@ -285,9 +326,9 @@ export class UI {
     const nm = (i) => { const p = pads.find((x) => x.index === i); return p ? String(p.id || 'Controller').replace(/\s*\(.*$/, '').slice(0, 26) || 'Controller' : ''; };
     const set = (id, text, cls) => { const el = this.$(id); el.textContent = text; if (cls) el.className = 'chip ' + cls; };
     const kb2 = dev.p2 === 'kb';
-    this.$('#cc-p1-dev').textContent = dev.p1 != null ? 'Keyboard + Mouse, or controller' : 'Keyboard + Mouse';
-    set('#cc-p1-chip', dev.p1 != null ? 'Also on controller: ' + nm(dev.p1) : 'Mouse and keyboard ready', 'ok');
-    this.$('#cc-p1-keys').innerHTML = controlsHtml('p1');
+    this.$('#cc-p1-dev').textContent = dev.p1 != null ? 'Controller' : 'Keyboard + Mouse';
+    set('#cc-p1-chip', dev.p1 != null ? 'Found: ' + nm(dev.p1) : 'Mouse and keyboard ready', 'ok');
+    this.$('#cc-p1-keys').innerHTML = dev.p1 != null ? controlsHtml('pad', this.game.settings.layout) : controlsHtml('kbm');
     this.$('#cc-p2-dev').textContent = kb2 ? 'Keyboard (right side)' : 'Controller';
     if (kb2) set('#cc-p2-chip', 'Arrow keys, Enter and friends', 'ok');
     else set('#cc-p2-chip', 'Found: ' + nm(dev.p2), 'ok');
@@ -303,11 +344,11 @@ export class UI {
   }
 
   // Two-press guard for the buttons that end couch co-op, so a stray click or A press cannot drop both players.
-  confirmEnd(btn, label, then) {
+  confirmEnd(btn, label, then, ask) {
     const g = this.game;
     if (btn.dataset.armed) { clearTimeout(this.confirmTimer); this.confirmTimer = null; delete btn.dataset.armed; btn.textContent = label; (then || (() => g.leaveParty()))(); return; }
     btn.dataset.armed = '1';
-    btn.textContent = g.seat === 2 ? 'Press again to leave' : 'Press again to end for both';
+    btn.textContent = ask || (g.seat === 2 ? 'Press again to leave' : 'Press again to end for both');
     this.confirmTimer = setTimeout(() => { this.confirmTimer = null; delete btn.dataset.armed; btn.textContent = label; }, 3500);
   }
 
@@ -336,7 +377,8 @@ export class UI {
   isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
   syncFullscreen() {
     const on = this.isFullscreen();
-    this.$$('.fs-toggle').forEach((b) => (b.textContent = on ? 'Exit fullscreen' : 'Fullscreen'));
+    const ico = on ? '<svg viewBox="0 0 24 24"><path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6"/></svg>';
+    this.$$('.fs-toggle').forEach((b) => (b.innerHTML = '<span>' + (on ? 'Exit Full Screen' : 'Full Screen') + '</span>' + ico));
     // Layout can settle a frame or two after the switch, so size again once it has.
     this.game.onResize();
     setTimeout(() => this.game.onResize(), 250);
@@ -386,7 +428,7 @@ export class UI {
     this.$('#hud').classList.remove('on');
     this.game.duelMode = false;
     this.$('#title-pp').textContent = getMeta().pp.toLocaleString();
-    { const el = this.$('#title-daily'); if (el) el.textContent = Dailies.today().filter((d) => d.done).length + ' / 3'; }
+    this.dailyTitle();
   }
 
   refreshPartyList() {
@@ -413,7 +455,7 @@ export class UI {
     // a seat that gets pulled back to the lobby by the host never pressed the summary button itself.
     for (const id of ['#summary', '#dead', '#duelend', '#vote', '#bless', '#shop', '#bossbar', '#waiting']) { const e = this.$(id); if (e) e.classList.remove('on'); }
     const solo = g.party.kind === 'solo' || g.party.kind === 'local';
-    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : g.duelMode ? (g.party.kind === 'local' ? 'Couch duel' : 'Duel party ' + g.partyCode) : g.party.kind === 'local' ? 'Couch co-op' : solo ? 'Solo run' : 'Party ' + g.partyCode;
+    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : g.duelMode ? (g.party.kind === 'local' ? 'Local duel' : 'Duel party ' + g.partyCode) : g.party.kind === 'local' ? 'Local co-op' : solo ? 'Solo run' : 'Party ' + g.partyCode;
     this.$('#invite').style.display = solo ? 'none' : '';
     this.$('#invite-code').textContent = g.partyCode || '';
     this.$('#invite-copy').onclick = () => {
@@ -509,19 +551,27 @@ export class UI {
     if (!this._muClose) { this._muClose = (e) => { if (!muField.contains(e.target)) muField.classList.remove('open'); }; document.addEventListener('pointerdown', this._muClose); }
     this.$('#btn-ready').onclick = () => {
       g.audio.play('ui');
-      if (!loadoutFull(g.loadout.w)) { g.lobbyStep = 2; this.renderLobby(); this.toast('Take 3 items off the wall first (any mix, weapons are optional)', 'bad'); return; }
+      if (!loadoutFull(g.loadout.w)) { g.lobbyStep = 2; this.setFlip(2, true); this.renderLobby(); this.toast('Take 3 items off the wall first (any mix, weapons are optional)', 'bad'); return; }
+      if (this.cpuFlow() && !g.ready && !this.cpuDone) { // versus the CPU: first your fighter, then the CPU's
+        if (!g._cpuPick) { g.cpuPickBegin(); this.flipStep = 1; this.$('#s-lobby').classList.remove('flip-rev'); this.renderLobby(); return; }
+        g.cpuPickEnd(true); this.cpuDone = true;
+      }
       if (g.party.kind === 'local') g.setReady(!g.ready); // couch: both seats toggle Ready, the run starts when both are
       else if (g.isHost) {
         const members = g.lobbyMembers();
         const notReady = members.filter((m) => !m.me && !m.p.rdy);
         if (notReady.length) { this.toast('Waiting for ' + notReady.map((m) => m.p.n).join(', ') + ' to ready up', 'bad'); return; }
+        this.$('#btn-ready').classList.add('go');
         g.startRun();
       } else g.setReady(!g.ready);
       this.renderLobby();
     };
     const couch = g.party.kind === 'local' && !g.bot;
-    this.$('#btn-leave').onclick = () => { g.audio.play('ui'); if (couch) this.confirmEnd(this.$('#btn-leave'), g.duelMode ? 'End couch duel' : 'End couch co-op'); else g.leaveParty(); };
-    this.$('#btn-leave').textContent = couch ? (g.seat === 2 ? (g.duelMode ? 'Leave couch duel' : 'Leave couch co-op') : (g.duelMode ? 'End couch duel' : 'End couch co-op')) : 'Leave';
+    this.$('#btn-leave').onclick = () => { g.audio.play('ui'); if (couch) this.confirmEnd(this.$('#btn-leave'), g.duelMode ? 'End local duel' : 'End local co-op'); else g.leaveParty(); }; // Home leaves at once
+    this.$('#btn-leave').classList.toggle('home-big', !couch);
+    if (couch) this.$('#btn-leave').textContent = g.seat === 2 ? (g.duelMode ? 'Leave local duel' : 'Leave local co-op') : (g.duelMode ? 'End local duel' : 'End local co-op');
+    else this.$('#btn-leave').innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h4.5v-5.5h4v5.5h4.5V10"/></svg><span>Home</span>';
+    this.$('#btn-ready').classList.remove('go'); this.cpuDone = false;
     const cn = this.$('#couch-name');
     cn.value = g.settings.name;
     cn.onchange = () => {
@@ -532,8 +582,105 @@ export class UI {
     };
     this.$('#couch-pad').innerHTML = couch ? '<b>Your controls</b><ul>' + controlsHtml(g.padKind(), g.settings.layout) + '</ul>' : '';
     this.$('#summary').classList.remove('on');
+    this.flipStep = 1;
     this.arcLayout();
     this.renderLobby();
+  }
+
+  // Flip-book select (test, html[data-lobby=flip] or ?lobby=flip): the same lobby pieces, one page at a time.
+  // Character, then Weapons, then Element, then Mutators with CPU Mode and Start Run. A duel stops at Element, with Ready under it.
+  // Duel versus the CPU on the flip select: the player also picks the CPU's fighter.
+  cpuFlow() { const g = this.game; return FLIP_LOBBY && !!g.bot && !!(this._arc && this._arc.on); }
+  // Element page: a small clip of each of the element's three skills, one after the other.
+  clipSync(show) {
+    const g = this.game, F = this._flip;
+    if (!F) return;
+    const cls = g.loadout.c;
+    if (!show) { clearTimeout(this.clipT); this.clipT = null; this.clipCls = null; return; }
+    if (this.clipCls === cls && this.clipT) return;
+    this.clipCls = cls; this.clipI = -1;
+    const next = () => {
+      const c = CLASS_BY_ID[this.clipCls]; if (!c) return;
+      if (g.mode !== 'lobby' || this.flipStep !== 3) { this.clipT = null; this.clipCls = null; return; } // the page was left: stop cycling
+      this.clipI = (this.clipI + 1) % 3;
+      const k = ['q', 'e', 'r'][this.clipI], ab = c[k];
+      const img = F.clip.querySelector('img');
+      img.src = ''; img.src = 'assets/clips/' + c.id + '-' + k + '.webp';
+      F.clip.style.setProperty('--cc', c.css);
+      F.clip.querySelector('.fc-cap').innerHTML = '<kbd>' + esc(this.key({ q: 'Q', e: 'G', r: 'F' }[k])) + '</kbd><b>' + esc(ab.name) + '</b><span>' + (this.clipI + 1) + ' / 3</span>';
+      F.clip.querySelectorAll('.fc-dots i').forEach((d, i) => d.classList.toggle('on', i === this.clipI));
+      this.$$('#class-detail .ab').forEach((r, i) => r.classList.toggle('playing', i === this.clipI));
+      clearTimeout(this.clipT); this.clipT = setTimeout(next, CLIP_MS);
+    };
+    next();
+  }
+  flipSync(duel) {
+    if (!FLIP_LOBBY) return;
+    const g = this.game, root = this.$('#s-lobby'), A = this._arc, on = !!(A && A.on);
+    root.classList.toggle('flip-on', on);
+    if (!on) return;
+    if (!this._flip) {
+      const mk = (cls, html) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; A.el.appendChild(d); return d; };
+      const steps = mk('flip-steps', ['Character', 'Weapons', 'Element', 'Mutators'].map((n, i) => `<button type="button" class="flip-step" data-s="${i + 1}"><b>${i + 1}</b><span>${n}</span></button>`).join('<i></i>'));
+      const SIMPLE = { bighead: 'Everyone gets a giant head. Headshots are easy.', jackpot: 'Every 20th kill explodes into gold.', pinata: 'Enemies burst into confetti and candy that heals you.', bottomless: 'Never reload. Your guns never run out.', necro: 'Enemies you kill rise and fight for you for 10 seconds.', bullettime: 'Hold aim to slow the world. You stay fast and can hang in the air.', lowgrav: 'Moon jumps and floaty falls.' };
+      const fin = mk('flip-final', `<h3 class="arc-h">Run options</h3><div class="flip-opts"></div>
+        <div class="flip-muhead"><h3 class="arc-h">Mutators <small>just for fun · a mutator run counts toward nothing</small></h3><button type="button" class="mu-master" aria-pressed="false"><span>Off</span><i></i></button></div>
+        <div class="flip-mulist">${MUTATORS.map((m) => `<button type="button" class="mu-row" data-b="${m.bit}"><i class="mu-sw"></i><b>${esc(m.name)}</b><p>${esc(SIMPLE[m.id] || m.desc)}</p></button>`).join('')}</div>
+        <p class="flip-hint">Nothing to change? Just press Start.</p>`);
+      fin.querySelector('.mu-master').onclick = () => {
+        if (!g.isHost) return;
+        g.audio.play('ui');
+        const on = !(this.muOpen || (g.settings.mu | 0));
+        if (on) { this.muOpen = true; if (this._muLast) g.setMu(this._muLast); }
+        else { this._muLast = g.settings.mu | 0; this.muOpen = false; g.setMu(0); }
+        this.renderMuChips(); this.flipSync(g.duelMode);
+      };
+      fin.querySelector('.flip-mulist').onclick = (e) => { const b = e.target.closest('.mu-row'); if (!b || !g.isHost) return; g.audio.play('ui'); g.setMu((g.settings.mu | 0) ^ +b.dataset.b); this.renderMuChips(); this.flipSync(g.duelMode); };
+      const clip = mk('flip-clip', '<div class="fc-head">Skill preview</div><div class="fc-screen"><img alt=""><div class="fc-dots"><i></i><i></i><i></i></div></div><div class="fc-cap"></div>');
+      const banner = mk('flip-cpu-banner', 'Choosing CPU');
+      const nav = mk('flip-nav', `<button type="button" class="btn flip-back">◀ Back</button><button type="button" class="btn flip-next">Next ▶</button>`);
+      steps.onclick = (e) => { const b = e.target.closest('.flip-step'); if (b) this.setFlip(+b.dataset.s); };
+      nav.querySelector('.flip-back').onclick = () => {
+        if ((this.flipStep || 1) === 1 && g._cpuPick) { g.audio.play('ui'); g.cpuPickEnd(false); this.flipStep = 3; root.classList.add('flip-rev'); this.renderLobby(); return; } // back to your own fighter
+        this.setFlip((this.flipStep || 1) - 1);
+      };
+      nav.querySelector('.flip-next').onclick = () => this.setFlip((this.flipStep || 1) + 1);
+      this._flip = { steps, fin, nav, clip, banner };
+    }
+    const F = this._flip;
+    for (const [sel, to] of [['#cpu-field', '.flip-opts'], ['#round-field', '.flip-opts'], ['#diff-field', '.flip-opts']]) { const n = this.$(sel), box = F.fin.querySelector(to); if (n.parentNode !== box) box.appendChild(n); }
+    { const cs = this.$('#cpu-field span'); if (cs && cs.textContent !== 'CPU Mode') cs.textContent = 'CPU Mode'; }
+    { // Mutators switch and list follow the host's picks.
+      const host = g.party && g.hostPeer(g.party.peers());
+      const mask = g.isHost ? g.settings.mu | 0 : (host && host.p.lb && host.p.lb.mu) | 0, open = !!(mask || (g.isHost && this.muOpen));
+      const ms = F.fin.querySelector('.mu-master');
+      ms.classList.toggle('on', open); ms.setAttribute('aria-pressed', open); ms.disabled = !g.isHost; ms.firstChild.textContent = open ? 'On' : 'Off';
+      F.fin.classList.toggle('mu-open', open);
+      F.fin.querySelectorAll('.mu-row').forEach((b) => { b.classList.toggle('on', (mask & +b.dataset.b) !== 0); b.disabled = !g.isHost; });
+    }
+    const last = duel ? 3 : 4, step = Math.min(last, Math.max(1, this.flipStep || 1));
+    this.flipStep = step;
+    if (root.dataset.flip !== String(step)) root.dataset.flip = step;
+    root.classList.toggle('flip-duel', !!duel);
+    root.classList.toggle('flip-last', step === last);
+    F.steps.querySelectorAll('.flip-step').forEach((b) => { const n = +b.dataset.s; b.classList.toggle('sel', n === step); b.classList.toggle('done', n < step); b.style.display = n > last ? 'none' : ''; if (b.previousElementSibling) b.previousElementSibling.style.display = n > last ? 'none' : ''; });
+    root.classList.toggle('cpu-pick', !!g._cpuPick);
+    this.clipSync(step === 3 && root.classList.contains('on'));
+    { const ab = this.$$('#class-detail .ab'); ab.forEach((r, i) => r.classList.toggle('playing', step === 3 && i === this.clipI)); }
+    F.nav.querySelector('.flip-back').style.display = step > 1 || g._cpuPick ? '' : 'none';
+    const nx = F.nav.querySelector('.flip-next');
+    nx.style.display = step < last ? '' : 'none';
+    nx.textContent = (['', 'Weapons', 'Element', 'Mutators'][step] || 'Next') + ' ▶';
+  }
+  setFlip(n, quiet) {
+    if (!FLIP_LOBBY) return;
+    const g = this.game, root = this.$('#s-lobby'), last = g.duelMode ? 3 : 4, to = Math.min(last, Math.max(1, n | 0));
+    if (to === (this.flipStep || 1)) return;
+    root.classList.toggle('flip-rev', to < (this.flipStep || 1));
+    this.flipStep = to;
+    if (!quiet) g.audio.play('ui');
+    this.flipSync(g.duelMode);
+    if (g.pad && g.pad.active) { const f = this._flip.nav.querySelector(to < last ? '.flip-next' : '.flip-back'); const rb = this.$('#btn-ready'); setFocus(this.root, to === last && rb && !rb.disabled ? rb : f); }
   }
 
   // Arcade-versus character select (full screen only): the existing lobby pieces are moved into a one-screen layout,
@@ -664,10 +811,10 @@ export class UI {
     this.arcLayout();
     if (this._arc && this._arc.on) {
       this._arc.el.style.setProperty('--acc', cls.css);
-      const bar = (l, v, max) => `<div class="abar"><span>${l}</span><i style="--v:${Math.min(100, (v / max) * 100)}%"></i></div>`;
-      this.$('#arc-bars').innerHTML = bar('Health', chr.stats.hp, 1.3) + bar('Speed', chr.stats.speed, 1.12);
+      const bar = (l, v, max, num) => `<div class="abar"><span>${l}</span><i style="--v:${Math.min(100, (v / max) * 100)}%"></i><b>${num}</b></div>`;
+      this.$('#arc-bars').innerHTML = bar('Health', chr.stats.hp, 1.3, Math.round(chr.stats.hp * CONFIG.baseHp)) + bar('Speed', chr.stats.speed, 1.12, Math.round(chr.stats.speed * 100) + '%');
       this.$('#arc-pp').textContent = getMeta().pp.toLocaleString();
-      this.$('#arc-p1').textContent = (g.bot ? 'YOU' : g.party.kind === 'local' ? 'PLAYER ' + g.seat : esc(g.myName || 'P1')) + (g.ready ? ' · LOCKED IN' : ' · ' + order.length + '/3 PICKED');
+      this.$('#arc-p1').textContent = (g.bot ? (g._cpuPick ? 'CPU' : 'YOU') : g.party.kind === 'local' ? 'PLAYER ' + g.seat : esc(g.myName || 'P1')) + (g.ready ? ' · LOCKED IN' : ' · ' + order.length + '/3 PICKED');
     }
     this.$('#stage-name').innerHTML = `<div class="sn-role">${chr.role}</div><div class="sn-name">${chr.name}</div><div class="sn-blurb">${esc(chr.blurb)}</div>`;
     this.$('#class-detail').style.setProperty('--cc', cls.css);
@@ -691,8 +838,9 @@ export class UI {
     this.$('#diff-field').style.display = duel ? 'none' : ''; // Duel Mode has no difficulty, CPU Run or mutators
     this.$('#mu-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
     this.renderMuChips();
-    const startWord = duel ? 'Start the duel' : 'Start the run';
-    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch ? 'Couch duel' : 'Duel party ' + (g.partyCode || '')) : couch ? 'Couch co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
+    this.flipSync(duel);
+    const startWord = duel ? 'Start Duel' : 'Start Run';
+    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch ? 'Local duel' : 'Duel party ' + (g.partyCode || '')) : couch ? 'Local co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
     // Couch co-op: publish which step this seat is on so the other seat can show it.
     if (couch && g.party.mine.ls !== step) g.party.set({ ls: step });
     const memberHtml = (m, seat) => {
@@ -737,6 +885,12 @@ export class UI {
     const cn = this.$('#couch-name');
     if (cn && document.activeElement !== cn && cn.value !== g.settings.name) cn.value = g.settings.name;
     const btn = this.$('#btn-ready');
+    if (this.cpuFlow() && !g.ready && !this.cpuDone && !((host && host.p.cd) || 0)) {
+      if (!armed) btn.textContent = g._cpuPick ? 'Pick 3 items for the CPU' : 'Pick 3 items to ready up';
+      else btn.innerHTML = g._cpuPick ? 'Ready Up' : 'Choose CPU ▶';
+      btn.disabled = !armed; btn.classList.remove('is-ready', 'waiting');
+      return;
+    }
     if (couch) {
       // One shared rule for both seats: everyone picks two weapons and presses Ready; the run then starts on a short countdown.
       const other = members.filter((m) => !m.me)[0];
@@ -763,18 +917,36 @@ export class UI {
   // ---------------- settings ----------------
   bindSettings() {
     const g = this.game;
-    this.$('#set-quality').onchange = (e) => { g.settings.quality = e.target.value; g.saveSettings(); this.$('#quality-note').style.display = ''; };
+    this.$('#set-quality').onchange = (e) => { g.settings.quality = e.target.value; g.saveSettings(); this.setState(); };
     this.$('#set-sens').oninput = (e) => { g.settings.sens = +e.target.value; this.$('#sens-val').textContent = (+e.target.value).toFixed(2); g.saveSettings(); };
     this.$('#set-vol').oninput = (e) => { g.settings.vol = +e.target.value; g.saveSettings(); };
     this.$('#set-fps').onchange = (e) => { g.settings.fps = e.target.checked; g.saveSettings(); };
     this.$('#set-blood').onchange = (e) => { g.settings.hudBlood = e.target.checked; g.saveSettings(); };
-    const bind = (id, key, kind) => { const el = this.$('#' + id); if (!el) return; el[kind === 'check' ? 'onchange' : kind === 'select' ? 'onchange' : 'oninput'] = (e) => { g.settings[key] = kind === 'check' ? e.target.checked : kind === 'select' ? e.target.value : +e.target.value; g.saveSettings(); if (key === 'layout') g.settings.layoutChosen = true; this.settingsVals(); this.refreshHints(); }; };
+    const bind = (id, key, kind) => { const el = this.$('#' + id); if (!el) return; el[kind === 'check' ? 'onchange' : kind === 'select' ? 'onchange' : 'oninput'] = (e) => { g.settings[key] = kind === 'check' ? e.target.checked : kind === 'select' ? e.target.value : +e.target.value; g.saveSettings(); if (key === 'layout') { g.settings.layoutChosen = true; this.renderControls(); } this.settingsVals(); this.refreshHints(); }; };
     bind('set-layout', 'layout', 'select'); bind('set-sens-ads', 'sensAds'); bind('set-invert', 'invertY', 'check'); bind('set-music', 'music', 'check'); bind('set-music-vol', 'musicVol');
-    bind('set-sfx', 'sfx', 'check'); bind('set-fov', 'fov'); bind('set-shake', 'shake', 'check'); bind('set-dmgnums', 'dmgNums', 'check');
+    bind('set-sfx', 'sfx', 'check'); bind('set-ui-scale', 'uiScale'); bind('set-cb', 'cb', 'select'); bind('set-xh', 'xh', 'select'); bind('set-xh-size', 'xhSize');
+    this.$$('#set-nav button').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.setCat(b.dataset.cat); }));
+    this.applyLook(); bind('set-fov', 'fov'); bind('set-shake', 'shake', 'check'); bind('set-dmgnums', 'dmgNums', 'check');
     this.$('#set-view').onchange = (e) => this.setView(e.target.value);
+    // Controls screen: pictures of each device, remapping. Remaps are saved with the settings.
+    if (g.seat === 1) { loadBinds(g.settings.binds); applyBindLabels(); }
+    const openCtl = (fromPause) => {
+      if (!this.ctlScreen) this.ctlScreen = new ControlsScreen(this.$('#controls'), {
+        sound: () => g.audio.play('ui'),
+        onChange: () => { g.settings.binds = bindsJSON(); if (g.draft) { const put = (k) => { try { const o = JSON.parse(this[k]); o.binds = g.settings.binds; this[k] = JSON.stringify(o); return o; } catch { return null; } }; put('setSnap'); const st = put('setSaved'); if (st) g.storeSettings(st); } else g.saveSettings(); applyBindLabels(); this.refreshHints(); },
+        onClose: () => { this.$('#pause').classList.remove('under'); },
+      });
+      if (fromPause) this.$('#pause').classList.add('under');
+      this.ctlScreen.open(g.pad && g.pad.active ? (g.settings.layout === 'xbox' ? 'xbox' : 'ds') : 'kb');
+    };
+    this.$('#pause-controls').onclick = () => { g.audio.play('ui'); openCtl(true); };
+    this.$('#set-controls').onclick = () => { g.audio.play('ui'); openCtl(false); };
     this.$$('#view-toggle button').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.setView(b.dataset.view); }));
     this.setView(g.settings.view || 'third', true);
-    this.$('#quality-reload').onclick = () => location.reload();
+    this.$('#settings-apply').onclick = () => { g.audio.play('ui'); this.applyDraft(false); };
+    this.$('#settings-save').onclick = () => { g.audio.play('ui'); this.applyDraft(true); };
+    this.$('#s-settings').addEventListener('input', () => this.setState());
+    this.$('#s-settings').addEventListener('change', () => this.setState());
     this.refreshHints();
   }
   setView(v, quiet) {
@@ -787,8 +959,28 @@ export class UI {
   openSettings(back) {
     const g = this.game;
     this.screen('s-settings');
+    this.setCat('controls');
     this.$('#settings-back').dataset.back = back;
-    this.$('#settings-back').onclick = () => { g.audio.play('ui'); if (back === 'game') { this.screen(null); this.$('#pause').classList.add('on'); } else this.screen(back); };
+    { const hb = this.$('#s-settings .home-btn'); if (hb) hb.style.display = back === 'game' ? 'none' : ''; }
+    // Draft mode: changes are tried out live, Apply keeps them for this session, Save stores them for good.
+    g.draft = true; g.draftDirty = false;
+    this.setSnap = JSON.stringify(g.settings);   // what Back returns to
+    this.setSaved = this.setSaved || this.setSnap; // what is stored on this device
+    const leave = (to) => {
+      const bb = this.$('#settings-back');
+      if (g.draftDirty && !bb.dataset.armed) {
+        bb.dataset.armed = '1'; bb.textContent = 'Leave without applying?'; bb.classList.add('warn');
+        this.toast('You have changes that are not applied. Press Apply or Save settings to keep them.', '');
+        clearTimeout(this.backT); this.backT = setTimeout(() => this.setState(), 4000);
+        return;
+      }
+      if (g.draftDirty) this.revertDraft();
+      g.draft = false; g.draftDirty = false; clearTimeout(this.backT);
+      if (to === 'game') { this.screen(null); this.$('#pause').classList.add('on'); } else this.screen(to);
+    };
+    this.$('#settings-back').onclick = () => { g.audio.play('ui'); leave(back); };
+    { const hb = this.$('#s-settings .home-btn'); if (hb) hb.onclick = () => { g.audio.play('ui'); leave('s-title'); }; }
+    this.setState();
     this.$('#set-quality').value = g.settings.quality;
     this.$('#set-sens').value = g.settings.sens;
     this.$('#sens-val').textContent = (+g.settings.sens).toFixed(2);
@@ -805,12 +997,13 @@ export class UI {
     if (!box) return;
     const admin = Profile.isAdmin() && this.game.seat === 1;
     box.style.display = admin ? '' : 'none';
+    { const nb = this.$('#set-nav-acc'); if (nb) nb.style.display = admin ? '' : 'none'; }
     if (!admin) return;
     const users = Profile.users();
     const list = this.$('#acc-list');
     list.innerHTML = users.length
       ? users.map((u) => `<div class="acc-row"><b>${esc(u.name)}</b><span>${u.created ? new Date(u.created).toLocaleDateString() : ''}</span><button class="btn small danger" data-del="${esc(u.id)}">${u.local ? 'Delete' : 'Remove from this device'}</button></div>`).join('')
-      : '<p class="muted">No user profiles yet.</p>';
+      : '<p class="muted">You are signed in as Admin. No player profiles have been saved on this device yet.</p>';
     list.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Press again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Delete'; } }, 3000); return; }
       const u = users.find((x) => x.id === b.dataset.del);
@@ -818,19 +1011,90 @@ export class UI {
       this.renderAccounts();
     }));
   }
+  // Settings > Button guide: every control for each controller type (opens on the layout picked above).
+  renderControls(l) {
+    l = l || this.game.settings.layout || 'ds';
+    const P = {
+      ds: { a: '✕', b: '○', x: '□', y: '△', lb: 'L1', rb: 'R1', lt: 'L2', rt: 'R2', l3: 'L3', r3: 'R3', view: 'Share', menu: 'Options', ls: 'Left stick', rs: 'Right stick' },
+      xbox: { a: 'A', b: 'B', x: 'X', y: 'Y', lb: 'LB', rb: 'RB', lt: 'LT', rt: 'RT', l3: 'LS click', r3: 'RS click', view: 'View', menu: 'Menu', ls: 'Left stick', rs: 'Right stick' },
+    };
+    const rows = l === 'kb' ? [
+      ['W A S D', 'Move'], ['Mouse', 'Look and aim'], ['Left click', 'Attack / fire (melee alternates slash and stab)'], ['Right click or C', 'Aim down sights, or block with a melee weapon'],
+      ['Shift', 'Sprint'], ['Space', 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], ['X', 'Dash'], ['Q', 'Element ability'], ['G', 'Third ability'], ['F', 'Ultimate'],
+      ['1 2 3 or wheel', 'Swap weapon'], ['R', 'Reload'], ['E', 'Open crate, use altar, take a power-up'], ['B', 'Place bed'], ['V', 'First / third person'], ['Tab', 'Shop'], ['Esc', 'Pause menu'],
+    ] : (() => { const k = P[l] || P.ds; return [
+      [k.ls, 'Move'], [k.l3, 'Sprint on/off (with the Jet Pack lit: go down)'], [k.rs, 'Look and aim'], [k.rt, 'Attack / fire (melee alternates slash and stab)'], [k.lt, 'Aim down sights, or hold to block (tap just before a hit to parry)'],
+      [k.a, 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], [k.b, 'Dash'], [k.x, 'Reload, open crate, use altar, take a power-up'], [k.lb, 'Element ability'], [k.y, 'Third ability'], [k.rb, 'Ultimate'],
+      ['D-pad ◀ ▶', 'Swap weapon'], ['D-pad ▼', 'Game speed'], ['D-pad ▲', 'CPU takes over / hand back (CPU Run only)'], [k.r3, 'First / third person'], [k.lt + ' + ' + k.r3, 'Place bed'], [k.view, 'Shop'], [k.menu, 'Pause menu'],
+    ]; })();
+    const list = this.$('#ctl-list');
+    if (list) list.innerHTML = rows.map(([key, d]) => '<div class="ctl-row"><kbd>' + key + '</kbd><span>' + d + '</span></div>').join('');
+    this.$$('#ctl-tabs button').forEach((x) => x.classList.toggle('sel', x.dataset.l === l));
+  }
+  // Settings footer: says whether anything is waiting for Apply or Save.
+  setState() {
+    const g = this.game, st = this.$('#set-state'), bb = this.$('#settings-back');
+    if (!st) return;
+    const cur = JSON.stringify(g.settings), unapplied = !!g.draftDirty && cur !== this.setSnap, unsaved = cur !== this.setSaved;
+    if (!unapplied) g.draftDirty = false;
+    st.textContent = unapplied ? 'Changes not applied yet' : unsaved ? 'Applied for this session. Press Save settings to keep them' : 'All settings saved';
+    st.dataset.s = unapplied ? 'dirty' : unsaved ? 'applied' : 'saved';
+    this.$('#settings-apply').disabled = !unapplied;
+    this.$('#settings-save').disabled = !unsaved;
+    this.$('#quality-note').style.display = unapplied && g.settings.quality !== JSON.parse(this.setSnap || '{}').quality ? '' : 'none';
+    if (bb) { delete bb.dataset.armed; bb.textContent = 'Back'; bb.classList.remove('warn'); }
+  }
+  // Apply (keep for this session) or Save (store for good). Graphics quality switches here, with no reload.
+  applyDraft(store) {
+    const g = this.game;
+    const switched = g.setQuality(g.settings.quality);
+    g.applySettings(); this.applyLook();
+    this.setSnap = JSON.stringify(g.settings); g.draftDirty = false;
+    if (store) { g.saveSettings(true); this.setSaved = this.setSnap; }
+    this.setState();
+    const qn = { high: 'High', medium: 'Medium', low: 'Low' }[g.settings.quality] || '';
+    this.toast((store ? 'Settings saved' : 'Settings applied') + (switched ? '. Graphics now on ' + qn : ''), 'good');
+  }
+  // Leaving without Apply: everything goes back to how it was when Settings opened (or was last applied).
+  revertDraft() {
+    const g = this.game;
+    let o; try { o = JSON.parse(this.setSnap); } catch { return; }
+    for (const k of Object.keys(g.settings)) delete g.settings[k];
+    Object.assign(g.settings, o);
+    g.setQuality(g.settings.quality);
+    g.applySettings(); this.setView(g.settings.view || 'third', true); this.applyLook(); this.refreshHints();
+  }
+  setCat(cat) {
+    this.$$('#set-nav button').forEach((x) => x.classList.toggle('sel', x.dataset.cat === cat));
+    this.$$('#s-settings .set-pane').forEach((x) => x.classList.toggle('on', x.dataset.cat === cat));
+  }
+  // UI scale, colourblind mode and crosshair: applied straight away, on this seat's screen.
+  applyLook() {
+    const S = this.game.settings, sc = Math.min(1.3, Math.max(0.8, +S.uiScale || 1)), xs = Math.min(2.2, Math.max(0.6, +S.xhSize || 1)), xh = S.xh || 'cross';
+    if (this.game.seat === 1) {
+      document.documentElement.style.setProperty('--ui', sc);
+      document.documentElement.style.fontSize = (16 * sc) + 'px';
+      const cb = S.cb && S.cb !== 'off' ? S.cb : '';
+      if (cb) document.documentElement.dataset.cb = cb; else delete document.documentElement.dataset.cb;
+    }
+    const hud = this.$('#hud'); if (hud) { hud.dataset.xh = xh; hud.style.setProperty('--xhs', xs); }
+    const demo = this.$('#xh-demo'); if (demo) { demo.dataset.xh = xh; demo.style.setProperty('--xhs', xs); }
+  }
   // The value readouts and the rest of the Settings controls.
   settingsVals() {
     const S = this.game.settings, $ = (id) => this.$('#' + id);
     const set = (id, v, lbl, txt) => { const el = $(id); if (!el) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; if (lbl && $(lbl)) $(lbl).textContent = txt; };
     set('set-layout', S.layout || 'ds');
+    set('set-ui-scale', S.uiScale ?? 1, 'ui-scale-val', Math.round((S.uiScale ?? 1) * 100) + '%'); set('set-cb', S.cb || 'off'); set('set-xh', S.xh || 'cross'); set('set-xh-size', S.xhSize ?? 1, 'xh-size-val', Math.round((S.xhSize ?? 1) * 100) + '%');
+    this.applyLook();
     set('set-sens-ads', S.sensAds ?? 1, 'sens-ads-val', (S.sensAds ?? 1).toFixed(2) + 'x');
     set('set-invert', S.invertY === true);
-    set('set-music', S.music !== false); set('set-music-vol', S.musicVol ?? 1, 'music-vol-val', Math.round((S.musicVol ?? 1) * 100) + '%');
+    set('set-music', S.music !== false); { const mv = $('set-music-vol'); if (mv) { mv.disabled = S.music === false; mv.closest('.field').classList.toggle('off', S.music === false); } } set('set-music-vol', S.musicVol ?? 1, 'music-vol-val', Math.round((S.musicVol ?? 1) * 100) + '%');
     set('set-sfx', S.sfx !== false);
     set('set-fov', S.fov || 70, 'fov-val', String(Math.round(S.fov || 70)));
     set('set-shake', S.shake !== false); set('set-dmgnums', S.dmgNums !== false);
     set('set-vol', S.vol, 'vol-val', Math.round(S.vol * 100) + '%');
-    this.$('#quality-note').style.display = 'none';
+    this.setState();
   }
 
   // ---------------- game ----------------
@@ -838,10 +1102,16 @@ export class UI {
     const g = this.game;
     this.$('#pause-resume').onclick = () => { g.paused = false; g.lockPointer(); };
     this.$('#pause-settings').onclick = () => { this.$('#pause').classList.remove('on'); this.openSettings('game'); };
+    const sure = (on) => this.$('#pause').classList.toggle('asking', on);
     this.$('#pause-leave').onclick = () => {
-      if (g.party && g.party.kind === 'local' && !g.bot) { g.audio.play('ui'); this.confirmEnd(this.$('#pause-leave'), g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op', () => { g.paused = false; this.$('#pause').classList.remove('on'); g.leaveParty(); }); return; }
-      g.paused = false; this.$('#pause').classList.remove('on'); g.leaveParty();
+      g.audio.play('ui');
+      const local = g.party && g.party.kind === 'local' && !g.bot, online = g.party && g.party.kind !== 'solo' && !local && !g.bot;
+      this.$('#pause-sure-note').textContent = local ? (g.seat === 2 ? 'You leave couch co-op. Player 1 carries on alone.' : 'This ends the run for both players.') : online ? 'You leave the party and go back to the main menu. The others keep playing.' : 'Your run will end and you go back to the main menu.';
+      sure(true);
+      const no = this.$('#pause-no'); if (g.pad && g.pad.active) setFocus(this.$('#pause'), no);
     };
+    this.$('#pause-no').onclick = () => { g.audio.play('ui'); sure(false); };
+    this.$('#pause-yes').onclick = () => { sure(false); g.paused = false; this.$('#pause').classList.remove('on'); g.leaveParty(); };
     this.$('#shop-close').onclick = () => g.toggleShop(false);
     this.$('#sq-yes').onclick = () => { g.audio.play('ui'); g.answerSpace(true); };
     this.$('#sq-no').onclick = () => { g.audio.play('ui'); g.answerSpace(false); };
@@ -880,6 +1150,7 @@ export class UI {
     if (g.party && (g.party.kind === 'solo' || g.bot)) { g.paused = show; if (g.seat !== 2) g.audio.pauseMusic(show); } // a fight against the CPU stops for the pause menu too
     const local = g.party && g.party.kind === 'local' && !g.bot;
     this.$('#pause-sub').textContent = local ? 'Player ' + g.seat + ' menu' : g.party && g.party.kind !== 'solo' && !g.bot ? 'The run keeps going while you are here.' : 'Paused';
+    this.$('#pause').classList.remove('asking');
     this.$('#pause-note').textContent = !local ? '' : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
     if (!this.confirmTimer) this.$('#pause-leave').textContent = local ? (g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op') : 'Leave run';
     if (show) this.renderShare();
@@ -980,7 +1251,7 @@ export class UI {
     const timerText = g.duel ? fmtTime(g.tl || 0) : ph === 'play' ? (g.endless ? '∞' : g.tl <= 0 ? 'DEATH' : fmtTime(g.tl)) : ph === 'vote' ? fmtTime(g.tl) : ph === 'boss' ? 'BOSS' : ph === 'demon' ? 'RUN' : ph === 'bless' || ph === 'sproam' ? fmtTime(g.tl) : ph === 'extract' ? 'EXTRACT' : '';
     this.setT('#timer', timerText);
     this.setC('#timer', 'urgent', (g.duel && ph === 'duel' && g.tl < 30) || (ph === 'play' && !g.endless && g.tl < 30) || (ph === 'play' && !!g.views.demon) || ph === 'vote' || ph === 'demon');
-    this.setT('#phase-hint', g.duel ? (ph === 'duel' ? 'Next power-up in ' + Math.max(0, Math.ceil(g.dpt || 0)) + 's · first one down loses' : ph === 'dpick' ? 'Choose your power-up' : ph === 'dcount' ? 'Get ready' : '') : ph === 'play' ? (g.world && g.world.biome.id === 'space' ? 'Hunt and loot. The Visitor lands when the clock hits zero' : g.endless && !g.views.demon ? 'Endless: hunt as long as you like, then hold ' + this.ctl('use') + ' at the altar to call the boss' : g.views.demon ? 'Death is hunting you. Hold ' + this.ctl('use') + ' at the altar to summon the boss, or kill her' : 'Hunt and loot until the clock runs out, then hold ' + this.ctl('use') + ' at the altar') : ph === 'boss' ? 'Defeat the boss' : ph === 'demon' ? 'Death is hunting you' : ph === 'bless' ? 'Choose a Deity Blessing' : ph === 'sproam' ? 'Free roam: open crates and hire NPCs before the ship leaves for space' : '');
+    this.setT('#phase-hint', g.duel ? (ph === 'duel' ? 'Next power-up in ' + Math.max(0, Math.ceil(g.dpt || 0)) + 's · first one down loses' : ph === 'dpick' ? 'Choose your power-up' : ph === 'dcount' ? 'Get ready' : '') : ph === 'play' ? (g.world && g.world.biome.id === 'space' ? 'Hunt, Loot, Survive' : g.endless && !g.views.demon ? 'Endless: hunt as long as you like, then hold ' + this.ctl('use') + ' at the altar to call the boss' : g.views.demon ? 'Death is hunting you. Hold ' + this.ctl('use') + ' at the altar to summon the boss, or kill her' : 'Hunt, Loot, Survive') : ph === 'boss' ? 'Defeat the boss' : ph === 'demon' ? 'Death is hunting you' : ph === 'bless' ? 'Choose a Deity Blessing' : ph === 'sproam' ? 'Free roam: open crates and hire NPCs before the ship leaves for space' : '');
     this.setT('#pc', p.pc);
     this.setT('#kills', p.totalKills);
     this.setT('#beds', p.beds);
@@ -1012,7 +1283,7 @@ export class UI {
     const xpf = hold ? 1 : Math.min(1, p.xp / p.xpNeed);
     this.setW('#xp-fill', xpf);
     this.setT('#xp-text', 'LV ' + (p.level + 1 - p.elemPending));
-    this.setT('#xp-pct', hold ? 'LEVEL UP!' : Math.floor(xpf * 100) + '%');
+    this.setT('#xp-pct', hold ? 'LEVEL UP!' : '');
     { const xb = this.$('#xpbar'), near = xpf >= 0.85 && !hold; if (xb && xb._near !== near) { xb._near = near; xb.classList.toggle('near', near); } }
     // Each XP gain makes the bar flash and its tip spark.
     if (this._xpLast !== undefined && p.xp > this._xpLast && !hold) { const xb = this.$('#xpbar'); if (xb) { xb.classList.remove('gain'); void xb.offsetWidth; xb.classList.add('gain'); } }
@@ -1213,20 +1484,22 @@ export class UI {
   }
   renderUnlocks() {
     const gear = WEAPONS.filter((w) => GEAR_GOALS[w.id]);
-    const row = (name, how, done, cur, need, tag) => {
-      const pct = Math.round(100 * cur / Math.max(1, need));
-      return `<div class="ul-card pad-nav ${done ? 'got' : ''}" tabindex="0"><div class="ul-tag">${tag}</div><div class="ul-name">${esc(name)}</div><div class="ul-how">${esc(how)}</div>` +
+    const GI = { webswing: '🕸️', jetpack: '🚀', wings: '🪽', drone: '🛸', turret: '🔫', zombiestaff: '🧟', gravgun: '🧲', healstaff: '✚', laser: '👁️', alienblaster: '👽' };
+    let total = 0, got = 0;
+    const row = (name, how, done, cur, need, tag, icon, secret) => {
+      total++; if (done) got++;
+      const pct = Math.round(100 * cur / Math.max(1, need)), hide = secret && !done;
+      return `<div class="ul-card pad-nav ${done ? 'got' : ''} ${hide ? 'secret' : ''}" tabindex="0"><div class="ul-ico">${hide ? '❓' : icon}</div><div class="ul-tag">${hide ? 'Secret' : tag}</div><div class="ul-name">${hide ? '???' : esc(name)}</div><div class="ul-how">${esc(hide ? secret : how)}</div>` +
         (done ? '<div class="ul-state">✓ Unlocked</div>' : `<div class="ul-bar"><i style="width:${pct}%"></i></div><div class="ul-state">🔒 ${need > 1 ? cur + ' / ' + need : 'Locked'}</div>`) + '</div>';
     };
-    const gearRows = gear.map((w) => { const G = GEAR_GOALS[w.id]; const [a, b] = G.p(); return row(w.name, G.how, a >= b, a, b, TIER(w) === 3 ? 'Gear' : 'Weapon'); });
-    const extras = [
-      row('Crash Site Prime', 'Win a run on Hard difficulty. Say yes to space after beating Thermes in round 6 to play it: a 10-minute round with The Visitor as the boss.', Unlocks.has('space'), Unlocks.has('space') ? 1 : 0, 1, 'Hidden map'),
-      row('The Visitor', 'Defeat The Visitor on Crash Site Prime', Unlocks.has('visitor'), Unlocks.has('visitor') ? 1 : 0, 1, 'Character'),
-      ...Object.values(EXTRA_GOALS).map((G) => { const [a, b] = G.p(); return row(G.name, G.how, a >= b, a, b, G.tag); }),
-    ];
-    const done = gearRows.filter((h) => h.includes('✓')).length;
-    this.$('#ul-sub').textContent = done + ' of ' + gear.length + ' unlocked. Unlocked gear and weapons show up on the Weapon Wall.';
-    this.$('#ul-grid').innerHTML = gearRows.concat(extras).join('');
+    const cards = gear.map((w) => { const G = GEAR_GOALS[w.id]; const [a, b] = G.p(); return row(w.name, G.how, a >= b, a, b, TIER(w) === 3 ? 'Gear' : 'Weapon', GI[w.id] || '⚙️'); });
+    cards.push(
+      row('Crash Site Prime', 'Win a run on Hard difficulty. Say yes to space after beating Thermes in round 6 to play it: a 10-minute round with The Visitor as the boss.', Unlocks.has('space'), Unlocks.has('space') ? 1 : 0, 1, 'Hidden map', '🪐', 'A hidden map. Hint: beat the whole run on a tougher difficulty.'),
+      row('The Visitor', 'Defeat The Visitor on Crash Site Prime', Unlocks.has('visitor'), Unlocks.has('visitor') ? 1 : 0, 1, 'Character', '🛸', 'A hidden character. Hint: something is waiting past round 6.'),
+      ...Object.values(EXTRA_GOALS).map((G) => { const [a, b] = G.p(); return row(G.name, G.how, a >= b, a, b, G.tag, '⏩'); }),
+    );
+    this.$('#ul-sub').textContent = got + ' of ' + total + ' unlocked. Unlocked gear and weapons show up on the Weapon Wall.';
+    this.$('#ul-grid').innerHTML = cards.join('');
   }
 
   summary(s) {
@@ -1392,12 +1665,12 @@ export class UI {
     el.classList.remove('cast'); void el.offsetWidth; el.classList.add('cast');
   }
 
-  hitmarker(kill) {
+  hitmarker(kill, head) {
     const now = performance.now();
     if (!kill && now - (this._hmT || 0) < 60) return; // restarting the animation forces a layout; once per few frames is plenty
     this._hmT = now;
     const h = this.$('#hitmarker');
-    h.className = ''; void h.offsetWidth; h.className = kill ? 'on kill' : 'on';
+    h.className = ''; void h.offsetWidth; h.className = kill ? 'on kill' : head ? 'on head' : 'on';
   }
 
   coinPop(n) {
@@ -1416,7 +1689,7 @@ export class UI {
     d.style.left = pos[0] + (Math.random() - 0.5) * 30 + 'px';
     d.style.top = pos[1] + (Math.random() - 0.5) * 10 + 'px';
     layer.appendChild(d);
-    setTimeout(() => d.remove(), 800);
+    setTimeout(() => d.remove(), 1000);
   }
 
   prompt(html) {

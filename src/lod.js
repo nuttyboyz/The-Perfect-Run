@@ -31,7 +31,7 @@ function cluster(g, cells) {
   for (let r = 0; r < m; r++) {
     const s = sums[r];
     op.setXYZ(r, s[1] / s[4], s[2] / s[4], s[3] / s[4]);
-    if (on) { const l = Math.hypot(s[5], s[6], s[7]) || 1; on.setXYZ(r, s[5] / l, s[6] / l, s[7] / l); }
+    if (on) { const l = Math.hypot(s[5], s[6], s[7]); if (l > 0.05) on.setXYZ(r, s[5] / l, s[6] / l, s[7] / l); /* else keep the first vertex's own normal: opposing normals cancel to zero, and a zero normal shades as NaN */ }
   }
   const idx = g.index ? g.index.array : null, tri = idx ? idx.length : n, keep = [], seen = new Set();
   for (let t = 0; t < tri; t += 3) {

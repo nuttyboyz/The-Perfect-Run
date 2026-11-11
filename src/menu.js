@@ -15,6 +15,11 @@ import { makeWeapon } from './weapons.js';
 import { buildVista, makeSky } from './vista.js';
 import { upgradeVistaScan } from './vistascan.js';
 import { setupLobbyBg } from './lobbybg.js';
+import { PaintScape } from './paintscape.js';
+
+// Nutty's river painting brought to life (2026-11-11). Nutty only wanted to look at it, so it is OFF: the home screen stays
+// the 3D waterfall valley. ?home=paint shows the painted one.
+const PAINT_HOME = new URLSearchParams(location.search).get('home') === 'paint';
 
 export class MenuScene {
   constructor(game) {
@@ -133,8 +138,20 @@ export class MenuScene {
     this.camTarget = new THREE.Vector3(off0 + 10, 18, -62);
     this.camPos = new THREE.Vector3(off0 - 4, 13, 46);
     this.camera.position.copy(this.camPos);
+    if (PAINT_HOME) {
+      try {
+        this.paint = new PaintScape(game.q);
+        this.paintScene = new THREE.Scene();
+        this.paintScene.add(this.paint.group);
+        this.paintCam = new THREE.PerspectiveCamera(50, this.camera.aspect, 0.5, 4000);
+      } catch (e) { console.warn('painted home failed', e); this.paint = null; }
+    }
     this.setDay(true);
   }
+
+  // True while the title shows the living painting (drawn by drawPaint instead of the normal render).
+  get paintOn() { return !!this.paint && this.day && this.focusIdx < 0; }
+  drawPaint(renderer) { this.paint.render(renderer, this.paintScene, this.paintCam, null); }
 
   // Title = the daylight valley (no characters); lobby = the dusk cliff with your character on it.
   setDay(day) {
@@ -168,7 +185,7 @@ export class MenuScene {
     h.mesh = m; h.skin = skin;
   }
 
-  onResize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
+  onResize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); if (this.paintCam) this.paintCam.aspect = w / h; }
 
   focus(i) { this.focusIdx = i; }
 
@@ -329,6 +346,13 @@ export class MenuScene {
 
   update(dt, mouse) {
     this.t += dt;
+    if (this.paintOn) {
+      this.paint.update(this.t);
+      const pm = (this._pm ||= { x: 0, y: 0 }), mx0 = mouse ? mouse[0] - 0.5 : 0, my0 = mouse ? mouse[1] - 0.5 : 0;
+      pm.x += (mx0 - pm.x) * Math.min(1, dt * 2); pm.y += (-my0 - pm.y) * Math.min(1, dt * 2);
+      this.paint.placeCamera(this.paintCam, this.t, pm);
+      return;
+    }
     if (this.day) { this.vista.update(dt, this.t); this.sky.material.uniforms.t.value = this.t; }
     else this.heroes.forEach((h, i) => {
       h.mesh.userData.anim({ speed: 0, pitch: 0.08, weapon: true }, dt, this.t + i);

@@ -32,6 +32,27 @@ function rockGeos() {
   return ROCK_GEOS;
 }
 
+// A sharp, faceted shard of rock (base at y = 0, tip at y = 1) for Pillar Burst.
+let SHARD_GEOS = null;
+function shardGeos() {
+  if (SHARD_GEOS) return SHARD_GEOS;
+  SHARD_GEOS = [];
+  for (let k = 0; k < 3; k++) {
+    const g = new THREE.ConeGeometry(1, 1, 6 + k, 4);
+    g.translate(0, 0.5, 0);
+    const p = g.attributes.position, n = makeNoise(300 + k);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      if (y > 0.985) continue; // the tip stays a needle point
+      const j = 1 + (n.fbm(x * 2.3 + y * 3 + 4, z * 2.3 + y * 2, 3) - 0.5) * 0.7 * (1 - y * 0.6);
+      p.setXYZ(i, x * j + Math.sin(y * 9 + k) * 0.05, y, z * j + Math.cos(y * 7 + k) * 0.05);
+    }
+    g.computeVertexNormals();
+    SHARD_GEOS.push(g);
+  }
+  return SHARD_GEOS;
+}
+
 export function rockMaterial(tint) {
   const m = TX.rockMaps(tint || [0.46, 0.4, 0.34]);
   return new THREE.MeshStandardMaterial({ map: m.map, normalMap: m.normalMap, normalScale: new THREE.Vector2(1.4, 1.4), roughness: 0.93, metalness: 0.02 });
@@ -122,7 +143,7 @@ export class Elements {
           fx.glow.emit({ p: [pos.x, pos.y, pos.z], life: 0.05, s0: 3.4, s1: 3.4, c0: [1, 0.7, 0.3, 0.7], c1: [1, 0.5, 0.2, 0.4] });
           if (onPass) { passT += dt; if (passT >= 0.1) { passT = 0; onPass([pos.x, pos.y, pos.z]); } }
         }
-        if (pos.y <= ground + 0.2 || traveled > range || (!pierce && hitTest && hitTest(pos))) {
+        if (pos.y <= ground + 0.2 || traveled > range || (!pierce && hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && this.solid(pos.x, pos.y, pos.z))) {
           explode();
           return false;
         }
@@ -356,7 +377,7 @@ export class Elements {
         m.rotation.x += spin[0] * dt; m.rotation.y += spin[1] * dt; m.rotation.z += spin[2] * dt;
         if (Math.random() < 0.7) fx.debris.emit({ p: [pos.x + rnd(-0.3, 0.3), pos.y + rnd(-0.3, 0.3), pos.z + rnd(-0.3, 0.3)], v: [rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)], life: rnd(0.3, 0.6), s0: 0.14, s1: 0.06, c0: [0.5, 0.4, 0.3, 1], c1: [0.4, 0.3, 0.2, 0], g: 10 });
         if (Math.random() < 0.5) fx.smoke.emit({ p: [pos.x, pos.y, pos.z], v: [0, 0.4, 0], life: 0.6, s0: 0.5, s1: 1.4, c0: [0.6, 0.5, 0.38, 0.3], c1: [0.6, 0.5, 0.4, 0], drag: 1 });
-        if (pos.y <= this.h(pos.x, pos.z) + 0.35 || traveled > range || (hitTest && hitTest(pos))) { smash(); return false; }
+        if (pos.y <= this.h(pos.x, pos.z) + 0.35 || traveled > range || (hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && this.solid(pos.x, pos.y, pos.z))) { smash(); return false; }
       },
       dispose: () => scene.remove(m),
     });
@@ -438,18 +459,34 @@ export class Elements {
   // Pillar Burst: a column of rock erupts under each point in `pts` (the enemies' feet), holds, then sinks back.
   pillars(pts, from, dur = 1.6) {
     const fx = this.fx, scene = this.scene;
-    const geos = rockGeos(), mat = rockMat();
+    const geos = rockGeos(), shards = shardGeos(), mat = rockMat(), DEEP = 8.2;
     const cols = pts.map((p, i) => {
       const g = new THREE.Group();
-      const base = new THREE.Mesh(geos[i % 4], mat), spire = new THREE.Mesh(geos[(i + 2) % 4], mat);
-      base.scale.set(1.0, 1.1, 1.0); base.position.y = 0.9;
-      spire.scale.set(0.62, 2.1, 0.62); spire.position.y = 2.2;
+      // a long needle of rock in the middle, a ring of leaning shards around it and broken boulders at its foot
+      const base = new THREE.Mesh(geos[i % 4], mat);
+      base.scale.set(1.35, 0.9, 1.35); base.position.y = 0.5;
+      const spire = new THREE.Mesh(shards[i % 3], mat);
+      spire.scale.set(0.95, 7.4 + Math.random() * 1.2, 0.95); spire.rotation.z = (Math.random() - 0.5) * 0.1;
       base.castShadow = spire.castShadow = true;
       g.add(base, spire);
+      const nS = 6;
+      for (let k = 0; k < nS; k++) {
+        const an = (k / nS) * 6.28 + Math.random() * 0.5, rr = 0.75 + Math.random() * 0.75;
+        const sh = new THREE.Mesh(shards[(i + k) % 3], mat), w = 0.34 + Math.random() * 0.3;
+        sh.scale.set(w, 2.6 + Math.random() * 3.0, w);
+        sh.position.set(Math.cos(an) * rr, 0, Math.sin(an) * rr);
+        const tilt = 0.22 + Math.random() * 0.38;
+        sh.rotation.set(Math.sin(an) * tilt, Math.random() * 6.28, -Math.cos(an) * tilt, 'YXZ');
+        sh.castShadow = true;
+        g.add(sh);
+      }
+      for (let k = 0; k < 3; k++) { const an = Math.random() * 6.28, rr = 1.5 + Math.random() * 0.7; const b = new THREE.Mesh(geos[(i + k + 1) % 4], mat); const sc = 0.35 + Math.random() * 0.3; b.scale.set(sc, sc * 0.8, sc); b.position.set(Math.cos(an) * rr, 0.2, Math.sin(an) * rr); g.add(b); }
       const y = this.h(p[0], p[2]);
-      g.position.set(p[0], y - 4.2, p[2]);
+      g.position.set(p[0], y - DEEP, p[2]);
       g.rotation.y = Math.random() * 6.28;
-      g.userData = { y, delay: from ? Math.hypot(p[0] - from[0], p[2] - from[2]) * 0.02 : i * 0.03, up: false };
+      const delay = from ? Math.hypot(p[0] - from[0], p[2] - from[2]) * 0.02 : i * 0.03;
+      g.userData = { y, delay, up: false };
+      if (this.block) this.block(p[0], p[2], 1.7, y + 7, delay + dur + 0.2); // while it stands, no shot passes through it
       scene.add(g);
       return g;
     });
@@ -468,7 +505,7 @@ export class Elements {
             for (let k = 0; k < fx.n(12); k++) { const an = Math.random() * 6.28; fx.debris.emit({ p: [g.position.x, u.y + 0.3, g.position.z], v: [Math.cos(an) * rnd(2, 6), rnd(5, 11), Math.sin(an) * rnd(2, 6)], life: rnd(0.6, 1.1), s0: rnd(0.25, 0.55), s1: 0.2, c0: [0.5, 0.38, 0.26, 1], c1: [0.4, 0.3, 0.2, 0], g: 18, drag: 0.3 }); }
           }
           const rise = a < 0.14 ? 1 - Math.pow(1 - a / 0.14, 2) : a < dur ? 1 : Math.max(0, 1 - (a - dur) / 0.6);
-          g.position.y = u.y - 4.2 + rise * 4.2;
+          g.position.y = u.y - DEEP + rise * DEEP;
         }
       },
       dispose: () => { for (const g of cols) scene.remove(g); },
@@ -1390,9 +1427,11 @@ export class Elements {
   orb(o, v, { color = [0.4, 1, 0.3], size = 1, dur = 4, onUpdate, gravity = 0 } = {}) {
     const fx = this.fx;
     const pos = new THREE.Vector3(...o), vel = new THREE.Vector3(...v);
+    let age = 0;
     return fx.add({
       dur,
       update: (dt) => {
+        age += dt;
         vel.y -= gravity * dt;
         pos.addScaledVector(vel, dt);
         // Enemy shots must be easy to see: a big coloured halo, a white-hot core, a long fading trail and a streak along the flight line.
@@ -1403,6 +1442,7 @@ export class Elements {
         fx.streak.emit({ p: [pos.x - vel.x / sp * 0.9 * size, pos.y - vel.y / sp * 0.9 * size, pos.z - vel.z / sp * 0.9 * size], v: [0, 0, 0], life: 0.12, s0: 3.2 * size, s1: 1.4 * size, c0: [...color, 0.9], c1: [...color, 0], rot: ang });
         if (onUpdate && onUpdate(pos, vel) === false) return false;
         if (pos.y < this.h(pos.x, pos.z)) { fx.impact([pos.x, pos.y + 0.2, pos.z], color); return false; }
+        if (age > 0.12 && this.solid && this.solid(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // a rock, tree or wall stops it
       },
     });
   }

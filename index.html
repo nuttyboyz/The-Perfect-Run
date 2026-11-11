@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-lobby="flip">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>The Perfect Run</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Nosifer&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Luckiest+Guy&family=Nosifer&family=Russo+One&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": {
@@ -16,6 +16,11 @@
 </script>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="cb-protan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  -0.255 1.255 0 0 0  0.303 -0.545 1.242 0 0  0 0 0 1 0"/></filter>
+  <filter id="cb-deutan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  -0.438 1.438 0 0 0  0.262 -0.562 1.3 0 0  0 0 0 1 0"/></filter>
+  <filter id="cb-tritan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1.05 -0.382 0.332 0 0  0 1.234 -0.234 0 0  0 0 1 0 0  0 0 0 1 0"/></filter>
+</defs></svg>
 <div id="login" class="login pad-root">
   <div class="login-panel">
     <div class="login-logo"><em>The</em> PERFECT RUN</div>
@@ -59,15 +64,15 @@
       <button class="btn primary" id="btn-solo">Play Solo</button>
       <button class="btn" id="btn-create">Create Party</button>
       <button class="btn" id="btn-join">Join Party</button>
-      <button class="btn" id="btn-couch">Couch Co-op <small>split-screen · 2 players</small></button>
-      <button class="btn duel-btn" id="btn-duel">Duel Arena <small>1v1 in a random arena · vs CPU or a friend</small></button>
+      <button class="btn" id="btn-couch">Local Co-op <small>2 Player Split-Screen</small></button>
+      <button class="btn duel-btn" id="btn-duel">Duel Arena <small>Battle 1v1 against a CPU or a Friend</small></button>
       <button class="btn pshop-btn" id="btn-pshop">Perfect Shop <small>Permanent Power-Ups · <b id="title-pp">0</b> PP</small></button>
       <button class="btn unlocks-btn" id="btn-unlocks">Unlockables <small>Gear &amp; More!</small></button>
-      <button class="btn daily-btn" id="btn-daily">Daily Challenges <small><b id="title-daily">0 / 3</b> done today · earn PP</small></button>
+      <button class="btn daily-btn" id="btn-daily">Daily Challenges <small><b id="title-daily">0/3</b> Completed · Earn PP</small></button>
       <div class="view-toggle" id="view-toggle"><span>Camera</span><button data-view="first">First person</button><button data-view="third">Third person</button></div>
       <div class="menu-row">
-      <button class="btn small" id="btn-help">How to play</button>
-        <button class="btn small" id="btn-settings">Settings</button>
+      <button class="btn small wood-btn" id="btn-help"><span>How to Play</span></button>
+        <button class="btn small steel-btn" id="btn-settings"><span>Settings</span><svg class="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
         <button class="btn small fs-toggle">Fullscreen</button>
       </div>
     </div>
@@ -79,11 +84,31 @@
 <section class="screen" id="s-duel">
   <div class="panel duelpick">
     <h2>Duel Arena <small>1000 health each · 10 minutes · a new power-up every 30 seconds</small></h2>
-    <p class="muted">Pick any character, any two weapons and your element. Every 30 seconds the fight freezes and you both choose one of five attack power-ups. First one down loses.</p>
+    <p class="muted">Pick any character, any 3 weapons and your element. Every 30 seconds the fight freezes and you both choose one of five attack power-ups. First one down loses.</p>
     <div class="duel-opts">
-      <button class="btn primary big" id="duel-cpu"><b>Versus the CPU</b><small>Solo, one bot opponent</small></button>
-      <button class="btn big" id="duel-couch"><b>Two players, one screen</b><small>Split-screen couch versus</small></button>
-      <button class="btn big" id="duel-online"><b>Online versus</b><small>Create a party, then pick Duel Arena in the lobby</small></button>
+      <button class="btn primary big" id="duel-cpu"><span class="duel-tx"><b>Versus the CPU</b><small>Solo, one bot opponent. You pick its fighter too</small></span><svg class="duel-ic" viewBox="0 0 96 96"><defs><linearGradient id="dcA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b6470"/><stop offset="1" stop-color="#1c2026"/></linearGradient><linearGradient id="dcB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b2b3a"/><stop offset=".6" stop-color="#06131c"/><stop offset="1" stop-color="#0e3a2c"/></linearGradient><radialGradient id="dcC" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#b8fff0"/><stop offset=".5" stop-color="#2be3b4"/><stop offset="1" stop-color="#0a6b55"/></radialGradient></defs>
+<rect x="8" y="10" width="80" height="56" rx="6" fill="url(#dcA)" stroke="#aeb7c2" stroke-width="1.5"/><rect x="13" y="15" width="70" height="46" rx="3" fill="url(#dcB)" stroke="#000" stroke-width="1"/>
+<g stroke="#2be3b4" stroke-opacity=".16" stroke-width="1"><path d="M13 21h70M13 27h70M13 33h70M13 39h70M13 45h70M13 51h70M13 57h70"/></g>
+<rect x="34" y="24" width="28" height="28" rx="4" fill="#0a1a20" stroke="#2be3b4" stroke-width="1.6"/>
+<g stroke="#2be3b4" stroke-width="1.6" stroke-linecap="round"><path d="M40 24v-5M48 24v-5M56 24v-5M40 52v5M48 52v5M56 52v5M34 30h-6M34 38h-6M34 46h-6M62 30h6M62 38h6M62 46h6"/></g>
+<g stroke="#2be3b4" stroke-opacity=".6" stroke-width="1" fill="none"><path d="M28 30h-6v-8M68 46h7v8M28 46h-9M68 30h9"/></g><circle cx="22" cy="22" r="1.6" fill="#2be3b4"/><circle cx="75" cy="54" r="1.6" fill="#2be3b4"/><circle cx="19" cy="46" r="1.6" fill="#2be3b4"/><circle cx="77" cy="30" r="1.6" fill="#2be3b4"/>
+<circle cx="42.5" cy="35" r="3.4" fill="url(#dcC)"/><circle cx="53.5" cy="35" r="3.4" fill="url(#dcC)"/><circle cx="43.3" cy="34.2" r="1" fill="#fff"/><circle cx="54.3" cy="34.2" r="1" fill="#fff"/>
+<path d="M41 44h14" stroke="#2be3b4" stroke-width="2" stroke-linecap="round"/><path d="M44.5 42.5v3M48 42.5v3M51.5 42.5v3" stroke="#0a1a20" stroke-width="1"/>
+<path d="M14 16h68l-30 18z" fill="#fff" fill-opacity=".06"/>
+<path d="M40 66h16l3 12H37z" fill="url(#dcA)" stroke="#8a929c" stroke-width="1"/><rect x="24" y="78" width="48" height="7" rx="3.5" fill="url(#dcA)" stroke="#aeb7c2" stroke-width="1.2"/><circle cx="80" cy="62.5" r="1.5" fill="#55ff9a"/></svg></button>
+      <button class="btn big" id="duel-couch"><span class="duel-tx"><b>Two players, one screen</b><small>Split-screen local versus</small></span><svg class="duel-ic" viewBox="0 0 96 96"><defs><linearGradient id="dsA" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f6f9fc"/><stop offset=".48" stop-color="#c4ccd6"/><stop offset=".52" stop-color="#7c8794"/><stop offset="1" stop-color="#aab4c0"/></linearGradient><linearGradient id="dsB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a6"/><stop offset=".55" stop-color="#d9a93a"/><stop offset="1" stop-color="#8a6212"/></linearGradient><linearGradient id="dsC" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5a2f14"/><stop offset=".5" stop-color="#8a4c22"/><stop offset="1" stop-color="#3d1e0c"/></linearGradient><radialGradient id="dsD" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff"/><stop offset=".4" stop-color="#ffe9a6" stop-opacity=".9"/><stop offset="1" stop-color="#ffb030" stop-opacity="0"/></radialGradient></defs>
+<defs><g id="dsSw"><path d="M44.2 6 48 1.5 51.8 6 51 60h-6z" fill="url(#dsA)" stroke="#39414b" stroke-width="1"/><path d="M48 4v55" stroke="#5d6772" stroke-width="1.1"/><path d="M45.6 8 47 5v54h-1.6z" fill="#fff" fill-opacity=".55"/>
+<path d="M33 60c4-2.6 26-2.6 30 0l2.5 3.2c-5 2.4-30 2.4-35 0z" fill="url(#dsB)" stroke="#5a3e08" stroke-width="1"/><circle cx="31.5" cy="62" r="2.6" fill="url(#dsB)" stroke="#5a3e08" stroke-width=".8"/><circle cx="64.5" cy="62" r="2.6" fill="url(#dsB)" stroke="#5a3e08" stroke-width=".8"/><path d="M48 59.5l2.6 2.6-2.6 2.6-2.6-2.6z" fill="#d83a3a" stroke="#5a0a0a" stroke-width=".6"/>
+<rect x="44.6" y="64.6" width="6.8" height="17" rx="1.6" fill="url(#dsC)" stroke="#241006" stroke-width="1"/><path d="M44.8 68h6.4M44.8 71.5h6.4M44.8 75h6.4M44.8 78.5h6.4" stroke="#1d0d05" stroke-width="1"/>
+<circle cx="48" cy="85.5" r="4.4" fill="url(#dsB)" stroke="#5a3e08" stroke-width="1"/><circle cx="46.8" cy="84.2" r="1.3" fill="#fff" fill-opacity=".7"/></g></defs>
+<use href="#dsSw" transform="rotate(42 48 44)"/><g transform="rotate(-42 48 44)"><use href="#dsSw"/></g>
+<circle cx="48" cy="41" r="13" fill="url(#dsD)"/><g stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M48 24v-8M48 58v6M31 41h-8M65 41h8M36.5 29.5l-5-5M59.5 29.5l5-5"/></g></svg></button>
+      <button class="btn big" id="duel-online"><span class="duel-tx"><b>Online versus</b><small>Create a party, then pick Duel Arena in the lobby</small></span><svg class="duel-ic" viewBox="0 0 96 96"><defs><radialGradient id="dgA" cx=".36" cy=".3" r=".8"><stop offset="0" stop-color="#9fe0ff"/><stop offset=".45" stop-color="#2b86e0"/><stop offset="1" stop-color="#0a2a66"/></radialGradient><linearGradient id="dgB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8fe38a"/><stop offset="1" stop-color="#1f8a48"/></linearGradient><radialGradient id="dgC" cx=".5" cy=".5" r=".5"><stop offset=".72" stop-color="#6cc4ff" stop-opacity="0"/><stop offset=".9" stop-color="#6cc4ff" stop-opacity=".5"/><stop offset="1" stop-color="#6cc4ff" stop-opacity="0"/></radialGradient><clipPath id="dgK"><circle cx="48" cy="48" r="32"/></clipPath></defs>
+<circle cx="48" cy="48" r="42" fill="url(#dgC)"/><circle cx="48" cy="48" r="32" fill="url(#dgA)" stroke="#0a1f4a" stroke-width="1.5"/>
+<g clip-path="url(#dgK)"><path d="M22 30c5-5 13-8 18-7 4 1 3 5 0 7-3 2-2 5 1 7 4 3 3 8-1 10-3 2-3 6-6 9-3 2-6-1-7-5-1-5-5-6-7-10-2-4 0-8 2-11z" fill="url(#dgB)" stroke="#0e5a2c" stroke-width=".8"/><path d="M52 22c6-2 15 0 20 5 4 4 7 9 5 12-2 2-6 0-9 1-4 2-2 7-6 8-4 1-6-3-5-7 1-3-3-4-5-7-3-4-3-10 0-12z" fill="url(#dgB)" stroke="#0e5a2c" stroke-width=".8"/><path d="M50 56c4-2 10-1 13 2 3 4 2 10-1 15-2 4-6 6-9 4-3-2-2-6-4-10-2-4-3-9 1-11z" fill="url(#dgB)" stroke="#0e5a2c" stroke-width=".8"/><path d="M70 52c3-1 8 1 10 4v8c-3 1-8 0-10-3-2-3-2-7 0-9z" fill="url(#dgB)" stroke="#0e5a2c" stroke-width=".8"/><path d="M24 66c3-1 7 1 9 4 1 3-1 7-4 8-4 0-8-4-8-7 0-2 1-4 3-5z" fill="url(#dgB)" stroke="#0e5a2c" stroke-width=".8"/>
+<g fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1"><ellipse cx="48" cy="48" rx="12" ry="32"/><ellipse cx="48" cy="48" rx="23" ry="32"/><path d="M16 48h64M19 34h58M19 62h58M27 23h42M27 73h42"/></g>
+<ellipse cx="38" cy="32" rx="15" ry="9" fill="#fff" fill-opacity=".2" transform="rotate(-28 38 32)"/><path d="M48 16a32 32 0 0 1 0 64a44 44 0 0 0 0-64z" fill="#001033" fill-opacity=".3"/></g>
+<ellipse cx="48" cy="48" rx="45" ry="13" fill="none" stroke="#ffd166" stroke-width="1.8" stroke-dasharray="3 5" transform="rotate(-20 48 48)"/><circle cx="7" cy="60" r="4" fill="#ffd166" stroke="#7a5200" stroke-width="1"/><circle cx="89" cy="36" r="4" fill="#ff6a6a" stroke="#6b0a0a" stroke-width="1"/><circle cx="62" cy="13" r="2.5" fill="#fff"/></svg></button>
     </div>
     <button class="btn small ghost" data-back="s-title">Back</button>
   </div>
@@ -200,7 +225,7 @@
 
 <!-- ============ UNLOCKABLES ============ -->
 <section class="screen" id="s-unlocks">
-  <div class="panel unlocks">
+  <div class="panel unlocks scrolls">
     <h2>Unlockables</h2>
     <p class="muted" id="ul-sub"></p>
     <div id="ul-grid" class="ul-grid"></div>
@@ -210,7 +235,7 @@
 
 <!-- ============ DAILY CHALLENGES ============ -->
 <section class="screen" id="s-daily">
-  <div class="panel unlocks daily">
+  <div class="panel unlocks daily scrolls">
     <h2>Daily Challenges</h2>
     <p class="muted" id="dl-sub"></p>
     <div id="dl-grid" class="ul-grid dl-grid"></div>
@@ -221,37 +246,24 @@
 
 <!-- ============ HELP ============ -->
 <section class="screen" id="s-help">
-  <div class="panel help">
-    <h2>How to play</h2>
-    <div class="help-grid">
-      <div><h3>Controls</h3>
-        <ul class="keys">
-          <li><kbd>W A S D</kbd> Move · <kbd>Shift</kbd> Sprint · <kbd>Space</kbd> Jump · <kbd>X</kbd> Dash</li>
-          <li><kbd>Mouse</kbd> Aim · <kbd>Left click</kbd> Attack</li>
-          <li><kbd>Q</kbd> / <kbd>G</kbd> Element abilities · <kbd>F</kbd> Ultimate · <kbd>Right click</kbd> / <kbd>C</kbd> Aim, or block with a shield</li>
-          <li><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> / <kbd>Wheel</kbd> Swap weapon · <kbd>R</kbd> Reload</li>
-          <li><kbd>Space</kbd> again in the air: Web Swing (hold to hang on, let go to fly) · double-tap: Jetpack</li>
-          <li><kbd>E</kbd> Open crate / use altar · <kbd>B</kbd> Place bed</li>
-          <li><kbd>Tab</kbd> Shop · <kbd>C</kbd> Close camera · <kbd>V</kbd> First / third person · <kbd>Esc</kbd> Menu</li>
-        </ul>
-      </div>
-      <div><h3>The run</h3>
-        <ul>
-          <li>6 rounds, each a new generated map with its own boss. Round 6 ends with <b>Thermes</b>, a demonic viking deity.</li>
-          <li>There is no leaving early. Each round lasts <b>10 minutes</b>; when the clock hits zero <b>Death</b> hunts you and the altar unseals. <b id="help-altar">Hold E</b> at the altar to summon the boss.</li>
-          <li>Kills pay <b>2 PC</b>. Bosses pay <b>200 PC</b> and let you pick 1 of <b>9 Deity Blessings</b>.</li>
-          <li>Spend PC on <b>crates</b> (random power-ups), and <b>beds</b> (respawns).</li>
-          <li>You start with <b>1 bed</b>. Place it, and you respawn there once.</li>
-        </ul>
-      </div>
-    </div>
+  <div class="panel help wood scrolls">
+    <h2 class="wood-title"><span>How to Play</span></h2>
+    <p class="story-lead">The world has gone quiet. <b>Thermes</b>, a horned viking deity, sits on its throne, and his monsters pour out of every graveyard, forest and frozen peak. Someone has to cut a path to him.</p>
+    <ol class="story">
+      <li><i>🛡️</i><div><b>Choose your fighter.</b> Pick a hero, an element to command, and three weapons from the Weapon Wall.</div></li>
+      <li><i>⚔️</i><div><b>Slash and shoot.</b> Waves of monsters close in from every side. Cut them down up close, gun them down from range, and burn, freeze or shock whatever is left.</div></li>
+      <li><i>⭐</i><div><b>Level up.</b> Every kill feeds your XP bar. Each new level hands you a power-up, so the longer you last, the harder you hit.</div></li>
+      <li><i>🪙</i><div><b>Spend your coins.</b> Fallen monsters drop Perfect Coins. Crack open crates for more power, and buy beds that pull you back from death.</div></li>
+      <li><i>💀</i><div><b>Beat the clock.</b> Each round lasts ten minutes. When time runs out Death comes hunting and the altar wakes. Call the round's boss there and bring it down to earn a deity's blessing.</div></li>
+      <li><i>👑</i><div><b>Face Thermes.</b> Six rounds, six lands, six bosses. At the end he is waiting. Arrive strong enough to end him, and that is the perfect run.</div></li>
+    </ol>
     <button class="btn small ghost" data-back="s-title">Back</button>
   </div>
 </section>
 
 <!-- ============ PERFECT SHOP ============ -->
 <section class="screen" id="s-pshop">
-  <div class="pshop">
+  <div class="pshop scrolls">
     <div class="pshop-head">
       <div>
         <h2>The Perfect Shop</h2>
@@ -269,43 +281,76 @@
 
 <!-- ============ SETTINGS ============ -->
 <section class="screen" id="s-settings">
-  <div class="panel settings">
-    <h2>Settings</h2>
-    <div class="set-grid">
-      <div class="set-group"><h3>Controls</h3>
-        <label class="field"><span>Controller layout <small>what the button prompts show</small></span>
-          <select id="set-layout"><option value="ds">DualShock (PlayStation)</option><option value="xbox">Xbox controller</option><option value="kb">Mouse and keyboard</option></select>
-        </label>
-        <label class="field"><span>Look sensitivity <em id="sens-val"></em></span><input type="range" id="set-sens" min="0.2" max="3" step="0.05"></label>
-        <label class="field"><span>Aim-down-sights sensitivity <em id="sens-ads-val"></em></span><input type="range" id="set-sens-ads" min="0.3" max="1.5" step="0.05"></label>
-        <label class="check"><input type="checkbox" id="set-invert"> Invert vertical look</label>
-        <label class="field"><span>Camera</span><select id="set-view"><option value="third">Third person</option><option value="first">First person</option></select></label>
-      </div>
-      <div class="set-group" id="set-accounts" style="display:none"><h3>Accounts <small>Admin only</small></h3>
-        <p class="muted">User profiles saved on this device. Deleting one removes its saved progress for good.</p>
-        <div id="acc-list" class="acc-list"></div>
-      </div>
-      <div class="set-group"><h3>Audio</h3>
-        <label class="field"><span>Master volume <em id="vol-val"></em></span><input type="range" id="set-vol" min="0" max="1" step="0.05"></label>
-        <label class="check"><input type="checkbox" id="set-music"> Music</label>
-        <label class="field"><span>Music volume <em id="music-vol-val"></em></span><input type="range" id="set-music-vol" min="0" max="1" step="0.05"></label>
-        <label class="check"><input type="checkbox" id="set-sfx"> Sound effects</label>
-      </div>
-      <div class="set-group"><h3>Display</h3>
-        <label class="field"><span>Graphics quality</span>
-          <select id="set-quality"><option value="high">High (bloom, sharp shadows)</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select>
-        </label>
-        <p class="muted" id="quality-note">Reload to apply. <button class="link" id="quality-reload">Reload now</button></p>
-        <label class="field"><span>Field of view <em id="fov-val"></em></span><input type="range" id="set-fov" min="55" max="105" step="1"></label>
-        <label class="check"><input type="checkbox" id="set-shake"> Screen shake</label>
-        <label class="check"><input type="checkbox" id="set-dmgnums"> Damage numbers</label>
-        <label class="check"><input type="checkbox" id="set-blood"> Blood splatter on your screen when hit</label>
-        <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
-        <button class="btn small fs-toggle">Fullscreen</button>
-        <p class="muted fs-hint">Shortcut: F11 or Alt+Enter.</p>
+  <div class="panel settings set2">
+    <div class="metal-banner"><h2 class="metal" data-t="SETTINGS">SETTINGS</h2><i class="metal-rule"></i></div>
+    <div class="set-body">
+      <nav class="set-nav" id="set-nav">
+        <button type="button" class="sel" data-cat="controls"><i>🎮</i>Controls</button>
+        <button type="button" data-cat="gameplay"><i>🎯</i>Gameplay</button>
+        <button type="button" data-cat="display"><i>🖥️</i>Display</button>
+        <button type="button" data-cat="audio"><i>🔊</i>Audio</button>
+        <button type="button" data-cat="access"><i>👁️</i>Accessibility</button>
+        <button type="button" data-cat="accounts" id="set-nav-acc"><i>👤</i>Accounts</button>
+      </nav>
+      <div class="set-panes scrolls">
+        <div class="set-pane set-group on" data-cat="controls"><h3>Controls</h3>
+          <button class="btn set-big" id="set-controls"><b>Controls and remapping</b><small>See every control on a picture of your keyboard or controller, and change any of them</small></button>
+          <label class="field"><span>Controller layout <small>what the button prompts show</small></span>
+            <select id="set-layout"><option value="ds">DualShock (PlayStation)</option><option value="xbox">Xbox controller</option><option value="kb">Mouse and keyboard</option></select>
+          </label>
+          <label class="field"><span>Look sensitivity <em id="sens-val"></em></span><input type="range" id="set-sens" min="0.2" max="3" step="0.05"></label>
+          <label class="field"><span>Aim-down-sights sensitivity <em id="sens-ads-val"></em></span><input type="range" id="set-sens-ads" min="0.3" max="1.5" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-invert"> Invert vertical look</label>
+        </div>
+        <div class="set-pane set-group" data-cat="gameplay"><h3>Gameplay</h3>
+          <label class="field"><span>Camera</span><select id="set-view"><option value="third">Third person</option><option value="first">First person</option></select></label>
+          <label class="field"><span>Field of view <em id="fov-val"></em></span><input type="range" id="set-fov" min="55" max="105" step="1"></label>
+          <div class="xh-row">
+            <div class="xh-opts">
+              <label class="field"><span>Crosshair style</span><select id="set-xh"><option value="cross">Cross</option><option value="dot">Dot</option><option value="circle">Circle</option><option value="crossdot">Cross and dot</option><option value="tee">T shape</option></select></label>
+              <label class="field"><span>Crosshair size <em id="xh-size-val"></em></span><input type="range" id="set-xh-size" min="0.6" max="2.2" step="0.1"></label>
+            </div>
+            <div class="xh-prev" id="xh-prev"><div class="xh" id="xh-demo"><i></i><i></i><i></i><i></i></div></div>
+          </div>
+          <label class="check"><input type="checkbox" id="set-shake"> Screen shake</label>
+          <label class="check"><input type="checkbox" id="set-dmgnums"> Damage numbers</label>
+          <label class="check"><input type="checkbox" id="set-blood"> Blood splatter on your screen when hit</label>
+        </div>
+        <div class="set-pane set-group" data-cat="display"><h3>Display</h3>
+          <label class="field"><span>Graphics quality</span>
+            <select id="set-quality"><option value="high">High (bloom, sharp shadows)</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select>
+          </label>
+          <p class="muted" id="quality-note">Press <b>Apply</b> to switch the graphics now. No restart needed.</p>
+          <label class="field"><span>UI scale <em id="ui-scale-val"></em> <small>size of menus and the in-game HUD</small></span><input type="range" id="set-ui-scale" min="0.8" max="1.3" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
+          <button class="btn small fs-toggle">Fullscreen</button>
+          <p class="muted fs-hint">Shortcut: F11 or Alt+Enter.</p>
+        </div>
+        <div class="set-pane set-group" data-cat="audio"><h3>Audio</h3>
+          <label class="field"><span>Master volume <em id="vol-val"></em></span><input type="range" id="set-vol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-music"> Music</label>
+          <label class="field"><span>Music volume <em id="music-vol-val"></em></span><input type="range" id="set-music-vol" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" id="set-sfx"> Sound effects</label>
+        </div>
+        <div class="set-pane set-group" data-cat="access"><h3>Accessibility</h3>
+          <label class="field"><span>Colourblind mode <small>shifts the game's colours so reds, greens and blues are easier to tell apart</small></span>
+            <select id="set-cb"><option value="off">Off</option><option value="protan">Protanopia (red-weak)</option><option value="deutan">Deuteranopia (green-weak)</option><option value="tritan">Tritanopia (blue-weak)</option></select>
+          </label>
+          <div class="cb-swatches"><i style="background:#e33"></i><i style="background:#3c3"></i><i style="background:#36f"></i><i style="background:#f5c242"></i><i style="background:#b57bff"></i><i style="background:#ff7a2a"></i></div>
+          <p class="muted">UI scale is under Display. Crosshair style and size are under Gameplay.</p>
+        </div>
+        <div class="set-pane set-group" data-cat="accounts" id="set-accounts" style="display:none"><h3>Accounts <small>Admin only</small></h3>
+          <p class="muted">User profiles saved on this device. Deleting one removes its saved progress for good.</p>
+          <div id="acc-list" class="acc-list"></div>
+        </div>
       </div>
     </div>
-    <button class="btn small ghost" id="settings-back" data-back="s-title">Back</button>
+    <div class="set-foot">
+      <span class="set-state" id="set-state">All settings saved</span>
+      <button class="btn small ghost" id="settings-back" data-back="s-title">Back</button>
+      <button class="btn small set-apply" id="settings-apply">Apply</button>
+      <button class="btn small set-save" id="settings-save">Save settings</button>
+    </div>
   </div>
 </section>
 
@@ -363,15 +408,19 @@
 
 <div id="dead" class="overlay soft"><div class="center-msg"><h2 id="dead-title">You died</h2><p id="dead-sub"></p></div></div>
 
+<div id="controls" class="overlay ctl-ov"></div>
+
 <div id="pause" class="overlay">
   <div class="panel narrow center">
     <h2 id="pause-sub">Paused</h2>
     <p class="muted" id="pause-note"></p>
     <button class="btn primary" id="pause-resume">Resume</button>
     <button class="btn" id="pause-settings">Settings</button>
+    <button class="btn" id="pause-controls">Controls</button>
     <button class="btn fs-toggle">Fullscreen</button>
     <div id="pause-share" class="share"></div>
-    <button class="btn ghost" id="pause-leave">Leave run</button>
+    <button class="btn ghost" id="pause-leave">Exit Run</button>
+    <div class="pause-sure" id="pause-sure"><h3>Are you sure?</h3><p class="muted" id="pause-sure-note">Your run will end and you go back to the main menu.</p><div class="ps-row"><button class="btn danger" id="pause-yes">Yes, exit</button><button class="btn primary" id="pause-no">No, keep playing</button></div></div>
   </div>
 </div>
 
@@ -393,7 +442,7 @@
     <div class="vote-kicker" id="vote-title">Time is up</div>
     <div class="vote-time" id="vote-time">10</div>
     <div class="vote-opts">
-      <button class="vote-opt fight" data-vote="f"><kbd>1</kbd><b>Fight</b><span>Face the boss for 20 PC and a Deity Blessing</span><em id="vote-f-n"></em></button>
+      <button class="vote-opt fight" data-vote="f"><kbd>1</kbd><b>Fight</b><span>Face the boss for 300 PC, 3 PP and a Deity Blessing</span><em id="vote-f-n"></em></button>
       <button class="vote-opt extract" id="vote-x" data-vote="x"><kbd>2</kbd><b>Extract</b><span>Leave safely for the next round</span><em id="vote-x-n"></em></button>
     </div>
     <div class="vote-warn">Choose nothing and the Demon Huntress comes for you.</div>

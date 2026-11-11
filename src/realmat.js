@@ -76,11 +76,14 @@ float rHeight(vec3 p, vec3 w, int kind, float sc) {
   float u = 45.0 * sc; return (rRope(p.yz * u) * w.x + rRope(p.xz * u) * w.y + rRope(p.xy * u) * w.z);
 }
 vec3 rPerturb(vec3 surfPos, vec3 surfNorm, vec2 dH, float faceDir) {
-  vec3 sx = normalize(dFdx(surfPos)), sy = normalize(dFdy(surfPos));
+  vec3 dpx = dFdx(surfPos), dpy = dFdy(surfPos);
+  if (dot(dpx, dpx) < 1e-16 || dot(dpy, dpy) < 1e-16) return surfNorm; // a sliver or far-away triangle: nothing to perturb
+  vec3 sx = normalize(dpx), sy = normalize(dpy);
   vec3 r1 = cross(sy, surfNorm), r2 = cross(surfNorm, sx);
   float det = dot(sx, r1) * faceDir;
   vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
-  return normalize(abs(det) * surfNorm - grad);
+  vec3 pn = abs(det) * surfNorm - grad;
+  return dot(pn, pn) > 1e-12 ? normalize(pn) : surfNorm;
 }
 `;
 
@@ -111,7 +114,7 @@ export function real(kind = 'steel', { scale, bump, rough, metal } = {}) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + GLSL + (su ? 'uniform sampler2D rmTex; uniform float rmOn; uniform vec3 rmAvg;' : ''))
       .replace('#include <color_fragment>', `#include <color_fragment>
-        vec3 rmW = pow(abs(normalize(rmN)), vec3(4.0)); rmW /= (rmW.x + rmW.y + rmW.z);
+        vec3 rmW = dot(rmN, rmN) > 1e-10 ? pow(abs(normalize(rmN)), vec3(4.0)) : vec3(0.0, 1.0, 0.0); rmW /= max(rmW.x + rmW.y + rmW.z, 1e-5);
         rmH = rHeight(rmP, rmW, ${hk}, ${sc.toFixed(3)});
         ${su ? `if (rmOn > 0.5) {
           vec3 q = rmP / ${tile};

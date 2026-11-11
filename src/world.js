@@ -798,6 +798,70 @@ export class World {
     return best <= maxD ? best : Infinity;
   }
 
+  // Trees, rocks, tombs, walls and buildings stop shots. Where does a ray along unit dir first meet one?
+  // Returns the distance, or Infinity. Anything nearer than tMin is skipped: cover the shooter is hugging, or a
+  // trunk that sits between a third-person camera and its own player.
+  rayProps(ox, oy, oz, dx, dy, dz, maxD, tMin = 0) {
+    let best = Infinity;
+    const a = dx * dx + dz * dz;
+    const span = (tin, tout, top, base) => {
+      if (tout < tMin || tin > maxD || tin < tMin) return;
+      const y = oy + dy * tin;
+      let hit = Infinity;
+      if (y < top && y > base) hit = tin; // the side of it
+      else if (y >= top && dy < 0) { const tt = (top - oy) / dy; if (tt >= tin && tt <= tout) hit = tt; } // coming down onto the top
+      if (hit < best) best = hit;
+    };
+    const cyl = (cx, cz, r, top, base) => {
+      if (r <= 0.05 || a < 1e-9) return;
+      const rx = ox - cx, rz = oz - cz, b = rx * dx + rz * dz, c = rx * rx + rz * rz - r * r, disc = b * b - a * c;
+      if (disc < 0) return;
+      const q = Math.sqrt(disc);
+      span((-b - q) / a, (-b + q) / a, top, base);
+    };
+    for (const c of this.colliders) cyl(c.x, c.z, c.r, this.colTop(c), -Infinity);
+    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now) cyl(t.x, t.z, t.r, t.top, -Infinity); }
+    if (this.platforms) for (const pf of this.platforms) {
+      if (pf.air) continue;
+      if (!pf.box) { cyl(pf.x, pf.z, pf.r, pf.top - 0.05, -Infinity); continue; }
+      const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = ox - pf.x, rz = oz - pf.z;
+      const lx = rx * c + rz * s, lz = -rx * s + rz * c, ldx = dx * c + dz * s, ldz = -dx * s + dz * c;
+      let tin = -Infinity, tout = Infinity, ok = true;
+      for (const [o, d, h] of [[lx, ldx, pf.hw], [lz, ldz, pf.hd]]) {
+        if (Math.abs(d) < 1e-9) { if (Math.abs(o) > h) { ok = false; break; } continue; }
+        let t1 = (-h - o) / d, t2 = (h - o) / d;
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        tin = Math.max(tin, t1); tout = Math.min(tout, t2);
+      }
+      if (ok && tin <= tout) span(tin, tout, pf.top - 0.05, pf.base !== undefined ? pf.base - 0.3 : -Infinity);
+    }
+    return best <= maxD ? best : Infinity;
+  }
+  // How tall a prop is for shots (props with no stated height count as about 4 m).
+  colTop(c) { if (c.top !== Infinity) return c.top; if (c.shotTop === undefined) c.shotTop = this.heightAt(c.x, c.z) + 4; return c.shotTop; }
+  // Is this point inside a tree, rock, tomb, wall or building? (Arrows, rockets, fireballs and enemy shots stop there.)
+  // Short-lived solid columns (Pillar Burst's rocks): they stop every shot while they stand.
+  addTemp(x, z, r, top, sec) {
+    const now = performance.now() / 1000;
+    this.temps = (this.temps || []).filter((t) => t.until > now);
+    this.temps.push({ x, z, r, top, until: now + sec });
+  }
+  solidPoint(x, y, z, r = 0.12) {
+    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true; }
+    const cs = 8;
+    const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
+    if (list) for (const c of list) if (y < this.colTop(c) && Math.hypot(x - c.x, z - c.z) < c.r + r) return true;
+    if (this.platforms) for (const pf of this.platforms) {
+      if (pf.air || y > pf.top - 0.05) continue;
+      if (pf.box) {
+        if (pf.base !== undefined && y < pf.base - 0.3) continue;
+        const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = x - pf.x, rz = z - pf.z;
+        if (Math.abs(rx * c + rz * s) < pf.hw + r && Math.abs(-rx * s + rz * c) < pf.hd + r) return true;
+      } else if (Math.hypot(x - pf.x, z - pf.z) < pf.r + r) return true;
+    }
+    return this.solids.length ? this.solidAt(x, y, z) : false;
+  }
+
   // Is this point inside a duel solid? (Rockets and grenades burst on it.)
   solidAt(x, y, z) {
     for (const s of this.solids) {

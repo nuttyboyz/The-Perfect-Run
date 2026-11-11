@@ -16,6 +16,13 @@ export function installFog() {
   if (fogPatched) return;
   fogPatched = true;
   const C = THREE.ShaderChunk;
+  // A surface normal of zero length (opposite normals blending across a thin shape, or broken model data) turns into
+  // not-a-number on most graphics cards, and the bloom then smears that one pixel into a huge black square.
+  // Every lit material now falls back to "straight up" for such a pixel instead.
+  if (!C.common.includes('prSafeN')) {
+    C.common += '\nvec3 prSafeN( vec3 n ) { float l = dot( n, n ); return l > 1e-12 ? n * inversesqrt( l ) : vec3( 0.0, 1.0, 0.0 ); }\n';
+    C.normal_fragment_begin = C.normal_fragment_begin.split('normalize( vNormal )').join('prSafeN( vNormal )');
+  }
   const sd = `vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)})`;
   C.fog_pars_vertex = `#ifdef USE_FOG\n varying float vFogDepth;\n varying vec3 vFogRay;\n#endif`;
   C.fog_vertex = `#ifdef USE_FOG\n vFogDepth = - mvPosition.z;\n vFogRay = mvPosition.xyz * mat3( viewMatrix );\n#endif`;
@@ -195,6 +202,10 @@ export function buildComposer(game, { EffectComposer, RenderPass, UnrealBloomPas
   c.addPass(game.renderPass);
   const div = q === 2 ? 2 : 3;
   game.bloom = new UnrealBloomPass(new THREE.Vector2(game.vw() / div, game.vh() / div), 0.5, 0.6, 0.85);
+  // One broken pixel (not-a-number or infinitely bright) used to be smeared by the bloom into a huge black square.
+  // The bloom's first step now throws such pixels away and caps the brightness it will spread.
+  { const hp = game.bloom.materialHighPassFilter, a = 'vec4 texel = texture2D( tDiffuse, vUv );';
+    if (hp && hp.fragmentShader.includes(a)) { hp.fragmentShader = hp.fragmentShader.replace(a, a + ' if ( ! ( texel.r + texel.g + texel.b < 1.0e6 ) || ! ( texel.r + texel.g + texel.b > -1.0 ) ) texel = vec4( 0.0, 0.0, 0.0, 1.0 ); texel.rgb = min( texel.rgb, vec3( 48.0 ) );'); hp.needsUpdate = true; } }
   c.addPass(game.bloom);
   game.gradePass = makeGradePass();
   c.addPass(game.gradePass);
@@ -205,4 +216,36 @@ export function buildComposer(game, { EffectComposer, RenderPass, UnrealBloomPas
     c.renderTarget2.samples = Math.min(maxS, q >= 2 ? 4 : 2);
   }
   return c;
+}
+
+// Some built props (ice shards, obelisks, far-away enemy models) carried zero-length normals. A zero normal shades
+// as not-a-number, which the bloom then smears into a huge black square. Give every such vertex its face's normal.
+const _healed = new WeakSet();
+export function healNormals(root) {
+  let fixed = 0;
+  root.traverse((m) => {
+    const g = m.geometry;
+    if (!g || _healed.has(g) || !g.attributes || !g.attributes.normal || !g.attributes.position) return;
+    _healed.add(g);
+    const N = g.attributes.normal, P = g.attributes.position, idx = g.index ? g.index.array : null;
+    if (N.isInterleavedBufferAttribute || N.normalized) return;
+    const na = N.array;
+    let bad = null;
+    for (let i = 0; i < N.count; i++) { const x = na[i * 3], y = na[i * 3 + 1], z = na[i * 3 + 2]; if (!(x * x + y * y + z * z > 1e-4)) (bad = bad || new Set()).add(i); }
+    if (!bad) return;
+    const tri = idx ? idx.length : P.count;
+    for (let t = 0; t + 2 < tri; t += 3) {
+      const a = idx ? idx[t] : t, b = idx ? idx[t + 1] : t + 1, c = idx ? idx[t + 2] : t + 2;
+      if (!bad.has(a) && !bad.has(b) && !bad.has(c)) continue;
+      const ax = P.getX(a), ay = P.getY(a), az = P.getZ(a);
+      const ux = P.getX(b) - ax, uy = P.getY(b) - ay, uz = P.getZ(b) - az, vx = P.getX(c) - ax, vy = P.getY(c) - ay, vz = P.getZ(c) - az;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz);
+      if (l > 1e-12) { nx /= l; ny /= l; nz /= l; } else { nx = 0; ny = 1; nz = 0; }
+      for (const i of [a, b, c]) if (bad.has(i)) { na[i * 3] = nx; na[i * 3 + 1] = ny; na[i * 3 + 2] = nz; bad.delete(i); fixed++; }
+    }
+    for (const i of bad) { na[i * 3] = 0; na[i * 3 + 1] = 1; na[i * 3 + 2] = 0; fixed++; }
+    N.needsUpdate = true;
+  });
+  return fixed;
 }

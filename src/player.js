@@ -1,6 +1,6 @@
 // The local player: movement, weapons, abilities, damage, beds and death.
 import * as THREE from 'three';
-import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK } from './mutators.js';
+import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME } from './mutators.js';
 import { CONFIG, DUEL, GRAV, HEAL, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
@@ -154,6 +154,8 @@ export class LocalPlayer {
     // gun's iron sights or scope (see Game.updateCamera). Other weapons just pull the camera in close.
     const adsBtn = input.aimHeld || input.keys.has('KeyC') || input.keys.has('PadClose');
     const aimBtn = adsBtn || input.keys.has('PadClose');
+    // Bullet Time mutator: holding aim slows the world (the host reads this flag), and in the air it holds you there.
+    this.btHold = muOn(BULLET_TIME) && adsBtn && this.alive && !this.out;
     this.blockStep(dt, adsBtn && !!this.weapon.shield);
     const wantAds = adsBtn && this.weapon.kind === 'gun' && !this.weapon.eyes && !this.board && !this.climb && !this.sprinting && !this.dash;
     this.ads += ((wantAds ? 1 : 0) - this.ads) * Math.min(1, dt * 11);
@@ -212,7 +214,9 @@ export class LocalPlayer {
     if (this.drone) this.drone.update(dt, { x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw }, this.alive);
     this.turretStep(dt, input);
     if (this.gravPull) this.gravStep(dt);
-    if (!this.climb) { if (!this.jet.on && !this.wing.soar) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt); }
+    this.btHang = !!this.btHold && !this.onGround && !this.climb && !this.swing && !this.jet.on && !this.wing.soar && !this.dash;
+    if (this.btHang) { this.vel.y *= Math.exp(-14 * dt); const hd = Math.exp(-6 * dt); this.vel.x *= hd; this.vel.z *= hd; if (Math.abs(this.vel.y) < 0.05) this.vel.y = 0; } // brake to a stop and hang
+    if (!this.climb) { if (!this.jet.on && !this.wing.soar && !this.btHang) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt); }
     if (this.knock) { // a shove from the other duelist's hit: slides you back, fading over about 0.4 s
       this.pos.x += this.knock.x * dt; this.pos.z += this.knock.z * dt;
       const kd = Math.exp(-5 * dt); this.knock.x *= kd; this.knock.z *= kd;
@@ -1222,7 +1226,7 @@ export class LocalPlayer {
       for (let i = 0; i < 5; i++) { const a = (i - 2) * 0.32, dist = 4.5; pts.push([c[0] + (f[0] * Math.cos(a) - f[2] * Math.sin(a)) * dist, c[1], c[2] + (f[2] * Math.cos(a) + f[0] * Math.sin(a)) * dist]); }
     }
     g.el.pillars(pts, c);
-    const dmg = 140 * this.stats.dmg * this.mm('pillars'), hit = new Set();
+    const dmg = 154 * this.stats.dmg * this.mm('pillars'), hit = new Set(); // 140 + 10% (Nutty 2026-11-11)
     for (const t of g.targets()) {
       if (t.kind === 'demon' || hit.has(t.id)) continue;
       const pt = pts.find((p) => Math.hypot(t.x - p[0], t.z - p[2]) < t.r + 2.2);
@@ -1721,7 +1725,7 @@ export class LocalPlayer {
     const wp = this.weapon;
     return {
       p: [q10(this.pos.x), q10(this.pos.y), q10(this.pos.z)], ry: Math.round(this.yaw * 100), pt: Math.round(this.pitch * 100),
-      hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0,
+      hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0, bt: this.btHold ? 1 : 0,
       wi: this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
       ct: this.castT > 0 ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
       jp: this.jetEquipped() ? (this.jet.level > 0.1 ? 2 : 1) : this.hasGear('wings') ? (this.wing.soar ? 4 : this.game.now - this.wing.flapT < 0.45 ? 5 : 3) : 0,

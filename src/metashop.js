@@ -12,19 +12,19 @@ export function renderPShop(ui) {
     const r = m.ranks[d.id] | 0, maxed = r >= d.max, cost = maxed ? 0 : costOf(d, r), can = !maxed && m.pp >= cost;
     const pips = Array.from({ length: d.max }, (_, i) => `<i class="${i < r ? 'on' : ''}"></i>`).join('');
     const toggle = '';
-    return `<div class="ps-slot"><button class="ps-card ${maxed ? 'maxed' : can ? 'can' : ''}" data-id="${d.id}">
+    return `<div class="ps-slot"><div class="ps-card ${maxed ? 'maxed' : can ? 'can' : ''}">
       <div class="ps-ico">${d.icon}</div>
-      <div class="ps-body"><div class="ps-name">${esc(d.name)}</div><div class="ps-per">${esc(d.per)}</div><div class="ps-pips">${pips}</div><div class="ps-lore">${esc(d.lore)}</div></div>
-      <div class="ps-cost">${maxed ? 'MAX' : '<img class="pp-gem" alt="">' + cost}</div>
-    </button>${toggle}</div>`;
+      <div class="ps-body"><div class="ps-name">${esc(d.name)}</div><div class="ps-per">${esc(d.per)}</div><div class="ps-pips">${pips}<b>Rank ${r} / ${d.max}</b></div><div class="ps-lore">${esc(d.lore)}</div></div>
+      <div class="ps-side"><div class="ps-cost">${maxed ? 'MAX' : '<img class="pp-gem" alt="">' + cost}</div>${maxed ? '' : `<button class="ps-buy ${can ? 'can' : ''}" data-id="${d.id}">Buy</button>`}</div>
+    </div>${toggle}</div>`;
   }).join('');
-  ui.$$('.ps-card', root).forEach((b) => (b.onclick = () => {
+  ui.$$('.ps-buy', root).forEach((b) => (b.onclick = () => {
     const res = buy(b.dataset.id);
     const g = ui.game;
     if (res.ok) { g.audio.play('buy'); ui.toast(META.find((x) => x.id === b.dataset.id).name + ' upgraded', 'good'); }
     else { g.audio.play('deny'); ui.toast(res.why === 'max' ? 'Already maxed' : res.why === 'pp' ? 'Need ' + res.need + ' more PP' : 'Not available', 'bad'); }
     renderPShop(ui);
-    const again = ui.$('.ps-card[data-id="' + b.dataset.id + '"]', root);
+    const again = ui.$('.ps-buy[data-id="' + b.dataset.id + '"]', root);
     if (again && g.pad && g.pad.active) again.classList.add('pad-focus');
   }));
   const rf = ui.$('#pshop-refund');

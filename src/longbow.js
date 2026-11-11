@@ -416,7 +416,7 @@ export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 
   const audio = g.audio;
   const thunk = (p, k) => { if (!audio || !audio.ctx || !audio.sfxOn) return; const v = g.distVol ? g.distVol(p.x, p.z) : 1; audio.noiseHit({ dur: 0.07, freq: 700 * k, type: 'bandpass', q: 2.5, gain: 0.16 * v }); audio.tone({ freq: 160 * k, to: 60, dur: 0.1, type: 'triangle', gain: 0.08 * v }); };
   const stick = (p, why) => { st.stuck = true; st.reason = why; pos.copy(p); mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(Z, dir.copy(vel).normalize()); mesh.rotateZ(st.spin); mesh.position.addScaledVector(dir, 0.06); thunk(p, 1); };
-  const touch = (p) => (p.y < w.heightAt(p.x, p.z) + 3 && w.blocked(p.x, p.z, 0.12)) || (w.solids && w.solids.length && w.solidAt(p.x, p.y, p.z));
+  const touch = (p) => w.solidPoint(p.x, p.y, p.z);
   const eff = g.fx.add({
     dur: 30, arrow: st,
     update: (dt) => {

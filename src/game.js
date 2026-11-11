@@ -16,6 +16,7 @@ import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NP
 import { SoloParty, RoomParty, RoomLobby, BCParty, BCLobby, PeerParty, getRoom, makeCode, PeerSlotLobby } from './net.js';
 import { Audio } from './audio.js';
 import { MenuScene } from './menu.js';
+import { kbLogical } from './controls.js';
 import { setWeaponEnv, boltProto } from './weapons.js';
 import { ScopeView, CAM_LEAD } from './scope.js';
 import { launchArrow, longbowPick } from './longbow.js';
@@ -30,13 +31,13 @@ import { Profile } from './profile.js';
 import { AllyTags } from './allytags.js';
 import { HealthPickups } from './pickups.js';
 import { Unlocks, charUnlocked, gearUnlocked, speedUnlocked } from './unlocks.js';
-import { installFog, SUN_OFFSET, buildComposer, applyBiomeLook } from './look.js';
+import { installFog, SUN_OFFSET, buildComposer, applyBiomeLook, healNormals } from './look.js';
 import { addPP, runReward } from './meta.js';
 import { Bot } from './bot.js';
 import { Dailies } from './dailies.js';
 import { ChestFx } from './chest.js';
 import { MutatorFx } from './mufx.js';
-import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY } from './mutators.js';
+import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY, BULLET_TIME } from './mutators.js';
 
 const QUALITY = { low: 0, medium: 1, high: 2 };
 // Shared by both couch seats so they always run at the same speed.
@@ -85,6 +86,7 @@ export class Game {
     this.input = { keys: new Set(), pressed: new Set(), dx: 0, dy: 0, mouseDown: false, mouseClicked: false, rightClicked: false, aimHeld: false, wheel: 0 };
     this.initInput();
     this.menu = new MenuScene(this);
+    for (const ms of [1500, 5000, 12000]) setTimeout(() => { try { if (this.menu && this.menu.scene) healNormals(this.menu.scene); } catch {} }, ms);
     this.ui = new UIClass(this);
     this.allyTags = new AllyTags(this);
     this.pickups = new HealthPickups(this);
@@ -149,6 +151,8 @@ export class Game {
     this.fx = new FX(this.scene, this.camera, this.q);
     this.muFx = new MutatorFx(this);
     this.el = new Elements(this.fx, this.scene);
+    this.el.block = (x, z, r, top, sec) => { if (this.world) this.world.addTemp(x, z, r, top, sec); };
+    this.el.solid = (x, y, z) => !!this.world && this.world.solidPoint(x, y, z); // enemy shots and element projectiles stop at props
     this.setupComposer();
     this.onResize();
   }
@@ -184,11 +188,48 @@ export class Game {
   // instead of popping a menu over half the screen whenever the controller sits idle for a few seconds.
   inputLive() { return !!this.brain || document.pointerLockElement === this.canvas || (this.seat === 2 ? !this.padPaused : this.pad.active && !this.padPaused); }
 
-  saveSettings() {
-    LS.set(this.lsKey('settings'), this.settings);
+  // While the Settings screen is open (draft), changes are tried out live but only stored by its Save button.
+  saveSettings(force) {
+    if (this.draft && !force) this.draftDirty = true;
+    else { LS.set(this.lsKey('settings'), this.settings); if (this.ui && !this.draft) this.ui.setSaved = null; }
     this.applySettings();
   }
-  // Everything in Settings that takes effect at once (the graphics quality needs a reload).
+  storeSettings(obj) { LS.set(this.lsKey('settings'), obj || this.settings); }
+  // Switch graphics quality on the spot: shadows, bloom and anti-aliasing, effects budget, resolution and the
+  // frame-rate governor's ceiling all change without a reload. A stage already built keeps its terrain and prop
+  // detail until the next round is built.
+  setQuality(name) {
+    if (name) this.settings.quality = name;
+    const q = this.isBot ? 0 : Math.min(QUALITY[this.settings.quality] ?? 2, this.split ? 1 : 2);
+    if (q === this.q) return false;
+    this.q = q;
+    const r = this.renderer, sh = q >= 1;
+    r.shadowMap.enabled = sh;
+    this.sun.castShadow = sh;
+    const sz = q === 2 ? 2048 : 1024;
+    this.sun.shadow.mapSize.set(sz, sz);
+    if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+    r.shadowMap.needsUpdate = true;
+    try { if (this.composer) this.composer.dispose(); } catch {}
+    this.composer = null; this.bloom = null;
+    this.setupComposer();
+    this.fx.q = q;
+    if (this.world) this.world.quality = q;
+    const scenes = [this.scene];
+    if (this.menu) {
+      this.menu.fx.q = q;
+      if (this.menu.scene) scenes.push(this.menu.scene);
+      for (const sc of scenes) sc.traverse((o) => { if (o.isDirectionalLight && o !== this.sun && o.shadow && o.userData.wasCaster === undefined) o.userData.wasCaster = true; });
+      if (this.menu.scene) this.menu.scene.traverse((o) => { if (o.isDirectionalLight && o.userData.wasCaster) o.castShadow = sh; });
+    }
+    for (const sc of scenes) sc.traverse((o) => { const m = o.material; if (!m) return; if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true)); else m.needsUpdate = true; });
+    if (this.gov) { this.gov.bloomDiv = undefined; this.gov.samples = []; this.gov.winT = 0; this.gov.apply(this.gov.startTier()); }
+    else { this.basePixelRatio = Math.min(window.devicePixelRatio, q === 2 ? 1.75 : q === 1 ? 1.25 : 0.85); r.setPixelRatio(this.basePixelRatio * this.pixelScale); }
+    try { if (this.world && this.world.biome) applyBiomeLook(this, this.world.biome); } catch {}
+    this.onResize();
+    return true;
+  }
+  // Everything in Settings that takes effect at once (graphics quality goes through setQuality).
   applySettings() {
     const S = this.settings;
     this.audio.setVolume(this.seat === 2 ? 0 : S.vol);
@@ -215,12 +256,13 @@ export class Game {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
       if (this.couch && this.couch.pad.reserved && this.couch.pad.reserved.has(e.code)) return; // player 2's keyboard keys
       if (e.code === 'F11' || (e.code === 'Enter' && e.altKey)) { e.preventDefault(); this.ui.toggleFullscreen(); return; }
-      if (e.code === 'Tab') { e.preventDefault(); if (this.mode === 'game') this.toggleShop(); return; }
-      if (!I.keys.has(e.code)) I.pressed.add(e.code);
-      I.keys.add(e.code);
-      if (this.mode === 'game' && ['Space', 'KeyQ', 'KeyF'].includes(e.code)) e.preventDefault();
+      const code = this.mode === 'game' ? kbLogical(e.code) : e.code; // the player's remapped keys (Controls screen)
+      if (code === 'Tab') { e.preventDefault(); if (this.mode === 'game') this.toggleShop(); return; }
+      if (!I.keys.has(code)) I.pressed.add(code);
+      I.keys.add(code);
+      if (this.mode === 'game' && ['Space', 'KeyQ', 'KeyF'].includes(code)) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => I.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => { I.keys.delete(e.code); I.keys.delete(kbLogical(e.code)); });
     window.addEventListener('blur', () => { I.keys.clear(); I.mouseDown = false; });
     document.addEventListener('mousemove', (e) => {
       // Chrome sometimes reports a huge jump on the first event after locking; drop it.
@@ -291,6 +333,33 @@ export class Game {
     this.duelMode = true;
     this.bot = this.opts.spawnSeat(hub, null, () => {}, { bot: true, host: this });
     this.enterLobby();
+  }
+
+  // Duel versus the CPU: after picking their own fighter the player picks the CPU's. While that is going on, the
+  // lobby edits a stand-in loadout (the CPU's), and the player's own picks wait here.
+  cpuPickBegin() {
+    const b = this.bot;
+    if (!b || this._cpuPick) return;
+    this._cpuPick = { lo: { ...this.loadout, w: [...this.loadout.w] }, skins: LS.get(this.lsKey('skins'), {}) };
+    const bl = b.loadout;
+    this.loadout = { ch: bl.ch, sk: bl.sk, c: bl.c, w: [...bl.w] };
+    this.party.set({ ch: this.loadout.ch, sk: this.loadout.sk, c: this.loadout.c, wp: this.loadout.w });
+    this.menu.show(this.loadout);
+  }
+  cpuPickEnd(apply) {
+    const st = this._cpuPick;
+    if (!st) return;
+    this._cpuPick = null;
+    const b = this.bot, cl = this.loadout;
+    if (apply && b) {
+      b.loadout = { ch: cl.ch, sk: cl.sk, c: cl.c, w: [...cl.w] };
+      b.party.set({ ch: cl.ch, sk: cl.sk, c: cl.c, wp: b.loadout.w });
+    }
+    LS.set(this.lsKey('skins'), st.skins);
+    this.loadout = st.lo;
+    LS.set(this.lsKey('loadout'), { ch: this.loadout.ch, c: this.loadout.c, w: this.loadout.w });
+    if (this.party) this.party.set({ ch: this.loadout.ch, sk: this.loadout.sk, c: this.loadout.c, wp: this.loadout.w });
+    this.menu.show(this.loadout);
   }
 
   endBot() {
@@ -522,6 +591,7 @@ export class Game {
 
   leaveParty() {
     if (this.seat === 2 && this.opts.onLeave) { this.opts.onLeave(); return; }
+    if (this._cpuPick) this.cpuPickEnd(false);
     if (this.couch) this.endCouch();
     if (this.bot) this.endBot();
     clearInterval(this.lobbyTimer);
@@ -609,7 +679,7 @@ export class Game {
   }
 
   backToLobby() {
-    MU.on = 0;
+    MU.on = 0; MU.bt = 1;
     if (this.isHost) { const last = this.sim ? this.sim.arena : -1; this.sim = new HostSim(this); this.sim.phase = 'lobby'; this.sim.arena = last; this.party.set({ w: this.sim.snapshot() }); } // arena: so the next duel moves on from this one
     this.teardownGame();
     this.party.set({ ig: 0, rdy: 0, out: 0, al: 1 }); // a stale 'out' from the failed run would end the next run the moment it starts
@@ -649,7 +719,8 @@ export class Game {
       if (!this.split || (this.menuFlip = !this.menuFlip)) {
         this.menu.update(this.menuAcc, this.menuMouse);
         this.menuAcc = 0;
-        this.render(this.menu.scene, this.menu.camera);
+        if (this.menu.paintOn && !this.headless) { if (this.gov) this.gov.beforeRender(); this.menu.drawPaint(this.renderer); }
+        else this.render(this.menu.scene, this.menu.camera);
       }
     }
     this.input.pressed.clear();
@@ -734,7 +805,7 @@ export class Game {
   }
 
   gameFrame(dt, quiet = false) {
-    const vdt = dt * (this.steps || 1); // visuals advance once per drawn frame by the whole stretch
+    let vdt = dt * (this.steps || 1); // visuals advance once per drawn frame by the whole stretch
     const peers = this.party.peers();
     this.myId = this.party.myId;
     // Solo and couch co-op stop the whole game while someone chooses an element; online play carries on.
@@ -807,7 +878,10 @@ export class Game {
       this.interactions();
     }
     if (quiet) { this.publish(); return; }
-    this.updateRemotePlayers(peers, vdt);
+    if (this._healT > 0 && (this._healT -= dt) <= 0) { healNormals(this.scene); this._healT = 5; } // new enemy bodies arrive all round; already-checked geometry is skipped
+    this.bulletTimeFx(dt);
+    const rdt = vdt; vdt *= MU.bt; // Bullet Time: the world's visuals (enemies, effects, grass) follow the slowed clock; players do not
+    this.updateRemotePlayers(peers, rdt);
     this.updateCamera(dt);
     this.updateAim();
     if (!paused) {
@@ -826,6 +900,26 @@ export class Game {
     this.chests.update(vdt);
     this.muFx.update(vdt);
     this.render(this.scene, this.camera);
+  }
+
+  // Bullet Time look and sound: colour drains, the edges darken, and a low whoosh marks time bending and snapping back.
+  bulletTimeFx(dt) {
+    const m = 1 - (MU.bt - 0.2) / 0.8, was = this._btM || 0;
+    if (m === was && !m) return;
+    this._btM = m;
+    const on = m > 0.35, hud = this.ui && this.ui.$('#hud');
+    if (on !== !!this._btOn) {
+      this._btOn = on;
+      if (hud) hud.classList.toggle('bt', on);
+      this.audio.play(on ? 'bt_in' : 'bt_out', 0.7);
+    }
+    const gp = this.gradePass;
+    if (gp && gp.uniforms.uSat) {
+      const u = gp.uniforms;
+      if (!was || this._btBase === undefined || this._btGp !== gp) { if (!was || this._btGp !== gp) this._btBase = [u.uSat.value, u.uVig.value]; this._btGp = gp; }
+      u.uSat.value = this._btBase[0] * (1 - 0.5 * m);
+      u.uVig.value = this._btBase[1] + 0.45 * m;
+    }
   }
 
   pollPad(dt) {
@@ -883,6 +977,7 @@ export class Game {
     if (w.ph === 'lobby') { if (!this.isHost) this.backToLobby(); return; }
     this.runSeed = w.rs || 0;
     MU.on = w.du ? 0 : (w.mu | 0) & MU_MASK;
+    MU.bt = MU.on & BULLET_TIME ? Math.min(1, Math.max(0.05, (w.bt || 100) / 100)) : 1;
     if (MU.on && this.runStats) this.runStats.mutated = true; // a mutator run counts toward nothing
     this.duel = !!w.du; this.dp = w.dp || 0; this.dpt = w.pt || 0; this.duelWinner = w.wn || '';
     this.duelArena = this.duel ? (((w.ar | 0) % DUEL_BIOMES.length) + DUEL_BIOMES.length) % DUEL_BIOMES.length : 0; // which Duel Arena the host picked for this match
@@ -981,6 +1076,7 @@ export class Game {
     this.hemi.groundColor.set(b.hemi[1]);
     this.hemi.intensity = b.hemiI;
     applyBiomeLook(this, b);
+    healNormals(this.scene); this._healT = 2; // (again shortly after: some props finish building a moment later)
     if (this.loadout.w.includes('zombiestaff') || this.party.peers().some((q) => q.p && (q.p.wp || []).includes('healstaff'))) this.warmSummons(); // the Healing Staff's beam shader is warmed for every seat that can see one
     const p = this.player;
     // A duel's two fighters are the lobby's two named players: the other one's in-game flag may not have reached us yet, and both sides must agree who is first.
@@ -1184,11 +1280,14 @@ export class Game {
           this.ui.coinPop(CONFIG.pcPerBoss);
           p.addXp(XP.boss);
         }
+        // Perfect Points for the boss, banked on the spot (CPU and mutator runs earn nothing).
+        const bpp = this.counts() && (p.alive || !p.out) ? CONFIG.ppPerBoss || 0 : 0;
+        if (bpp && this.seat === 1) { addPP(bpp); this.runStats.pp = (this.runStats.pp || 0) + bpp; }
         this.runStats.bosses++;
         if ((p.alive || !p.out) && this.dailyOn()) { Dailies.add('bosses'); if (!p.deaths) Dailies.add('cleanBoss'); }
         if (this.counts()) { Unlocks.add('bosses'); if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('bossesSpace'); }
         if (this.counts() && BOSSES[bossIdx(this.runSeed, this.round)].name === 'The Visitor' && Unlocks.grant('visitor')) { this.ui.banner('The Visitor unlocked', 'Pick them in character select'); }
-        this.ui.banner('Boss defeated', '+' + CONFIG.pcPerBoss + ' PC' + (killer === me ? ' · Final blow!' : ''));
+        this.ui.banner('Boss defeated', '+' + CONFIG.pcPerBoss + ' PC' + (bpp ? ' · +' + bpp + ' PP' : '') + (killer === me ? ' · Final blow!' : ''));
         break;
       }
       case 'h': {
@@ -1552,20 +1651,37 @@ export class Game {
     const ground = this.groundRay(origin, dir, maxDist);
     const limit = ground.hit ? ground.dist : maxDist;
     const res = [];
+    const hv = (this._hv = this._hv || new THREE.Vector3());
     for (const t of this.targets()) {
+      // The real head first: wherever the body's head actually is (hunched, flying, leaning), a shot through it is a headshot.
+      let headAt = -1;
+      const hb = t.kind !== 'demon' && t.view && t.view.rig && t.view.rig.bn && t.view.rig.bn.head;
+      if (hb) {
+        hb.getWorldPosition(hv);
+        const hr = Math.max(0.2, t.h * 0.105) * (t.big ? 2.1 : 1);
+        hv.y += hr * 0.45; // the joint is at the base of the skull
+        if (Math.abs(hv.x - t.x) < t.h && Math.abs(hv.z - t.z) < t.h && hv.y > t.y - 0.5 && hv.y < t.y + t.h * 1.6) {
+          const vx = hv.x - origin.x, vy = hv.y - origin.y, vz = hv.z - origin.z, tca = vx * dir.x + vy * dir.y + vz * dir.z;
+          const d2h = vx * vx + vy * vy + vz * vz - tca * tca;
+          if (tca > 0 && d2h < hr * hr) { const th = tca - Math.sqrt(hr * hr - d2h); if (th <= limit) headAt = Math.max(0, th); }
+        }
+      }
+      const headHit = () => { if (headAt < 0) return false; res.push({ t, dist: headAt, point: new THREE.Vector3(origin.x + dir.x * headAt, origin.y + dir.y * headAt, origin.z + dir.z * headAt), zone: 'head', head: true }); return true; };
       // Closest point between the ray and the target's vertical axis.
       const ox = origin.x - t.x, oz = origin.z - t.z;
       const a = dir.x * dir.x + dir.z * dir.z;
-      if (a < 1e-6) continue;
+      if (a < 1e-6) { headHit(); continue; }
       const tc = -(ox * dir.x + oz * dir.z) / a;
-      if (tc < 0 || tc > limit + t.r) continue;
+      if (tc < 0 || tc > limit + t.r) { headHit(); continue; }
       const cx = ox + dir.x * tc, cz = oz + dir.z * tc;
       const d2 = cx * cx + cz * cz;
-      if (d2 > t.r * t.r) continue;
+      if (d2 > t.r * t.r) { headHit(); continue; }
       const back = Math.sqrt((t.r * t.r - d2) / a);
       const th = Math.max(0, tc - back);
+      if (th > limit) { headHit(); continue; } // behind the ground or a rock
       const y = origin.y + dir.y * th;
-      if (y < t.y - 0.1 || y > t.y + t.h + 0.15) continue;
+      if (y < t.y - 0.1 || y > t.y + t.h + 0.15) { headHit(); continue; }
+      if (headAt >= 0 && headAt <= th + 0.8) { headHit(); continue; }
       const point = new THREE.Vector3(origin.x + dir.x * th, y, origin.z + dir.z * th);
       const zone = t.kind === 'demon' ? 'body' : zoneOf(t, y, d2);
       res.push({ t, dist: th, point, zone, head: zone === 'head' });
@@ -1581,6 +1697,13 @@ export class Game {
       const sd = w.rayBlock(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxDist);
       if (sd < r.dist) { r.copy(origin).addScaledVector(dir, sd); r.hit = true; r.dist = sd; }
     }
+    // Trees, rocks, tombs and buildings stop bullets too (never the cover right beside the shooter, or a trunk
+    // between a third-person camera and its player).
+    const pl = this.player;
+    let tMin = 0.5;
+    if (pl) { const t = (pl.pos.x - origin.x) * dir.x + (pl.pos.y + 1.2 - origin.y) * dir.y + (pl.pos.z - origin.z) * dir.z; if (t > 0 && t < 12) tMin = t + 0.7; }
+    const pd = w.rayProps(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(maxDist, r.dist), tMin);
+    if (pd < r.dist) { r.copy(origin).addScaledVector(dir, pd); r.hit = true; r.dist = pd; r.prop = true; }
     return r;
   }
 
@@ -1649,7 +1772,7 @@ export class Game {
     if (t.kind !== 'player' && dmg > 0 && this.dailyOn()) Dailies.add('dmg', Math.round(dmg));
     if (p.stats.lifesteal) p.heal(eff * p.stats.lifesteal);
     if (!o.silentNum && !o.silent) this.ui.damageNumber(this.project(pos), o.shown != null ? Math.round(o.shown * (eff / (dmg || 1))) : eff, o.head ? 'crit' : o.crit ? 'pcrit' : o.zone === 'arm' || o.zone === 'leg' ? 'limb' : t.kind === 'boss' ? 'boss' : '');
-    if (!o.silent) { this.ui.hitmarker(false); this.audio.play('hit'); }
+    if (!o.silent) { this.ui.hitmarker(false, !!o.head); this.audio.play('hit'); }
     if (o.at && !o.silent) this.fx.blood(Array.isArray(o.at) ? o.at : [o.at.x, o.at.y, o.at.z], t.kind === 'boss' ? [0.3, 0.2, 0.05] : [0.35, 0.05, 0.08]);
     // Local prediction: dim the bar right away.
     if (t.view && t.kind === 'mob') t.view.hp = Math.max(0.01, t.view.hp - dmg / (t.view.base.hp * (1 + 0.38 * (this.round || 0)) * (t.view.mini ? MINI.hpMul + (this.round || 0) * MINI.hpPerRound : 1)));
@@ -1689,8 +1812,7 @@ export class Game {
   launchProjectile(kind, o, d, { dmg = 0, radius = 6, falloff = 0.5, kb = 12, speed = 50, mine = false } = {}) {
     const w = this.world, rocket = kind === 'rocket';
     const touch = (pos) => {
-      if (pos.y < w.heightAt(pos.x, pos.z) + 3 && w.blocked(pos.x, pos.z, 0.12)) return true; // trees, stones, tombs
-      if (w.solids.length && w.solidAt(pos.x, pos.y, pos.z)) return true; // duel walls and steps
+      if (w.solidPoint(pos.x, pos.y, pos.z)) return true; // trees, stones, tombs, buildings, duel walls and steps
       if (this._tgAt !== this.now) { this._tgAt = this.now; this._tg = this.targets(); }
       for (const t of this._tg) if (Math.hypot(t.x - pos.x, t.z - pos.z) < t.r + 0.25 && pos.y > t.y - 0.3 && pos.y < t.y + t.h + 0.3) return true;
       return false;

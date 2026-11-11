@@ -1,5 +1,6 @@
 // Gamepad support: maps a standard controller onto the same input object the
 // keyboard and mouse fill, and drives menus with spatial focus navigation.
+import { padPhys, anyPadRemap } from './controls.js';
 const DEAD = 0.18;
 const dz = (v) => (Math.abs(v) < DEAD ? 0 : Math.sign(v) * (Math.abs(v) - DEAD) / (1 - DEAD));
 
@@ -27,7 +28,9 @@ export class PadInput {
   apply(I, dt, now) {
     const p = this.get();
     if (!p) { this.release(I); return null; }
-    const b = p.buttons.map((x) => x.pressed || x.value > 0.4);
+    const raw = p.buttons.map((x) => x.pressed || x.value > 0.4);
+    // Remapped buttons (Controls screen): each game button reads the physical button it was moved to. Real controllers only.
+    const b = p.index >= 0 && anyPadRemap() ? raw.map((v, i) => (i < 16 ? !!raw[padPhys(i)] : v)) : raw;
     const down = (i) => b[i] && !this.prev[i];
     const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0), rx = dz(p.axes[2] || 0), ry = dz(p.axes[3] || 0);
     if (b.some(Boolean) || lx || ly || rx || ry) this.lastUse = performance.now();
@@ -65,6 +68,7 @@ export class PadInput {
     const down = (i) => b[i] && !this.prev[i];
     const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0);
     if (b.some(Boolean) || lx || ly) this.lastUse = performance.now();
+    if (root.querySelector('#controls.listening')) { this.prev = b; return; } // the Controls screen is waiting for a button to remap
     this.navCd -= dt;
     let dir = null;
     if (down(12) || (ly < -0.6 && this.navCd <= 0)) dir = [0, -1];
@@ -89,7 +93,7 @@ export class PadInput {
     if (down(9)) { const r = root.querySelector('.overlay.on #pause-resume'); if (r && visible(r)) r.click(); }
     if (down(1)) {
       // Most specific "back" first. Leaving the lobby is never on B in split-screen: one slip would end the game for both players.
-      const sels = ['.pad-modal.on [data-back]', '.pad-root [data-back]', '.overlay.on #shop-close', '.screen.on [data-back]', '.screen.on #btn-to-char'];
+      const sels = ['.overlay.on [data-act=close]', '.pad-modal.on [data-back]', '.pad-root [data-back]', '.overlay.on #shop-close', '.screen.on [data-back]', '.screen.on #btn-to-char', '.screen.on .flip-back'];
       if (!document.body.classList.contains('split')) sels.push('.screen.on #btn-leave');
       let back = null;
       for (const sel of sels) { back = [...root.querySelectorAll(sel)].find(visible); if (back) break; }
