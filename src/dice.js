@@ -29,12 +29,12 @@ export function placeDice(world) {
   const r = mulberry32((world.seed ^ 0x0d1ce5) >>> 0);
   const spots = [];
   const ok = (x, z) => {
-    if (Math.hypot(x, z) > 120 || world.blocked(x, z, 1.2) || (world.noPlace && world.noPlace(x, z, 1.5))) return false;
+    if (Math.hypot(x, z) > 156 || world.blocked(x, z, 1.2) || (world.noPlace && world.noPlace(x, z, 1.5))) return false;
     if (Math.hypot(x - world.arena.x, z - world.arena.z) < world.arena.r + 3) return false;
     return spots.every((s) => Math.hypot(s.x - x, s.z - z) > 18);
   };
   for (let tries = 0; spots.length < 9 && tries < 500; tries++) {
-    const a = r() * Math.PI * 2, d = spots.length < 2 ? 8 + r() * 10 : 18 + r() * 100;
+    const a = r() * Math.PI * 2, d = spots.length < 2 ? 8 + r() * 10 : 18 + r() * 130;
     const x = (spots.length < 2 ? world.spawn.x : 0) + Math.cos(a) * d, z = (spots.length < 2 ? world.spawn.z : 0) + Math.sin(a) * d;
     if (ok(x, z)) spots.push({ x, z, y: world.heightAt(x, z), taken: false });
   }

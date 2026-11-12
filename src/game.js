@@ -13,8 +13,11 @@ import { LocalPlayer, flashSize } from './player.js';
 import { HostSim, THERMES } from './sim.js';
 import { RemotePlayerView, MobView, BossView, DemonView, NpcView } from './views.js';
 import * as Vault from './vault.js';
-import { classWith } from './data.js';
-import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
+import { assetsReady, whenAssets } from './assets.js';
+import { spawnDragon } from './dragon.js';
+import { classWith, FLAME } from './data.js';
+import { igniteFx } from './flameweapon.js';
+import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
 import { SoloParty, RoomParty, RoomLobby, BCParty, BCLobby, PeerParty, getRoom, makeCode, PeerSlotLobby } from './net.js';
 import { Audio } from './audio.js';
 import { MenuScene } from './menu.js';
@@ -531,6 +534,13 @@ export class Game {
     this.enterLobby();
   }
 
+  // Playing by yourself in your own online game (nobody has joined): it behaves like a solo run, so Pause really pauses and CPU Run works.
+  get alone() {
+    const k = this.party && this.party.kind;
+    if (k === 'solo') return true;
+    return !!this.party && k !== 'local' && this.isHost && !this.duel && !this.duelMode && this.party.peers().length <= 1;
+  }
+
   async createParty(pub = true) {
     this.partyPublic = pub !== false;
     const code = makeCode();
@@ -622,13 +632,13 @@ export class Game {
   setPublic(on) { this.partyPublic = !!on; if (this.isHost && this.party) this.party.set({ lb: this.lbInfo() }); }
 
   // Quickplay: join a random open public party (co-op first, not full); if none is open, host a public one for others to find.
-  async quickplay() {
+  // duel = true is the Duel Arena's Quick Play: only open duels with one fighter waiting; if none, host an open duel.
+  async quickplay(duel = false) {
     if (this.lobby && this.lobby.scan) await this.lobby.scan();
-    const open = (this.lobby ? this.lobby.parties() : []).filter((p) => !p.me && p.code && p.pub !== 0 && (p.n || 1) < 5);
-    const coop = open.filter((p) => !p.dm);
-    const pool = coop.length ? coop : open;
+    const open = (this.lobby ? this.lobby.parties() : []).filter((p) => !p.me && p.code && p.pub !== 0 && (p.n || 1) < (duel ? 2 : 5));
+    const pool = open.filter((p) => !!p.dm === duel);
     if (pool.length) { const p = pool[Math.floor(Math.random() * pool.length)]; await this.joinParty(p.code); return 'joined'; }
-    this.duelMode = false;
+    this.duelMode = duel;
     await this.createParty(true);
     return 'created';
   }
@@ -681,6 +691,7 @@ export class Game {
 
   startRun() {
     if (!this.isHost) return;
+    if (!this.waitAssets(() => this.startRun())) return;
     if (this.duelMode) {
       const n = this.lobbyMembers().length;
       if (n !== 2) { this.ui.toast(n < 2 ? 'A duel needs a second fighter' : 'A duel is for exactly two players', 'bad'); return; }
@@ -737,6 +748,17 @@ export class Game {
     }
   }
 
+  // The enemies and bosses load behind the menus. If a run is asked for before they are all in, say so and carry on the moment they are.
+  waitAssets(then) {
+    if (assetsReady()) return true;
+    if (!this._waitA) {
+      this._waitA = true;
+      this.ui.busy('Loading enemies…');
+      whenAssets().then(() => { this._waitA = false; this.ui.busy(null); then && then(); });
+    }
+    return false;
+  }
+
   // ---------------- entering / leaving the game ----------------
   enterGame() {
     warmMobs();
@@ -753,7 +775,7 @@ export class Game {
     this.runStats = { pcEarned: 0, roundsCleared: 0, bosses: 0, start: performance.now() };
     this.muFx.reset(); this._muRound = -1;
     this.player.invulnUntil = this.now + 6; // a few seconds to get your bearings before the first mobs arrive
-    this.brain = this.isBot ? new Bot(this, 'duel') : this.autoplay && this.party.kind === 'solo' && !this.duelMode ? new Bot(this, 'run') : null;
+    this.brain = this.isBot ? new Bot(this, 'duel') : this.autoplay && this.alone && !this.duelMode ? new Bot(this, 'run') : null;
     if (this.brain && this.brain.mode === 'run') this.runStats.cpuUsed = true;
     this.ui.cpuFlag(this.brain && this.brain.mode === 'run');
     this.duelEndOpen = false; this.ui.duelEnd(null);
@@ -890,10 +912,10 @@ export class Game {
     if (this.isHost && this.sim && this.sim.phase === 'lobby' && this.mode !== 'lobby') return;
     if (this.isHost) {
       this.party.set({ w: this.sim.snapshot() });
-      if (this.sim.phase !== 'lobby') this.enterGame();
+      if (this.sim.phase !== 'lobby' && this.waitAssets()) this.enterGame();
       else if (this.party.kind === 'local') this.couchCountdown();
     } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && loadoutFull(this.loadout.w) && (this.ready || !this.ui.flipOn())) {
-      this.enterGame(); // a late joiner goes in when they press Ready Up on the Element page
+      if (this.waitAssets()) this.enterGame(); // a late joiner goes in when they press Ready Up on the Element page
     }
   }
 
@@ -917,9 +939,9 @@ export class Game {
     this.myId = this.party.myId;
     // Solo and couch co-op stop the whole game while someone chooses an element; online play carries on.
     const kind = this.party.kind;
-    const choosing = (kind === 'solo' || kind === 'local') && (this.elemOpen || (kind === 'local' && peers.some((q) => !q.me && q.p && q.p.lc)));
+    const choosing = (kind === 'solo' || kind === 'local' || this.alone) && (this.elemOpen || (kind === 'local' && peers.some((q) => !q.me && q.p && q.p.lc)));
     const duelHold = this.duel && (['dcount', 'dpick'].includes(this.phase) || (this.phase === 'dend' && this.now - (this.dendAt || 0) > 2.2));
-    const frozen = (this.paused && (kind === 'solo' || (kind === 'local' && !!this.bot))) || choosing;
+    const frozen = (this.paused && (kind === 'solo' || this.alone || (kind === 'local' && !!this.bot))) || choosing;
     const paused = frozen || duelHold; // the duel's countdown and power-up rounds stop the fight, but the host's clock for them keeps running
     // Going into a pause thaws everyone: the clock that melts the ice would stop with the rest of the fight.
     if (duelHold && !this._duelHeld && this.player) { this.el.thawAll(); this.player.clearStatus(); }
@@ -1041,11 +1063,11 @@ export class Game {
     // With the lobby's CPU Run box checked, D-pad up toggles who plays: hands the run to the CPU, or takes it back. Unchecked it does nothing.
     if (ev.du && this.autoplay && !this.elemOpen) { if (this.brain && this.brain.mode === 'run') this.takeOver(); else if (!this.brain) this.giveToCpu(); return; }
     if (this.elemOpen && !this.elemStops()) {
-      // Online the run carries on, so the D-pad doubles as the picker: left/right choose, up confirms.
+      // Online the run carries on, so the D-pad doubles as the picker: left/right choose, X (DualShock) / A (Xbox) confirms (Nutty 2026-11-12; it was D-pad up).
       const I = this.input;
       if (ev.dl) { I.pressed.delete('Digit1'); this.elemMove(-1); }
       if (ev.dr) { I.pressed.delete('Digit2'); this.elemMove(1); }
-      if (ev.du) this.pickElem(this.elemSel);
+      if (ev.a) { I.pressed.delete('Space'); I.keys.delete('Space'); this.pickElem(this.elemSel); } // the press picks, it does not also jump
     }
     if (ev.dd) this.cycleSpeed();
     // D-pad left / right: previous / next weapon, round all three slots. In the vote and
@@ -1713,7 +1735,7 @@ export class Game {
   // Hand the controls (back) to the CPU mid-run. Solo runs only. Nothing a CPU-played run does counts toward the Unlockables.
   giveToCpu() {
     if (!this.autoplay) return; // only when the lobby's "CPU Run" box is checked
-    if (this.brain || this.mode !== 'game' || this.duel || !this.party || this.party.kind !== 'solo' || !this.player || !this.player.alive) return;
+    if (this.brain || this.mode !== 'game' || this.duel || !this.party || !this.alone || !this.player || !this.player.alive) return;
     this.brain = new Bot(this, 'run');
     this.runStats.cpuUsed = true;
     this.ui.cpuFlag(true);
@@ -1776,6 +1798,8 @@ export class Game {
       case 'fw': this.el.firewall(P(0), P(3), 6); this.audio.play('inferno', vol); break;
       case 'fr': this.el.inferno(() => [v.pos.x, v.pos.y, v.pos.z], 5, 8); this.audio.play('inferno', vol); break;
       case 'eq': this.audio.play('earth', vol); break;
+      case 'fw': { v.flameUntil = this.now + a[0] / 10; const c = [v.pos.x, v.pos.y + 1.2, v.pos.z]; this.fx.flash(c, 0xff7a20, 22, 0.35, 14); this.audio.play('inferno', vol * 0.8); break; } // Flaming Weapons: their weapon burns (views.js)
+      case 'fi': igniteFx(this.fx, P(0)); break; // a flaming hit lands
       case 'er': this.el.quake(P(0), D(3), 22); this.audio.play('quake', vol); break;
       case 'eb': this.el.boulder(P(0), D(3), { hitTest: (pos) => this.targets().some((t) => Math.hypot(t.x - pos.x, t.z - pos.z) < t.r + 0.7 && pos.y < t.y + t.h + 0.4), onImpact: () => this.audio.play('quake', vol * 0.6) }); this.audio.play('earth', vol); break;
       case 'ep': { const pts = []; for (let i = 0; i + 2 < a.length; i += 3) pts.push(P(i)); this.el.pillars(pts, [v.pos.x, v.pos.y, v.pos.z]); this.audio.play('quake', vol); break; }
@@ -1833,13 +1857,24 @@ export class Game {
         if (kind === 'fd') { Vault.breath(this, ray, a[0] / 10, 18); this.audio.play('inferno', vol); } else { Vault.jet(this, ray, a[0] / 10, 45); this.audio.play('ice', vol); }
         break;
       }
+      case 'ms': v.sun = Vault.miniSun(this, P(0), 8, a[3] / 10, 8); this.audio.play('inferno', vol); break; // Mini Sun, and its growth after each kill
+      case 'mg': if (v.sun) v.sun.grow(a[0] / 10, a[1] / 10); break;
+      case 'sl': Vault.sunlance(this, P(0)); this.audio.play('inferno', vol); break;
+      case 'dg': { // another runner's dragon: the same animal with the same habits; in a duel it hunts you
+        const me = this.player;
+        spawnDragon(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+          targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
+        break;
+      }
+      case 'ga': Vault.airshot(this, P(0), D(3)); this.audio.play('wind', vol); break;
+      case 'nv': this.fx.shockwave([v.pos.x, v.pos.y + 0.1, v.pos.z], a[0] / 10, a[1], 0.45); this.audio.play('gust', vol * 0.6); break; // an elemental power-up's burst
       case 'rw': Vault.whirlpool(this, P(0)); this.audio.play('ice_big', vol); break;
       case 'rs': { // Snowball: it grows with the distance that runner rolls, the same rule as their own game uses
         const until = this.now + a[0] / 10, S = { r: 1.1, last: [v.pos.x, v.pos.z] };
         v.ball = true;
         Vault.snowball(this, () => {
           if (!v.alive || this.now > until || this.views.players.get(v.id) !== v) return null;
-          const md = Math.hypot(v.pos.x - S.last[0], v.pos.z - S.last[1]); if (md < 20) S.r = Math.min(3.4, S.r + md * 0.03); S.last = [v.pos.x, v.pos.z];
+          const md = Math.hypot(v.pos.x - S.last[0], v.pos.z - S.last[1]); if (md < 20) S.r = Math.min(5.2, S.r + md * 0.034); S.last = [v.pos.x, v.pos.z];
           return { p: [v.pos.x, v.pos.y, v.pos.z], r: S.r };
         }, () => { v.ball = false; });
         this.audio.play('ice', vol);
@@ -2019,6 +2054,13 @@ export class Game {
       if (p.stats.execute && t.view && (t.kind === 'player' ? t.view.hp / (t.view.mh || 1) : t.view.hp) < 0.34) dmg *= 1 + p.stats.execute;
       if (p.stats.kb && !o.kx && !o.kz) { const dx = t.x - p.pos.x, dz = t.z - p.pos.z, dd = Math.hypot(dx, dz) || 1; o = { ...o, kx: dx / dd * p.stats.kb, kz: dz / dd * p.stats.kb }; }
     }
+    // Flaming Weapons: a hit from the burning weapon (o.wf = when its fire ends) lands harder and sets the target alight until the
+    // fire goes out or it dies. The same for a mob, a boss and the other duelist. A shot fired while it burned still carries the fire.
+    if (o.wf && o.wf > this.now - 4) {
+      dmg *= FLAME.dmg;
+      o = { ...o, burn: Math.max(o.burn || 0, FLAME.minBurn, o.wf - this.now) };
+      if (!o.silent && this.now - (this._ignT || -9) > 0.07) { this._ignT = this.now; igniteFx(this.fx, pos.toArray ? pos.toArray() : pos, t.kind === 'player' ? DUEL.size * 0.7 : 1); this.emitFx(['fi', ...(pos.toArray ? pos.toArray() : pos).map(q10)]); }
+    }
     dmg = Math.round(dmg);
     const E = p.stats.elem;
     if (E && !o.chain) {
@@ -2089,7 +2131,7 @@ export class Game {
   // Rocket or grenade in flight. Every peer runs the visuals; only the shooter passes `dmg`, whose blast is
   // reported through the normal hits list (areaDamage -> damage -> queueHit), so the host stays the one
   // applying damage. The shooter's own character is never hurt by the blast.
-  launchProjectile(kind, o, d, { dmg = 0, radius = 6, falloff = 0.5, kb = 12, speed = 50, mine = false } = {}) {
+  launchProjectile(kind, o, d, { dmg = 0, radius = 6, falloff = 0.5, kb = 12, speed = 50, mine = false, wf = 0 } = {}) {
     const w = this.world, rocket = kind === 'rocket';
     const touch = (pos) => {
       if (w.solidPoint(pos.x, pos.y, pos.z)) return true; // trees, stones, tombs, buildings, duel walls and steps
@@ -2110,7 +2152,7 @@ export class Game {
     this.fx.projectile(kind, o, d, {
       speed, hitTest: touch, size: rocket ? 2 : 1.25,
       onExplode: (p) => {
-        if (mine && dmg) this.areaDamage(p, radius, dmg, { falloff, kb });
+        if (mine && dmg) this.areaDamage(p, radius, dmg, { falloff, kb, wf });
         const dist = this.distTo(p[0], p[2]);
         this.shake(Math.max(0, (rocket ? 0.6 : 0.35) - dist / 70));
         this.audio.play(rocket ? 'boom' : 'explode', Math.max(0.15, 1 - dist / 90));
@@ -2420,7 +2462,10 @@ export class Game {
     const r = mulberry32((this.world.seed ^ (c.id * 7919) ^ (this.hitSeq + this.reqSeq * 31)) >>> 0);
     // Half of all crates hold a special power-up (a new effect), the rest are a stat or mastery.
     let pu;
-    if (r() < 0.5) {
+    // Elemental power-ups (Nutty 2026-11-12): about four chests in ten hold one for a cooldown you are carrying, marked with its element's symbol.
+    const mine = ['q', 'r', 'e'].map((k) => p.cls[k] && AB_PU_BY_AB[p.cls[k].id]).filter(Boolean);
+    if (mine.length && r() < 0.42) pu = mine[Math.floor(r() * mine.length)];
+    else if (r() < 0.5) {
       const sp = CRATE_POOL;
       let tot = 0; for (const q of sp) tot += q.crate || 1;
       let x = r() * tot; pu = sp[sp.length - 1];
@@ -2645,7 +2690,7 @@ export class Game {
     this.elemKind = kind;
     this.elemSel = 0;
     // Duel: five different power-ups drawn at random, fresh for every pick.
-    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer();
+    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer(this.player && this.player.cls);
     this.audio.play('bless');
     if (!this.headless) this.ui.elem(this.elemOpts, this.player, !this.elemStops(), kind);
     if (this.elemStops() && !this.headless) this.unlockPointer();
@@ -2656,6 +2701,7 @@ export class Game {
     if (I.pressed.has('ArrowLeft')) { I.pressed.delete('ArrowLeft'); this.elemMove(-1); }
     if (I.pressed.has('ArrowRight')) { I.pressed.delete('ArrowRight'); this.elemMove(1); }
     if (I.pressed.has('Enter')) { I.pressed.delete('Enter'); this.pickElem(this.elemSel); return; }
+    if (I.pressed.has('Space')) { I.pressed.delete('Space'); I.keys.delete('Space'); this.pickElem(this.elemSel); return; } // Space bar picks the highlighted power-up
     if (I.pressed.has('KeyR')) { I.pressed.delete('KeyR'); this.rerollElem(); }
     for (let i = 0; i < this.elemOpts.length; i++) { const key = i === 9 ? 'Digit0' : 'Digit' + (i + 1); if (I.pressed.has(key)) { I.pressed.delete(key); this.pickElem(i); if (!this.elemOpen) return; } }
   }

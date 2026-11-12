@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME } from './mutators.js';
 import * as Vault from './vault.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { CONFIG, DUEL, GRAV, HEAL, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
+import { updateWeaponFlames } from './flameweapon.js';
+import { spawnDragon } from './dragon.js';
+import { CONFIG, DUEL, GRAV, HEAL, FLAME, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
 import { launchArrow } from './longbow.js';
@@ -52,7 +54,7 @@ export class LocalPlayer {
     this.yaw = 0;
     this.pitch = 0;
     this.onGround = true;
-    this.cds = { q: 0, r: 0, e: 0, d: 0 };
+    this.cds = { q: 0, r: 0, e: 0, d: 0 }; this.wardUntil = 0;
     this.hasteUntil = 0;
     this.shield = { until: 0, hp: 0 };
     this.eye = { until: 0, dur: 5 }; // Eye of the Storm: while it lasts nothing can hurt you
@@ -333,6 +335,12 @@ export class LocalPlayer {
       cast: this.castT, dead: !this.alive, sprint: this.sprinting && this.recoilT === 0 && this.meleeT <= 0, recoil: this.recoilT, arc: wp.kind === 'melee' ? Math.min(360, wp.arc * this.stats.reach) : wp.arc,
       block: !!this.blocking, swing: this.swing ? this.swing.a : null, ads: this.ads || 0, adsUp: wp.adsUp ?? 0.075, adsBack: wp.adsBack ?? 0.78, scope: !!wp.scope, eyes: !!wp.eyes && this.alive, eyeGlow: this.eyeGlow || 0.45,
     }, dt, this.time);
+    { // Flaming Weapons: the held weapon burns (and the swing trails turn to fire, see flushSwipes)
+      const hot = this.alive && this.wf > 0, g = this.game, fp = g.settings.view === 'first' || !!g.fpNow;
+      if (this.flame && !hot) this.flame = null;
+      m.userData.flaming = hot; m.userData.fwK = g.duel ? DUEL.size : 1;
+      updateWeaponFlames(m, g.fx, hot, this.time, dt, { fp, ads: this.ads || 0, k: g.duel && !fp ? DUEL.size : 1, head: [this.pos.x, this.pos.y + 1.62 * (g.duel ? DUEL.size : 1), this.pos.z] });
+    }
     flushSwipes(m, this.game.fx);
     // The web line, from the hand the rig just posed up to the anchor.
     if (this.swing && this.alive) { const rig = m.userData.rig, a = this.swing.a; this.game.fx.webLine('me', rig ? rig.handWorld('Left') : this.chest(), [a.x, a.y, a.z], this.game.settings.view === 'first'); }
@@ -406,7 +414,7 @@ export class LocalPlayer {
       const dmg = wp.dmg * this.stats.dmg * (ZONE_K[h.zone] || 1);
       this.mgAcc = (this.mgAcc || 0) + dmg;
       const show = n % 3 === 0;
-      g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head, silent: !show, silentNum: !show, shown: this.mgAcc });
+      g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head, silent: !show, silentNum: !show, shown: this.mgAcc, wf: this.wf });
       if (show) this.mgAcc = 0;
       if (n % 2 === 0) g.fx.laserHit([h.point.x, h.point.y, h.point.z]);
     }
@@ -434,7 +442,7 @@ export class LocalPlayer {
       // Crossbow: a real bolt flies (and can end up stuck in whoever it hits), not a hitscan line.
       let dir = tmp.copy(g.aim.point).sub(origin).normalize();
       if (dir.dot(g.aim.dir) < 0.3) dir = g.aim.dir.clone();
-      launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed: wp.boltSpeed || 95, dmg: wp.dmg * this.stats.dmg, pierce: wp.pierce || 1, mine: true, range: 160, proto: boltProto() });
+      launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed: wp.boltSpeed || 95, dmg: wp.dmg * this.stats.dmg, pierce: wp.pierce || 1, mine: true, range: 160, proto: boltProto(), wf: this.wf });
       g.audio.play('shot_crossbow', 0.9); g.recoilW(wp, wp.kick ?? 0.4); this.lastShot = g.now;
       const end = origin.clone().addScaledVector(dir, 60);
       g.emitFx(['shot', q10(origin.x), q10(origin.y), q10(origin.z), q10(end.x), q10(end.y), q10(end.z), wp.id]);
@@ -473,11 +481,11 @@ export class LocalPlayer {
         for (const h of hits) {
           const dmg = wp.dmg * this.stats.dmg * (ZONE_K[h.zone] || 1) * rangeK(wp, h.dist ?? h.point.distanceTo(origin));
           if (wp.ice) { this.iceHit(h.t, dmg, wp.ice, h.point, h.head); continue; }
-          if (!rapid) { g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head }); continue; }
+          if (!rapid) { g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head, wf: this.wf }); continue; }
           // Minigun and Pulse Cannon: every bullet counts on the host, but only every third makes a number, blood and a tick.
           this.mgAcc = (this.mgAcc || 0) + dmg;
           const show = n % 3 === 0;
-          g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head, silent: !show, silentNum: !show, shown: this.mgAcc });
+          g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head, silent: !show, silentNum: !show, shown: this.mgAcc, wf: this.wf });
           if (show) this.mgAcc = 0;
         }
         end = hits[hits.length - 1].point;
@@ -488,7 +496,7 @@ export class LocalPlayer {
       }
       if (wp.energy && hits.length && n % 2 === 0) g.fx.pulseHit([end.x, end.y, end.z]);
       if (wp.energy) g.fx.shotFx(wp, [origin.x, origin.y, origin.z], [end.x, end.y, end.z], 'me', (g.settings.view === 'first' || !!g.fpNow));
-      else if (!rapid || n % 2 === 0) g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], wp.tracer, wp.beamLen);
+      else if (!rapid || n % 2 === 0) g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], this.wf ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen);
       lastEnd = end;
     }
     if (gravAt) this.gravShot(gravAt);
@@ -506,7 +514,7 @@ export class LocalPlayer {
   gravShot(at) {
     const g = this.game, y = Math.max(at.y, g.world.heightAt(at.x, at.z)), c = [at.x, y, at.z];
     g.gravWell(c, g.party.myId);
-    g.request('gv', [...c.map(q10), Math.round(this.stats.dmg * 100)]);
+    g.request('gv', [...c.map(q10), Math.round(this.stats.dmg * (this.wf ? FLAME.dmg : 1) * 100)]);
     g.emitFx(['gv', ...c.map(q10)]);
   }
 
@@ -532,9 +540,9 @@ export class LocalPlayer {
     const g = this.game;
     const boss = t.kind === 'boss';
     const sec = boss ? Math.min(secs, 2) : secs;
-    if (t.kind === 'player') { g.damage(t, dmg, { at, head, lock: sec, slow: sec }); return; } // the other duelist seals themselves in ice when the hit lands (takeStatus)
+    if (t.kind === 'player') { g.damage(t, dmg, { at, head, lock: sec, slow: sec, wf: this.wf }); return; } // the other duelist seals themselves in ice when the hit lands (takeStatus)
     const iced = t.view && t.view.icedUntil > g.now;
-    g.damage(t, dmg, iced ? { at, head } : { at, head, lock: sec, slow: sec });
+    g.damage(t, dmg, iced ? { at, head, wf: this.wf } : { at, head, lock: sec, slow: sec, wf: this.wf });
     if (iced || t.id === 'D' || !t.view) return;
     t.view.icedUntil = g.now + sec;
     g.el.encase(t.view, t.r, t.h, sec);
@@ -558,7 +566,7 @@ export class LocalPlayer {
       }
     }
     const oa = [origin.x, origin.y, origin.z], da = [dir.x, dir.y, dir.z];
-    g.launchProjectile(wp.proj, oa, da, { mine: true, dmg: wp.dmg * this.stats.dmg, radius: wp.radius, falloff: wp.falloff, kb: wp.kb, speed: wp.speed });
+    g.launchProjectile(wp.proj, oa, da, { mine: true, dmg: wp.dmg * this.stats.dmg, radius: wp.radius, falloff: wp.falloff, kb: wp.kb, speed: wp.speed, wf: this.wf });
     g.fx.muzzle(oa, da);
     // Rocket backblast: a puff of smoke and flame out of the rear venturi.
     const wpn = this.model.userData.weapon;
@@ -610,7 +618,7 @@ export class LocalPlayer {
     let dir = to.clone().normalize();
     if (dir.dot(g.aim.dir) < 0.3) dir = g.aim.dir.clone(); // target right under the arrow: just fire along the view
     const wpn = this.model.userData.weapon, style = wpn && wpn.userData.bowStyle;
-    this.lastArrow = launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed, dmg, pierce, style, mine: true, range: wp.range || 120 });
+    this.lastArrow = launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed, dmg, pierce, style, mine: true, range: wp.range || 120, wf: this.wf });
     this.lastArrow.draw = a;
     this.bowDraw = 0; this.bowHold = 0; this.bowNock = wp.nock || 0.5; this.fireCd = 0.1; this.recoilT = 0.4 + 0.6 * a; this.lastShot = g.now;
     g.audio.play('shot_crossbow', 0.45 + 0.55 * a);
@@ -700,7 +708,8 @@ export class LocalPlayer {
     const rm = wp.kind === 'melee' ? this.stats.reach : 1; // Reaper's Reach: wider swing and longer reach while a melee weapon is in hand
     // The move shapes the hit: a thrust is narrow, reaches farther and hits harder; a chop is narrower and heavier.
     const hs = MELEE_V2 && wp.kind === 'melee' && !wp.cane ? hitShape(moveOf(wp, this.meleeMove), wp) : wp.shield && this.stab ? { arc: 40, reach: 1.2, dmg: 1.3 } : { arc: wp.arc, reach: 1, dmg: 1 };
-    const arc = (Math.min(360, hs.arc * rm) * Math.PI) / 180 / 2, reach = wp.range * rm * hs.reach, dmgMul = hs.dmg;
+    const hot = this.wf; // Flaming Weapons: the fire reaches past the blade
+    const arc = (Math.min(360, hs.arc * rm * (hot ? FLAME.arc : 1)) * Math.PI) / 180 / 2, reach = wp.range * rm * hs.reach * (hot ? FLAME.reach : 1), dmgMul = hs.dmg;
     let hitAny = false, n = 0;
     for (const t of g.targets()) {
       const dx = t.x - this.pos.x, dz = t.z - this.pos.z;
@@ -715,17 +724,35 @@ export class LocalPlayer {
       // A wide swing can hit a whole crowd: only the first few hits get numbers, blood and sound.
       // Where the crosshair is on the body picks the hit zone: head = critical, legs = weakest.
       const zone = this.meleeZone(t), zy = t.y + t.h * (zone === 'head' ? 0.9 : zone === 'leg' ? 0.3 : 0.6);
-      g.damage(t, wp.dmg * dmgMul * this.stats.dmg * (ZONE_K[zone] || 1), { kx: dx / dd * kb, kz: dz / dd * kb, at: [t.x, zy, t.z], zone, head: zone === 'head', silent: n >= 4 });
+      g.damage(t, wp.dmg * dmgMul * this.stats.dmg * (ZONE_K[zone] || 1), { kx: dx / dd * kb, kz: dz / dd * kb, at: [t.x, zy, t.z], zone, head: zone === 'head', silent: n >= 4, wf: hot });
       hitAny = true; n++;
     }
     // The swing trail is drawn from the blade itself (CharacterRig -> FX.swipe), not here.
+    if (hot) { const f = this.forward(), c = [this.pos.x + f[0] * reach * 0.6, this.pos.y + 1.1 * (g.duel ? DUEL.size : 1), this.pos.z + f[2] * reach * 0.6]; for (let i = 0; i < g.fx.n(12); i++) g.fx.fire.emit({ p: [c[0] + rnd(-reach, reach) * 0.35, c[1] + rnd(-0.4, 0.4), c[2] + rnd(-reach, reach) * 0.35], v: [f[0] * rnd(2, 6), rnd(0.5, 2.5), f[2] * rnd(2, 6)], life: rnd(0.2, 0.42), s0: rnd(0.4, 0.8), s1: 0.1, c0: [1, 0.5, 0.1, 0.8], c1: [0.9, 0.14, 0.02, 0] }); }
     if (hitAny) { g.audio.play('hit_melee'); g.shake(Math.min(0.45, 0.08 + wp.dmg / 450)); } // a heavy weapon landing is felt
+  }
+
+  // Flaming Weapons: the game time the fire lasts until while it is up, else 0. Weapon hits carry it (opts.wf) so Game.damage adds the fire.
+  get wf() { return this.flame && this.game.now < this.flame.until ? this.flame.until : 0; }
+
+  // Pyre: Flaming Weapons. Whatever is in your hands burns until the power is ready again (the same rule in a run and in the arena).
+  // Every weapon hit lands harder and sets the target alight for as long as the fire lasts; melee also reaches farther.
+  ab_flameweap() {
+    const g = this.game, k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'flameweap') || 'e';
+    const dur = (g.duel ? DUEL.cd : this.cls[k].cd) * this.stats.cdr * this.stats.mast[k].cd;
+    this.flame = { until: g.now + dur };
+    const c = this.chest ? this.chest() : [this.pos.x, this.pos.y + 1.2, this.pos.z];
+    g.fx.flash(c, 0xff7a20, 26, 0.35, 14);
+    for (let i = 0; i < g.fx.n(26); i++) g.fx.fire.emit({ p: [c[0] + rnd(-0.4, 0.4), c[1] + rnd(-0.5, 0.5), c[2] + rnd(-0.4, 0.4)], v: [rnd(-3, 3), rnd(1, 5), rnd(-3, 3)], life: rnd(0.3, 0.6), s0: rnd(0.5, 0.9), s1: 0.1, c0: [1, 0.55, 0.12, 0.9], c1: [0.9, 0.15, 0.02, 0] });
+    g.audio.play('inferno', 0.8);
+    g.emitFx(['fw', Math.round(dur * 10)]);
   }
 
   // Ability mastery: damage multiplier for the move with this id.
   mm(id) {
-    for (const k of ['q', 'r', 'e']) if (this.cls[k].id === id) return this.stats.mast[k].dmg;
-    return 1;
+    const x = this.stats.ab[id], xk = x ? x.dmg : 1; // an elemental chest power-up for this very cooldown
+    for (const k of ['q', 'r', 'e']) if (this.cls[k].id === id) return this.stats.mast[k].dmg * xk;
+    return xk;
   }
 
   // ---------- XP and level-ups ----------
@@ -825,10 +852,39 @@ export class LocalPlayer {
     const ab = this.cls[key];
     const ok = this['ab_' + ab.id] && this['ab_' + ab.id]();
     if (ok === false) return;
-    this.cds[key] = (this.game.duel ? DUEL.cd : ab.cd) * this.stats.cdr * this.stats.mast[key].cd; // every power is 5 s in the arena
+    const x = this.stats.ab[ab.id];
+    this.cds[key] = (this.game.duel ? DUEL.cd : ab.cd) * this.stats.cdr * this.stats.mast[key].cd * (x ? x.cd : 1); // every power is 5 s in the arena
+    this.castPerks(key, x);
     this.castT = 0.35;
     g.ui.flashAbility(key);
     if (g.dailyOn && g.dailyOn()) Dailies.add('casts');
+  }
+
+  // Elemental chest power-ups (data.js AB_PUS) and the wild ones: what a cast sets off besides the cooldown itself.
+  castPerks(key, x) {
+    const g = this.game, s = this.stats, me = g.player === this;
+    const nova = (x ? x.nova : 0) + s.castNova, heal = (x ? x.heal : 0) + s.castHeal, haste = (x ? x.haste : 0) + s.castHaste;
+    if (nova) this.abNova(nova);
+    if (heal) this.heal(s.maxHp * heal);
+    if (haste) this.hasteUntil = Math.max(this.hasteUntil || 0, g.now + haste);
+    if (x && x.ward) this.wardUntil = Math.max(this.wardUntil || 0, g.now + x.ward);
+    if (x && x.echo && Math.random() < x.echo) { this.cds[key] = Math.min(this.cds[key], 0.5); if (me) { g.ui.toast(this.cls[key].name + ' is ready again', 'good'); g.audio.play('crate', 0.4); } }
+    if (s.wild && Math.random() < s.wild) { for (const k of ['q', 'r', 'e']) if (k !== key) this.cds[k] = 0; if (me) { g.ui.toast('Wild Magic: everything is ready', 'good'); g.audio.play('crate', 0.5); } }
+  }
+
+  // Your element bursts out around you: fire burns, the ground shock and lightning stun, frost freezes, wind throws back, rot poisons.
+  abNova(n) {
+    const g = this.game, id = this.cls.id, R = 6.5 + n * 1.5, dmg = 90 * n * this.stats.dmg, col = this.cls.accent || this.cls.color;
+    const o = id === 'pyre' ? { burn: 4 } : id === 'rime' ? { freeze: 1.6 } : id === 'gale' ? {} : id === 'necro' ? { burn: 5 } : { freeze: 0.9 };
+    const kb = id === 'gale' ? 30 : id === 'bastion' ? 12 : 6;
+    for (const t of g.targets()) {
+      const dx = t.x - this.pos.x, dz = t.z - this.pos.z, d = Math.hypot(dx, dz) || 1;
+      if (t.kind === 'demon' || d > R + t.r || t.y > this.pos.y + 5 || t.y + t.h < this.pos.y - 3) continue;
+      g.damage(t, dmg, { ...o, kx: dx / d * kb, kz: dz / d * kb, at: [t.x, t.y + t.h * 0.6, t.z] });
+    }
+    g.fx.shockwave([this.pos.x, this.pos.y + 0.1, this.pos.z], R, col, 0.45);
+    g.audio.play('gust', 0.5);
+    g.emitFx(['nv', Math.round(R * 10), col]);
   }
 
   // The dash hurts whatever it passes through, with the character's element on top.
@@ -1557,6 +1613,16 @@ export class LocalPlayer {
   }
 
   // Where an aimed stream starts and points this frame: from the muzzle, along the crosshair.
+  // Where a held stream (Dragon Breath, Pressure Jet) goes: out of your chest, exactly along where you are looking, so it can be swept
+  // up, down and all the way round. It bends onto the crosshair's target when that is far enough away to aim at.
+  streamRay() {
+    const g = this.game, k = g.duel ? DUEL.size : 1, cp = Math.cos(this.pitch || 0);
+    const v = [Math.sin(this.yaw) * cp, -Math.sin(this.pitch || 0), Math.cos(this.yaw) * cp];
+    const o = [this.pos.x + Math.sin(this.yaw) * 0.6 * k, this.pos.y + 1.45 * k, this.pos.z + Math.cos(this.yaw) * 0.6 * k];
+    const a = g.aim.point, dx = a.x - o[0], dy = a.y - o[1], dz = a.z - o[2], dl = Math.hypot(dx, dy, dz);
+    if (dl > 6 && (dx * v[0] + dy * v[1] + dz * v[2]) / dl > 0.5) return { o, d: [dx / dl, dy / dl, dz / dl] };
+    return { o, d: v };
+  }
   aimRay() {
     const g = this.game, m = this.muzzleWorld(), d = tmp.copy(g.aim.point).sub(m).normalize();
     return { o: [m.x, m.y + 0.1, m.z], d: [d.x, d.y, d.z] };
@@ -1578,12 +1644,103 @@ export class LocalPlayer {
   ab_breath() {
     const g = this.game, dur = 4, dmg = 24 * this.stats.dmg * this.mm('breath');
     let n = 0;
-    Vault.breath(g, () => (this.alive ? this.aimRay() : null), dur, 18, (o, d) => {
+    Vault.breath(g, () => (this.alive ? this.streamRay() : null), dur, 18, (o, d) => {
       n++;
       for (const t of this.streamHits(o, d, 18, 1.1, 0.09)) g.damage(t, dmg, { burn: 3, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
     });
     g.audio.play('inferno'); g.audio.play('fire_cast');
     g.emitFx(['fd', Math.round(dur * 10)]);
+  }
+
+  // Mini Sun: a small sun hangs over the crosshair (within 30 m) for 8 s. Four times a second it scorches and sets alight everything
+  // within its reach. Every kill it gets swells it: bigger, wider reach, more damage (up to 12 kills). In a duel there is nobody
+  // to kill before the round ends, so it swells with each second it spends burning the other fighter instead.
+  ab_minisun() {
+    const g = this.game, a = g.aim.point, k = g.duel ? DUEL.size : 1;
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 30) { dx *= 30 / dl; dz *= 30 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, gy = g.world.heightAt(x, z), c = [x, gy + 4.6 * k, z];
+    const r0 = 1.7 * k, R0 = 8, base = 12 * this.stats.dmg * this.mm('minisun'), seen = new Set();
+    let kills = 0, n = 0, pt = 0;
+    const sun = Vault.miniSun(g, c, 8, r0, R0, () => {
+      n++;
+      const ts = g.targets(), live = new Set(ts.map((t) => t.id));
+      let grew = 0;
+      for (const id of seen) if (!live.has(id)) grew++; // something it was burning a moment ago is gone: its kill
+      seen.clear();
+      const R = R0 + kills * 0.8;
+      for (const t of ts) {
+        if (t.kind === 'demon' || Math.hypot(t.x - c[0], t.z - c[2]) > R + t.r) continue;
+        g.damage(t, base * (1 + kills * 0.08), { burn: 2, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+        seen.add(t.id);
+        if (t.kind === 'player' && ++pt % 4 === 0) grew++;
+      }
+      if (grew && kills < 12) {
+        kills = Math.min(12, kills + grew);
+        const r2 = r0 * (1 + kills * 0.17), R2 = R0 + kills * 0.8;
+        sun.grow(r2, R2); g.audio.play('fire_cast', 0.7);
+        g.emitFx(['mg', q10(r2), q10(R2)]);
+      }
+    });
+    g.audio.play('inferno'); g.audio.play('fire_cast');
+    g.emitFx(['ms', ...c.map(q10), q10(r0)]);
+  }
+
+  // Sunlance: a wide beam of sunlight comes down on the crosshair (within 70 m). After a half-second gathering it burns everything
+  // inside its 7 m radius, at any height (flying enemies and bosses in the column too), four times a second for 3 s.
+  ab_sunlance() {
+    const g = this.game, a = g.aim.point;
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 70) { dx *= 70 / dl; dz *= 70 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, c = [x, g.world.heightAt(x, z), z], R = 7;
+    const dmg = 60 * this.stats.dmg * this.mm('sunlance');
+    let n = 0;
+    Vault.sunlance(g, c, 3, R, () => {
+      n++;
+      for (const t of g.targets()) {
+        if (t.kind === 'demon' || Math.hypot(t.x - c[0], t.z - c[2]) > R + t.r) continue;
+        g.damage(t, dmg, { burn: 5, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+      }
+    });
+    g.audio.play('fire_cast'); g.audio.play('inferno', 0.8);
+    g.emitFx(['sl', ...c.map(q10)]);
+  }
+
+  // Dragon: a giant red dragon rises out of a ring of fire beside you, takes off and flies with you for 18 s. It dives on the nearest
+  // enemies (climbing for bosses and flyers) and breathes fire: everything within 5 m of where the stream lands is hit five times a second.
+  ab_dragon() {
+    const g = this.game;
+    if (this.dragon && this.dragon.fx && !this.dragon.fx.done && this.dragon.until > g.now) return false; // one at a time
+    const dur = 18, dmg = 70 * this.stats.dmg * this.mm('dragon');
+    let n = 0;
+    const d = spawnDragon(g, {
+      dur, yaw: this.yaw,
+      owner: () => (this.alive ? this.pos : null),
+      targets: () => g.targets(),
+      burn: (c) => {
+        n++;
+        for (const t of g.targets()) {
+          if (t.kind === 'demon' || Math.hypot(t.x - c[0], t.z - c[2]) > 5 + t.r || c[1] > t.y + t.h + 4 || c[1] < t.y - 4) continue;
+          g.damage(t, dmg, { burn: 4, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+        }
+      },
+    });
+    this.dragon = { fx: d.fx, until: g.now + dur, root: d.root, state: d.state };
+    g.emitFx(['dg', Math.round(dur * 10), Math.round(this.yaw * 100)]);
+  }
+
+  // Airshot: a spinning ball of wind flies 75 m along the crosshair. It goes through every enemy on its way, hits each one once,
+  // hard, and throws it a long way back.
+  ab_airshot() {
+    const g = this.game, ray = this.aimRay(), d = ray.d, o = [ray.o[0] + d[0] * 1.6, ray.o[1] + d[1] * 1.6 - 0.15, ray.o[2] + d[2] * 1.6];
+    const dmg = 170 * this.stats.dmg * this.mm('airshot');
+    Vault.airshot(g, o, d, { targets: () => g.targets(), onHit: (t, dir) => {
+      g.damage(t, dmg, { kx: dir.x * 42, kz: dir.z * 42, freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
+      g.audio.play('wind', 0.5);
+    } });
+    g.audio.play('wind');
+    g.shake(0.15);
+    g.emitFx(['ga', ...o.map(q10), Math.round(d[0] * 100), Math.round(d[1] * 100), Math.round(d[2] * 100)]);
   }
 
   // Whirlpool: 6 s of spinning water at the crosshair (within 30 m). It drags in what is near, holds and staggers what is in it,
@@ -1615,7 +1772,7 @@ export class LocalPlayer {
   ab_jet() {
     const g = this.game, dur = 2.5, dmg = 22 * this.stats.dmg * this.mm('jet');
     let n = 0;
-    Vault.jet(g, () => (this.alive ? this.aimRay() : null), dur, 45, (o, d, L) => {
+    Vault.jet(g, () => (this.alive ? this.streamRay() : null), dur, 45, (o, d, L) => {
       n++;
       for (const t of this.streamHits(o, d, L, 0.7)) g.damage(t, dmg, { freeze: 0.35, kx: d[0] * 5, kz: d[2] * 5, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
     });
@@ -1629,14 +1786,14 @@ export class LocalPlayer {
     const g = this.game;
     if (this.snow) return false;
     const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'snowball') || 'q';
-    const S = this.snow = { until: g.now + 10, r: 1.1, last: [this.pos.x, this.pos.z], hit: new Map() };
+    const S = this.snow = { until: g.now + 16, r: 1.1, last: [this.pos.x, this.pos.z], hit: new Map() };
     this.model.visible = false;
     Vault.snowball(g, () => {
       if (!this.alive || g.now >= S.until || this.snow !== S) return null;
       const mx = this.pos.x - S.last[0], mz = this.pos.z - S.last[1], md = Math.hypot(mx, mz);
-      if (md < 20) S.r = Math.min(3.4, S.r + md * 0.03); // +1 m of radius every 33 m rolled
+      if (md < 20) S.r = Math.min(5.2, S.r + md * 0.034); // +1 m of radius every 30 m rolled
       S.last = [this.pos.x, this.pos.z];
-      const dmg = 34 * this.stats.dmg * this.mm('snowball') * Math.pow(S.r / 1.1, 1.5);
+      const dmg = 58 * this.stats.dmg * this.mm('snowball') * Math.pow(S.r / 1.1, 1.5);
       for (const t of g.targets()) {
         if (t.kind === 'demon' || Math.hypot(t.x - this.pos.x, t.z - this.pos.z) > S.r + t.r + 0.3 || Math.abs(t.y - this.pos.y) > S.r * 2 + 1) continue;
         if (g.now - (S.hit.get(t.id) || -9) < 0.6) continue;
@@ -1652,7 +1809,7 @@ export class LocalPlayer {
       g.audio.play('ice_big', 0.6);
     });
     g.audio.play('ice');
-    g.emitFx(['rs', 100]);
+    g.emitFx(['rs', 160]);
     this.castT = 0.35; g.ui.flashAbility(k);
     return false; // the cooldown starts when the snowball breaks
   }
@@ -2110,6 +2267,7 @@ export class LocalPlayer {
       return;
     }
     let dmg = amount * (1 - this.stats.armor);
+    if (this.wardUntil > g.now) dmg *= 0.5; // an elemental power-up's ward
     if (this.shield.rock && this.shield.until > g.now) {
       // Rock Armor: nothing gets through while it stands, and every hit on it shocks the ground.
       g.fx.dustBurst([this.pos.x, this.pos.y + 1, this.pos.z], 0.3);
@@ -2232,7 +2390,7 @@ export class LocalPlayer {
     this.alive = true; this.out = false; this.deadT = 0; this.freeRise = false;
     this.stats = this.baseStats();
     this.hp = this.stats.maxHp;
-    this.cds = { q: 0, r: 0, e: 0, d: 0 };
+    this.cds = { q: 0, r: 0, e: 0, d: 0 }; this.wardUntil = 0;
     this.shield = { until: 0, hp: 0 };
     if (this.armorFx) { this.armorFx.end(); this.armorFx = null; }
     this.endEye();

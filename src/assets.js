@@ -39,23 +39,37 @@ export function toGLB(json) {
   return buf;
 }
 
+// What the menus need (the playable characters and the weapon models) loads before the title screen. Everything else (enemies and
+// bosses, about two thirds of the download) streams in behind the menu, a few files at a time, and a run waits for it only if it must.
+const FIRST = new Set(['veteran.glb', 'xbot.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'runeSword.glb', 'frostAxe.glb', 'moltenDagger.glb', 'blitz.glb', 'aldric.glb', 'ragmon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb']);
+let restDone = false, restP = Promise.resolve();
+export const assetsReady = () => restDone;
+export const whenAssets = () => restP;
+
+async function loadOne(loader, f) {
+  try {
+    const res = await fetch('assets/' + f.replace(/\.glb$/, '.json'));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const glb = toGLB(await res.json());
+    cache.set(f, await loader.parseAsync(glb, 'assets/'));
+  } catch (e) {
+    console.warn('asset failed', f, e);
+  }
+}
+
 export async function loadAssets(onProgress) {
   const loader = new GLTFLoader();
+  const first = ASSET_FILES.filter((f) => FIRST.has(f)), rest = ASSET_FILES.filter((f) => !FIRST.has(f));
   let done = 0;
   const scanP = loadScan();
-  await Promise.all(ASSET_FILES.map(async (f) => {
-    try {
-      const res = await fetch('assets/' + f.replace(/\.glb$/, '.json'));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const glb = toGLB(await res.json());
-      cache.set(f, await loader.parseAsync(glb, 'assets/'));
-    } catch (e) {
-      console.warn('asset failed', f, e);
-    }
-    done++;
-    if (onProgress) onProgress(done / ASSET_FILES.length, f);
-  }));
+  await Promise.all(first.map(async (f) => { await loadOne(loader, f); done++; if (onProgress) onProgress(done / first.length, f); }));
   await scanP;
+  restP = (async () => {
+    const queue = [...rest];
+    const lane = async () => { while (queue.length) { await loadOne(loader, queue.shift()); await new Promise((r) => setTimeout(r, 90)); } }; // a breath between files keeps the menu smooth
+    await Promise.all([lane(), lane()]);
+    restDone = true;
+  })();
 }
 
 export function assetGLTF(file) { return cache.get(file) || null; }

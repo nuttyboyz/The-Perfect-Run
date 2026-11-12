@@ -166,7 +166,7 @@ function plantTrees(w, r, geo, count, pick, { bl = 1.8, placed = [] } = {}) {
   for (let i = 0, k = 0; i < count && k < count * 40; k++) {
     const c = pick(); if (!c) continue;
     const [x, z] = c;
-    if (!w.clearOf(x, z, 2.2) || w.blocked(x, z, 2) || Math.hypot(x, z) > 125) continue;
+    if (!w.clearOf(x, z, 2.2) || w.blocked(x, z, 2) || Math.hypot(x, z) > 162) continue;
     if (placed.some((p) => Math.hypot(p[0] - x, p[1] - z) < 4.2)) continue;
     const h = w.heightAt(x, z);
     if (Math.abs(w.heightAt(x + 1.5, z) - h) > 0.9 || Math.abs(w.heightAt(x, z + 1.5) - h) > 0.9) continue;
@@ -216,7 +216,7 @@ function scanBoulders(w, r, count, pick, { s = [1.2, 3.4], sink = 0.15, maxSlope
   for (let i = 0, k = 0; i < count && k < count * 30; k++) {
     const c = pick(); if (!c) continue;
     const [x, z] = c, sc = s[0] + r() * (s[1] - s[0]);
-    if (!w.clearOf(x, z, sc) || w.blocked(x, z, sc * 0.9) || Math.hypot(x, z) > 126) continue;
+    if (!w.clearOf(x, z, sc) || w.blocked(x, z, sc * 0.9) || Math.hypot(x, z) > 164) continue;
     const h = w.heightAt(x, z);
     if (Math.abs(w.heightAt(x + 1.5, z) - h) > maxSlope || Math.abs(w.heightAt(x, z + 1.5) - h) > maxSlope) continue;
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((r() - 0.5) * 0.2, r() * TAU, (r() - 0.5) * 0.2));
@@ -258,7 +258,7 @@ function setupSprings(w) {
   const nearStream = (x, z) => { let b = 1e9; for (let i = 0; i < pts.length - 1; i++) { const ax = pts[i][0], az = pts[i][1], bx = pts[i + 1][0] - ax, bz = pts[i + 1][1] - az, t = Math.max(0, Math.min(1, ((x - ax) * bx + (z - az) * bz) / (bx * bx + bz * bz))); b = Math.min(b, Math.hypot(x - ax - bx * t, z - az - bz * t)); } return b; };
   for (let tries = 0; pools.length < 4 && tries < 120; tries++) {
     const a = r() * TAU, d = pondR + 16 + r() * 22, x = pond.x + Math.cos(a) * d, z = pond.z + Math.sin(a) * d, pr = 5 + r() * 3;
-    if (!far(x, z, 30) || Math.hypot(x, z) > 112 || nearStream(x, z) < pr + 8) continue;
+    if (!far(x, z, 30) || Math.hypot(x, z) > 146 || nearStream(x, z) < pr + 8) continue;
     if (pools.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + pr + 12)) continue;
     pools.push({ x, z, r: pr, h: w.rawHeight(x, z) });
   }
@@ -342,7 +342,7 @@ function buildSprings(w, st) {
   w.addInstanced([{ geo: reedGeo, mat: stdVC({ side: THREE.DoubleSide, roughness: 0.8 }) }], reeds, { cast: false });
 
   // ---- big scanned boulders through the valley, and a few giants by the pond (the clay trees and flowers are gone) ----
-  scanBoulders(w, r, [50, 80, 110][Q], () => [(r() * 2 - 1) * 124, (r() * 2 - 1) * 124], { s: [1.4, 3.6] });
+  scanBoulders(w, r, [50, 80, 110][Q], () => [(r() * 2 - 1) * 161, (r() * 2 - 1) * 161], { s: [1.4, 3.6] });
   scanBoulders(w, r, 8, () => { const a = r() * TAU, d = pond.r + 10 + r() * 22; return [pond.x + Math.cos(a) * d, pond.z + Math.sin(a) * d]; }, { s: [3.5, 5.5], sink: 0.3 });
 }
 
@@ -353,14 +353,14 @@ function setupSpace(w) {
   const r = mulberry32(w.seed * 9 + 555);
   const craters = [{ x: 0, z: 0, r: 34, d: 7.5, rim: 3.2 }]; // the UFO's own crater
   for (let tries = 0; craters.length < 13 && tries < 200; tries++) {
-    const a = r() * TAU, d = 30 + r() * 95, x = Math.cos(a) * d, z = Math.sin(a) * d, cr = 6 + r() * 12;
+    const a = r() * TAU, d = 30 + r() * 125, x = Math.cos(a) * d, z = Math.sin(a) * d, cr = 6 + r() * 12;
     if (Math.hypot(x - w.spawn.x, z - w.spawn.z) < cr + 20 || Math.hypot(x - w.arena.x, z - w.arena.z) < w.arena.r + cr + 8) continue;
     if (craters.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + cr + 4)) continue;
     craters.push({ x, z, r: cr, d: cr * 0.16, rim: cr * 0.06 });
   }
   // Moon-style minor craters everywhere (Nutty 2026-11-05): shallow bowls the player can walk in and out of.
   for (let tries = 0; craters.length < 48 && tries < 600; tries++) {
-    const a = r() * TAU, d = 28 + r() * 100, x = Math.cos(a) * d, z = Math.sin(a) * d, cr = 3.5 + r() * 5;
+    const a = r() * TAU, d = 28 + r() * 135, x = Math.cos(a) * d, z = Math.sin(a) * d, cr = 3.5 + r() * 5;
     if (Math.hypot(x - w.spawn.x, z - w.spawn.z) < cr + 6 || Math.hypot(x - w.arena.x, z - w.arena.z) < w.arena.r + cr + 2) continue;
     if (craters.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + cr + 1.5)) continue;
     craters.push({ x, z, r: cr, d: cr * 0.22, rim: cr * 0.08 });
@@ -517,7 +517,7 @@ function buildSpace(w, st) {
   };
   const formations = [];
   for (let i = 0, k = 0; i < [14, 20, 26][Q] && k < 900; k++) {
-    const a = r() * TAU, d = 34 + r() * 88, x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const a = r() * TAU, d = 34 + r() * 118, x = Math.cos(a) * d, z = Math.sin(a) * d;
     if (!w.clearOf(x, z, 7) || w.blocked(x, z, 6) || formations.some((f) => Math.hypot(f[0] - x, f[1] - z) < 16)) continue;
     const h = w.heightAt(x, z), kind = Math.floor(r() * 4), yaw = r() * TAU;
     if (kind === 0) { // arch: two uprights and a bridge stone
@@ -540,7 +540,7 @@ function buildSpace(w, st) {
     w.blobs.push({ x, z, y: h, r: 7 }); formations.push([x, z]); i++;
   }
   rvars.forEach((parts, vi) => rlists[vi].length && w.addInstanced(parts, rlists[vi], { cast: true }));
-  scanBoulders(w, r, [40, 70, 100][Q], () => { const a = r() * TAU, d = 30 + r() * 95; return [Math.cos(a) * d, Math.sin(a) * d]; }, { s: [0.8, 3.0], sink: 0.2, maxSlope: 2.5 });
+  scanBoulders(w, r, [40, 70, 100][Q], () => { const a = r() * TAU, d = 30 + r() * 130; return [Math.cos(a) * d, Math.sin(a) * d]; }, { s: [0.8, 3.0], sink: 0.2, maxSlope: 2.5 });
 
   // ---- the sky: stars and a ringed planet ----
   const starN = 1400, sp = new Float32Array(starN * 3), sc = new Float32Array(starN * 3);
@@ -711,7 +711,7 @@ function buildWaterfall(w, st) {
   const pads = [];
   for (let i = 0; i < 40; i++) { const a = r() * TAU, d = 2 + r() * (pond.r + 3), x = pond.x + Math.cos(a) * d, z = pond.z + Math.sin(a) * d; pads.push({ m: matrixAt(x, lvlPond + 0.05, z, r() * TAU, 0.7 + r() * 0.9), x, z }); }
   w.addInstanced([{ geo: prep(pad), mat: stdVC({ side: THREE.DoubleSide, roughness: 0.6 }) }], pads, { cast: false, receive: false });
-  scanBoulders(w, r, [50, 80, 110][Q], () => [(r() * 2 - 1) * 124, (r() * 2 - 1) * 124], { s: [1.4, 3.6] });
+  scanBoulders(w, r, [50, 80, 110][Q], () => [(r() * 2 - 1) * 161, (r() * 2 - 1) * 161], { s: [1.4, 3.6] });
   scanBoulders(w, r, 10, () => { const c = r() < 0.5 ? pool : pond, a = r() * TAU, d = c.r + 10 + r() * 22; return [c.x + Math.cos(a) * d, c.z + Math.sin(a) * d]; }, { s: [3.2, 5.2], sink: 0.3 });
 }
 
@@ -780,7 +780,7 @@ function buildClearing(w, st) {
 function setupVolcano(w) {
   const r = mulberry32(w.seed * 7 + 4680);
   const [ux, uz] = sideDir(w, r);
-  const C = { x: ux * 108, z: uz * 108, r: 104, h: 70, crater: 14 };
+  const C = { x: ux * 140, z: uz * 140, r: 135, h: 78, crater: 16 };
   const n = w.noise2;
   w.carves.push((x, z, h) => {
     const d = Math.hypot(x - C.x, z - C.z);
@@ -837,7 +837,7 @@ function buildVolcano(w, st) {
   const rockGeo = prep(blob(1, 1, 0.55, 12, 0x17120f, 0x3a302a, 1.3, 0.8, 1)), rocks = [];
   for (let i = 0, k = 0; i < [40, 60, 80][Q] && k < 2000; k++) {
     const a = r() * TAU, d = C.crater + 12 + r() * 70, x = C.x + Math.cos(a) * d, z = C.z + Math.sin(a) * d;
-    if (Math.hypot(x, z) > 126 || !w.clearOf(x, z, 1.5) || w.blocked(x, z, 1)) continue;
+    if (Math.hypot(x, z) > 164 || !w.clearOf(x, z, 1.5) || w.blocked(x, z, 1)) continue;
     const s = 0.8 + r() * 2.4, h = w.heightAt(x, z);
     rocks.push({ m: matrixAt(x, h - 0.3 * s, z, r() * TAU, s, s * (0.6 + r() * 0.6)), x, z });
     w.addCollider(x, z, 0.9 * s, h + 1.2 * s); w.blobs.push({ x, z, y: h, r: 1.4 * s }); i++;
@@ -1053,7 +1053,7 @@ function buildRuins(w, st) {
   const wallGeo = (() => { const g = new THREE.BoxGeometry(1, 1, 1, 6, 2, 1).toNonIndexed(); const p = g.attributes.position, nz = mulberry32(5); for (let i = 0; i < p.count; i++) { if (p.getY(i) > 0.4) p.setY(i, 0.5 - Math.abs(Math.sin(p.getX(i) * 9 + 1)) * 0.35 - nz() * 0.1); } g.computeVertexNormals(); return tint(prep(g), 0x8a8c80); })();
   const walls = [];
   for (let i = 0, k = 0; i < [14, 20, 26][Q] && k < 1500; k++) {
-    const x = (r() * 2 - 1) * 110, z = (r() * 2 - 1) * 110;
+    const x = (r() * 2 - 1) * 143, z = (r() * 2 - 1) * 143;
     if (!w.clearOf(x, z, 3.5) || w.blocked(x, z, 3)) continue;
     const h = w.heightAt(x, z), L = 5 + r() * 7, H = 1.6 + r() * 1.6, yaw = r() * TAU;
     walls.push({ m: new THREE.Matrix4().compose(new THREE.Vector3(x, h + H * 0.5 - 0.5, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, (r() - 0.5) * 0.08)), new THREE.Vector3(L, H, 0.9)), x, z });
@@ -1063,7 +1063,7 @@ function buildRuins(w, st) {
   // Tombs between the walls, from the graveyard's kit.
   const tomb = propLibrary({ id: 'graveyard' }, Q).tomb(), tv = tomb.variants || [tomb.parts], tombs = tv.map(() => []);
   for (let i = 0, k = 0; i < [10, 16, 22][Q] && k < 1200; k++) {
-    const x = (r() * 2 - 1) * 100, z = (r() * 2 - 1) * 100;
+    const x = (r() * 2 - 1) * 130, z = (r() * 2 - 1) * 130;
     if (!w.clearOf(x, z, 1.5) || w.blocked(x, z, 1.2)) continue;
     const h = w.heightAt(x, z), s = tomb.s[0] + r() * (tomb.s[1] - tomb.s[0]);
     tombs[Math.floor(r() * tv.length)].push({ m: matrixAt(x, h - 0.1, z, r() * TAU, s), x, z }); w.blobs.push({ x, z, y: h, r: 0.95 * s });
@@ -1076,7 +1076,7 @@ function buildRuins(w, st) {
   buildVillages(w, st, r);
   // Ground mist rolling slowly over the whole map.
   const src = [];
-  for (let i = 0; i < 70; i++) { const x = (r() * 2 - 1) * 120, z = (r() * 2 - 1) * 120; src.push({ x, y: w.heightAt(x, z) + 0.3, z, r: 9 }); }
+  for (let i = 0; i < 118; i++) { const x = (r() * 2 - 1) * 156, z = (r() * 2 - 1) * 156; src.push({ x, y: w.heightAt(x, z) + 0.3, z, r: 9 }); }
   if (!/nomist/.test(location.search)) plume(w, src, { count: [120, 180, 260][Q], color: 0xdfe4e0, size: 16, rise: 1.0, life: 14, alpha: 0.07, spread: 2.6, drift: [0.5, 0, 0.25], grow: 0.4 });
   void stone;
 }

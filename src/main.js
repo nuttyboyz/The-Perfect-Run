@@ -72,7 +72,12 @@ requestAnimationFrame(() => setTimeout(async () => {
   try {
     const game = new Game(document.querySelector('#seat1 canvas'), UI, { root: document.getElementById('seat1'), seat: 1, spawnSeat });
     window.__game = game;
-    setTimeout(() => loading.classList.remove('on'), 300);
+    // Draw the character cards and weapon pictures now, behind the loading screen, so opening character select is instant later.
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    try { game.menu.portraits(game.renderer); } catch (e) { console.warn('portraits', e); }
+    await new Promise((r) => setTimeout(r, 0));
+    try { game.menu.weaponShots(game.renderer); } catch (e) { console.warn('weapon shots', e); }
+    setTimeout(() => loading.classList.remove('on'), 150);
   } catch (e) {
     fail(e);
   }

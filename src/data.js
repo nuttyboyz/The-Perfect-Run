@@ -6,31 +6,36 @@ export const CONFIG = {
   voteSeconds: 10,
   pcPerKill: 2,
   pcPerBoss: 300, ppPerBoss: 3,
-  cratePrice: 30,
+  cratePrice: 100, // Nutty 2026-11-12 14:45 (was 30, then 50); game.js price() raises it every round
   bedPrice: 60,
   baseHp: 100,
   walk: 6.27,
   sprint: 9.69,
   jump: 7.8,
   gravity: 22,
-  mapHalf: 160,
+  mapHalf: 208, // maps are 30% wider than they were (Nutty 2026-11-12); MAPK is that factor for anything laid out by hand
+  mapK: 1.3,
   minSpawnDist: 45, // nothing ever appears closer than this to any player
 };
 
 export const CLASSES = [
   {
-    id: 'pyre', name: 'Pyre', element: 'Fire', color: 0xd84a1b, accent: 0xffa040, css: '#ff7a2a',
+    id: 'pyre', name: 'Ember', element: 'Fire', color: 0xd84a1b, accent: 0xffa040, css: '#ff7a2a',
     tagline: 'Burn it all down.',
     q: { id: 'fireball', name: 'Fireball', cd: 5, desc: 'Hurl a blazing fireball that flies through every enemy on its way (130 m), burning each one, then explodes where it lands.' },
     r: { id: 'inferno', name: 'Inferno', cd: 10, desc: 'Erupt in a wide ring of fire that scorches everything around you for 5s while blasts keep going off inside it.' },
     e: { id: 'firewall', name: 'Wall of Fire', cd: 10, desc: 'Raise a long, tall wall of flame across your crosshair for 6 seconds. Anything caught in it or walking through burns hard.' },
     more: [
       { id: 'breath', name: 'Dragon Breath', cd: 10, desc: 'Breathe a stream of fire that is at full length the moment you cast it, no holding needed. For 4s it sweeps wherever you face, burning everything in it.' },
+      { id: 'flameweap', name: 'Flaming Weapons', cd: 10, desc: 'Set whatever you are holding on fire until this is ready again. Blades and fists hit harder, reach farther and trail fire; bullets, arrows and blasts hit harder too. Every hit sets the enemy alight, and they keep burning until they die or the fire goes out.' },
+      { id: 'minisun', name: 'Mini Sun', cd: 12, desc: 'Hang a small blazing sun in the air at your crosshair for 8s. It scorches and sets alight every enemy near it, and each kill it gets makes it bigger, hotter and wider.' },
+      { id: 'sunlance', name: 'Sunlance', cd: 12, desc: 'Call a wide beam of sunlight down from the sky onto your crosshair. For 3s it lights the whole area like daylight and burns everything inside it, on the ground or in the air, for huge damage.' },
+      { id: 'dragon', name: 'Dragon', cd: 20, desc: 'Summon a giant red dragon in a ring of fire. For 18s it flies with you, circling overhead, and dives on your enemies breathing a river of fire that leaves the ground burning. It climbs to reach bosses and anything that flies.' },
       { id: 'seekers', name: 'Homing Fireballs', cd: 5, desc: 'Loose 3 flaming skulls that hunt down the nearest enemies by themselves and explode on impact.' },
     ],
   },
   {
-    id: 'bastion', name: 'Bastion', element: 'Earth', color: 0x7a5a3a, accent: 0xd9a25a, css: '#d9a25a',
+    id: 'bastion', name: 'Quake', element: 'Earth', color: 0x7a5a3a, accent: 0xd9a25a, css: '#d9a25a',
     tagline: 'The earth bends to you.',
     q: { id: 'boulder', name: 'Boulder Toss', cd: 5, desc: 'Rip a boulder out of the ground and hurl it at your crosshair. It smashes on impact, stunning and scattering everything nearby.' },
     r: { id: 'rockarmor', name: 'Rock Armor', cd: 10, desc: 'Stone slabs clamp on to your body and you take no damage at all until Rock Armor is ready again. Every hit the armor takes shocks the ground, knocking back and stunning enemies around you.' },
@@ -42,7 +47,7 @@ export const CLASSES = [
     ],
   },
   {
-    id: 'tempest', name: 'Tempest', element: 'Storm', color: 0x2c3f8f, accent: 0x8fb4ff, css: '#b57bff',
+    id: 'tempest', name: 'Arc', element: 'Storm', color: 0x2c3f8f, accent: 0x8fb4ff, css: '#b57bff',
     tagline: 'Strike first. Strike everywhere.',
     q: { id: 'chain', name: 'Chain Lightning', cd: 5, desc: 'A thick braid of lightning strands that snap together on one focal point at the far end, going straight through everything in its path and striking every enemy it touches. The current also reflects to nearby enemies, and the braid stays up for 4s, striking anything that walks into it.' },
     r: { id: 'storm', name: 'Thunderstorm', cd: 10, desc: 'Call a wide storm cell (26 m across) that hammers the whole area with lightning for 4s. Every bolt stays up until the storm ends and hits anything that touches it.' },
@@ -53,7 +58,7 @@ export const CLASSES = [
     ],
   },
   {
-    id: 'rime', name: 'Rime', element: 'Frost', color: 0x2f7fa8, accent: 0xaee8ff, css: '#3f86ff',
+    id: 'rime', name: 'Tundra', element: 'Frost', color: 0x2f7fa8, accent: 0xaee8ff, css: '#3f86ff',
     tagline: 'Everything stops.',
     q: { id: 'shards', name: 'Ice Shards', cd: 5, desc: 'Four large diamond crystals of ice form around you and dart at the nearest enemies, shattering on impact and chilling everything they hit.' },
     r: { id: 'barrier', name: 'Ice Barrier', cd: 10, desc: 'Raise a wall of ice ahead of you for 8s. Anything that touches it is locked inside an ice crystal for 10 seconds, however big.' },
@@ -62,7 +67,7 @@ export const CLASSES = [
       { id: 'rain', name: 'Healing Rain', cd: 10, desc: 'Call down a small, heavy rain storm for 7s. Its raindrops heal you and every teammate under it, and are toxic to every enemy caught in it.' },
       { id: 'whirl', name: 'Whirlpool', cd: 10, desc: 'Open a spinning whirlpool at your crosshair for 6s. It drags enemies in, traps and staggers them, and hurts more the longer they stay in it.' },
       { id: 'jet', name: 'Pressure Jet', cd: 5, desc: 'Fire a thin, high-pressure stream of water along your crosshair. It pierces through every enemy and staggers them until it runs out.' },
-      { id: 'snowball', name: 'Snowball', cd: 10, desc: 'Hop into a snowball for 10s and roll through enemies. It grows as it rolls and hits harder the bigger it gets. Anything it touches is slowed for 3s.' },
+      { id: 'snowball', name: 'Snowball', cd: 10, desc: 'Hop into a snowball for 16s and roll through enemies. It grows as it rolls and hits harder the bigger it gets. Anything it touches is slowed for 3s.' },
       { id: 'zero', name: 'Absolute Zero', cd: 10, desc: 'Every enemy near you stops dead for 5s, and so does every enemy shot in mid-air.' },
     ],
   },
@@ -74,7 +79,8 @@ export const CLASSES = [
     e: { id: 'eye', name: 'Eye of the Storm', cd: 10, desc: 'Wrap yourself in a huge swirl of wind for 5s. Nothing can hurt you inside it, enemy shots are deflected back at their shooters, and enemies that touch the swirl are flung away. You can still shoot out.' },
     more: [
       { id: 'cloud', name: 'Cloud Form', cd: 10, desc: 'Turn into drifting mist until Cloud Form is ready again. You pass straight through enemies and attacks, nothing can see you, and you can keep attacking the whole time.' },
-      { id: 'tornado', name: 'Windmill', cd: 10, desc: 'Summon a tornado you steer with your crosshair like a guided missile for 6s. It drags in everything nearby, lifts enemies and shreds them, swallows enemy shots, and the fall hurts them again when it drops them.' },
+      { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It tears through every enemy in its path for high damage and blasts each one far away.' },
+      { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a tornado you steer with your crosshair like a guided missile for 6s. It drags in everything nearby, lifts enemies and shreds them, swallows enemy shots, and the fall hurts them again when it drops them.' },
     ],
   },
   {
@@ -599,6 +605,11 @@ export const POWERUPS = [
   { id: 'siphon', kind: 'special', lv: false, icon: '♥', crate: 1.5, name: 'Soul Siphon', desc: '+4% lifesteal and +1 HP per second', apply: (s) => { s.lifesteal += 0.04; s.regen += 1; } },
   { id: 'bulwark', kind: 'special', lv: false, icon: '⛨', crate: 1.5, name: 'Bulwark', desc: 'Take 10% less damage, 5% slower', apply: (s) => { s.armor = 1 - (1 - s.armor) * 0.9; s.speed *= 0.95; } },
   { id: 'adrenaline', kind: 'special', lv: false, icon: '✚', crate: 1.5, name: 'Adrenaline', desc: '+2 HP per second and +5% move speed', apply: (s) => { s.regen += 2; s.speed *= 1.05; } },
+  // Wild elemental power-ups: they work with whatever cooldowns you carry.
+  { id: 'wildmagic', kind: 'special', lv: false, icon: '✺', crate: 1.3, name: 'Wild Magic', desc: 'Every cooldown you cast has a 15% chance to make your other two ready at once (stacks)', apply: (s) => (s.wild = Math.min(0.6, s.wild + 0.15)) },
+  { id: 'feast', kind: 'special', lv: false, icon: '✺', crate: 1.3, name: 'Elemental Feast', desc: 'Every cooldown you cast heals 4% of your health (stacks)', apply: (s) => (s.castHeal += 0.04) },
+  { id: 'momentum', kind: 'special', lv: false, icon: '✺', crate: 1.3, name: 'Momentum', desc: 'Every cooldown you cast makes you run 45% faster for 3 seconds (stacks)', apply: (s) => (s.castHaste += 3) },
+  { id: 'resonance', kind: 'special', lv: false, icon: '✺', crate: 1.1, name: 'Resonance', desc: 'Every cooldown you cast also bursts your element out around you, hitting everything close (stacks)', apply: (s) => (s.castNova += 1) },
   { id: 'heal', kind: 'stat', lv: false, icon: '✚', name: 'Healing Draught', desc: 'Fully healed', apply: (s, p) => (p.hp = s.maxHp) },
 ];
 
@@ -644,6 +655,8 @@ export const DUEL = { cd: 5, // every ability cooldown in the arena
  freezeMax: 3, slowMax: 3, thawImmune: 2 };
 // Gravity Gun: a well pulls everything within `pull` m toward its centre for `dur` seconds, then collapses in a blast of
 // radius `blast`. Bosses are pulled only `boss` m (weakly) and take `bossDmg`. Friends are pulled too, never hurt.
+// Flaming Weapons (Pyre): damage and melee reach while the held weapon burns, and the shortest burn a hit leaves.
+export const FLAME = { dmg: 1.3, reach: 1.35, arc: 1.15, minBurn: 2 };
 export const HEAL = { self: 0.1, beam: 1.2 }; // Healing Staff: share of max HP you mend yourself, seconds the beams stay up
 export const GRAV = { dur: 1.25, pull: 14, blast: 9, dmg: 600, boss: 5, bossDmg: 150, max: 6 };
 // The first Duel Arena's look: a bright, flat green plain with the walled arena in the middle (not one of the six run stages).
@@ -690,17 +703,68 @@ export const DUEL_PICKS = [
   dp('vamp', '♥', 'Soul Siphon', 'Heal 8% of damage dealt', (s) => (s.lifesteal += 0.08)),
 ];
 
-export const POWERUP_BY_ID = Object.fromEntries([...POWERUPS, ...ELEMENTS, ...DUEL_PICKS].map((p) => [p.id, p]));
+// ---- Elemental chest power-ups (Nutty 2026-11-12): one for EVERY cooldown, found in chests, drawn from the three you carry. ----
+// Each is built from the same few perks, so a new cooldown gets one the day it is added (give it a line in AB_PERKS for its own
+// name, or it gets "<Name> Surge"). Perks: dmg (x damage), cd (x recharge), echo (chance it is ready again at once), nova (your
+// element bursts out around you when you cast it), heal (share of max health per cast), haste (seconds of running fast),
+// ward (seconds of taking half damage). All stack. The burst's own flavour comes from the element (player.js abNova).
+const AB_PERKS = {
+  fireball: ['Wildfire', { dmg: 1.35, nova: 1 }], inferno: ['Backdraft', { cd: 0.8, heal: 0.06 }], firewall: ['Firewalker', { dmg: 1.25, haste: 5 }],
+  breath: ['Second Wind', { echo: 0.3 }], flameweap: ['Forge Heart', { heal: 0.1, nova: 1 }], minisun: ['Solar Flare', { dmg: 1.4 }],
+  sunlance: ['High Noon', { cd: 0.75, dmg: 1.2 }], dragon: ['Dragon Rider', { haste: 6, ward: 4 }], seekers: ['Skull Storm', { echo: 0.35 }],
+  boulder: ['Avalanche', { dmg: 1.4 }], rockarmor: ['Living Mountain', { heal: 0.15, nova: 1 }], pillars: ['Aftershock', { nova: 2 }],
+  orbit: ['Moonlets', { dmg: 1.5 }], meteor: ['Meteor Shower', { echo: 0.3 }], stomp: ["Giant's Step", { cd: 0.75, ward: 3 }],
+  chain: ['Overload', { dmg: 1.35, nova: 1 }], storm: ['Thunderhead', { cd: 0.8, haste: 4 }], shockwave: ['Thunderclap', { echo: 0.3 }],
+  fence: ['Live Wire', { nova: 2, ward: 3 }], blink: ['Flicker', { echo: 0.4, heal: 0.05 }],
+  shards: ['Glacier Lance', { dmg: 1.4 }], barrier: ['Permafrost', { heal: 0.12, nova: 1 }], tsunami: ['Riptide', { cd: 0.75, haste: 4 }],
+  rain: ['Monsoon', { heal: 0.1, ward: 3 }], whirl: ['Maelstrom', { dmg: 1.4 }], jet: ['Fire Hose', { echo: 0.3 }],
+  snowball: ['Snow Day', { ward: 5, nova: 1 }], zero: ['Deep Freeze', { cd: 0.75, nova: 1 }],
+  veil: ['Tailwind', { haste: 6, heal: 0.06 }], cyclone: ['Twin Twisters', { echo: 0.3 }], eye: ['Calm Centre', { heal: 0.15, cd: 0.85 }],
+  cloud: ['Silver Lining', { heal: 0.2, nova: 1 }], airshot: ['Sonic Boom', { dmg: 1.4, nova: 1 }], tornado: ['Hurricane', { dmg: 1.3, haste: 4 }],
+  lifedrain: ['Blood Feast', { dmg: 1.3, heal: 0.05 }], acid: ['Corrosion', { dmg: 1.4 }], raise: ['Legion', { echo: 0.3 }],
+  vines: ['Bramble Heart', { ward: 4, nova: 1 }], ghostwalk: ['Haunt', { heal: 0.15, nova: 1 }], crows: ['Murder of Crows', { cd: 0.75, dmg: 1.2 }],
+  supper: ['Second Helping', { echo: 0.3 }], finger: ["Death's Door", { cd: 0.7 }],
+};
+const BURST = { pyre: 'a ring of fire that burns', bastion: 'a ground shock that stuns', tempest: 'a lightning burst that shocks', rime: 'a frost burst that freezes', gale: 'a blast of wind that throws back', necro: 'a wave of rot that poisons' };
+const pct = (x) => Math.round(Math.abs(x - 1) * 100);
+function abPu(cls, ab) {
+  const [name, fx] = AB_PERKS[ab.id] || [ab.name + ' Surge', { dmg: 1.3, cd: 0.9 }];
+  const d = [];
+  if (fx.dmg) d.push(ab.name + ' hits ' + pct(fx.dmg) + '% harder');
+  if (fx.cd) d.push((d.length ? 'it' : ab.name) + ' recharges ' + pct(fx.cd) + '% faster');
+  if (fx.echo) d.push(ab.name + ' has a ' + Math.round(fx.echo * 100) + '% chance to be ready again the moment you cast it');
+  const on = [];
+  if (fx.nova) on.push('sends out ' + (BURST[cls.id] || 'a burst of your element that hits') + ' everything close' + (fx.nova > 1 ? ' (double strength)' : ''));
+  if (fx.heal) on.push('heals ' + Math.round(fx.heal * 100) + '% of your health');
+  if (fx.haste) on.push('makes you run 45% faster for ' + fx.haste + ' seconds');
+  if (fx.ward) on.push('halves the damage you take for ' + fx.ward + ' seconds');
+  if (on.length) d.push('Casting ' + ab.name + ' ' + on.join(' and '));
+  return {
+    id: 'ab_' + ab.id, kind: 'abpu', ab: ab.id, cls: cls.id, icon: '✦', color: cls.css, name, desc: d.join('. ') + '. Stacks.',
+    apply: (s) => {
+      const a = s.ab[ab.id] || (s.ab[ab.id] = { dmg: 1, cd: 1, echo: 0, nova: 0, heal: 0, haste: 0, ward: 0 });
+      if (fx.dmg) a.dmg *= fx.dmg; if (fx.cd) a.cd = Math.max(0.4, a.cd * fx.cd); if (fx.echo) a.echo = Math.min(0.75, a.echo + fx.echo);
+      a.nova += fx.nova || 0; a.heal += fx.heal || 0; a.haste += fx.haste || 0; a.ward += fx.ward || 0;
+    },
+  };
+}
+export const AB_PUS = CLASSES.flatMap((c) => [c.q, c.r, c.e, ...(c.more || [])].map((ab) => abPu(c, ab)));
+export const AB_PU_BY_AB = Object.fromEntries(AB_PUS.map((p) => [p.ab, p]));
+export const POWERUP_BY_ID = Object.fromEntries([...POWERUPS, ...ELEMENTS, ...DUEL_PICKS, ...AB_PUS].map((p) => [p.id, p]));
 
 // Every level-up offers ten cards: six fixed picks, a random physical attack power-up, a random element,
 // a random utility stat and a random power mastery.
 const PHYSICAL = ['orbit', 'aura', 'burst', 'rate', 'leech', 'crit', 'execute', 'bigmag', 'fastreload', 'heavy'];
 const UTILITY = ['hp', 'cd', 'armor', 'learn'];
 const MASTERY = POWERUPS.filter((p) => p.kind === 'ability').map((p) => p.id);
-export function levelOffer() {
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const by = (id) => POWERUP_BY_ID[id];
-  return [by('dmg'), by('spd'), by('jump'), by('eldmg'), by('extra'), by('regen'), by(pick(PHYSICAL)), pick(ELEMENTS), by(pick(UTILITY)), by(pick(MASTERY))];
+// Nutty 2026-11-12 14:42: the cards are random every level (five of them, no repeats), and one or two are always elemental
+// power-ups for the cooldowns of your own element that you carry (AB_PUS).
+export function levelOffer(cls) {
+  const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const mine = cls ? shuffle(['q', 'r', 'e'].map((k) => cls[k] && AB_PU_BY_AB[cls[k].id]).filter(Boolean)) : [];
+  const el = mine.slice(0, mine.length ? 1 + (Math.random() < 0.5 ? 1 : 0) : 0);
+  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', 'extra', 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS]);
+  return shuffle([...el, ...pool.slice(0, 5 - el.length)]);
 }
 
 // A reroll: ten different picks drawn from the 30 reroll power-ups, never any that are on screen now.
@@ -708,13 +772,13 @@ export function rerollOffer(current) {
   const cur = new Set((current || []).map((o) => o.id));
   const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  return pool.slice(0, 10);
+  return pool.slice(0, 5);
 }
 
 // XP: each kill feeds the bar, each full bar grants a random level-up power-up.
 export const XP = {
   kill: { 1: 4, 2: 8, 3: 14 }, mini: 60, boss: 200, perRound: 0.08,
-  need: (lv) => Math.round(50 + 34 * lv + lv * lv * 3.2), // about 8-10 power-ups a round for a good player: each pick matters (2026-11-08)
+  need: (lv) => Math.round(80 + 60 * lv + lv * lv * 7), // steeper (Nutty 2026-11-12 14:42): was 50 + 34 lv + 3.2 lv^2, too many easy power-ups with the bigger crowd // about 8-10 power-ups a round for a good player: each pick matters (2026-11-08)
 };
 
 export function freshStats() {
@@ -723,6 +787,7 @@ export function freshStats() {
     xpGain: 1, elem: { fire: 0, frost: 0, storm: 0, earth: 0, wind: 0 }, orbit: 0, aura: 0, burst: 0, magnet: 0, phoenix: 0, greed: 1,
     jump: 1, extra: 0, reach: 1, crit: 0, execute: 0, mag: 1, reload: 1, kb: 0,
     mast: { q: { dmg: 1, cd: 1 }, r: { dmg: 1, cd: 1 }, e: { dmg: 1, cd: 1 }, d: { dmg: 1, cd: 1 } },
+    ab: {}, wild: 0, castHeal: 0, castHaste: 0, castNova: 0, // elemental chest power-ups (AB_PUS): per-cooldown perks by ability id, and the wild ones that fire on every cast
   };
 }
 

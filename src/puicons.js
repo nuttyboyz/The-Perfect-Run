@@ -65,15 +65,19 @@ const MAP = {
   rr_goldrush: ['coins', GLD], greed: ['coins', GLD], rr_dashmaster: ['dash', BLU], rr_bulwark: ['tower', GRY], titan: ['tower', RED],
   rr_rage: ['rage', RED], berserk: ['rage', RED], rr_adrenaline: ['syringe', GRN], rush: ['syringe', RED], rr_lucky: ['clover', GRN],
   phoenix: ['feather', ORG], glass: ['glass', BLU], heal: ['potion', GRN],
+  wildmagic: ['star', PUR], feast: ['heartPlus', PUR], momentum: ['boot', PUR], resonance: ['burst', PUR],
   el_fire: ['flame', ORG], el_frost: ['snow', BLU], el_storm: ['bolt', PUR], el_earth: ['mountain', GLD], el_wind: ['wind', GRN],
 };
 const KEYNAME = { q: 'Q', r: 'F', e: 'G', d: '⇢' };
 
-export const hasPuIcon = (pu) => !!pu && (!!MAP[pu.id] || pu.kind === 'ability' || /^rr_[qfg]over$/.test(pu.id));
+// Elemental chest power-ups wear their element's own symbol on its own colour.
+const EL_SYM = { pyre: ['flame', '#7a2a08'], bastion: ['mountain', '#5a3d1c'], tempest: ['bolt', '#3b1d6a'], rime: ['snow', '#12356e'], gale: ['wind', '#3a4654'], necro: ['skull', '#1d4a2c'] };
+export const hasPuIcon = (pu) => !!pu && (!!MAP[pu.id] || pu.kind === 'abpu' || pu.kind === 'ability' || /^rr_[qfg]over$/.test(pu.id));
 export function puIcon(pu) {
   if (!pu) return '';
   let body, bg;
-  if (MAP[pu.id]) { const [g, c] = MAP[pu.id]; body = G[g](); bg = c; }
+  if (pu.kind === 'abpu') { const [g, c] = EL_SYM[pu.cls] || ['star', PUR]; body = G[g](); bg = c; }
+  else if (MAP[pu.id]) { const [g, c] = MAP[pu.id]; body = G[g](); bg = c; }
   else if (pu.kind === 'ability' || /^m_/.test(pu.id)) { body = G.key(KEYNAME[pu.key] || '?', pu.mode); bg = pu.mode === 'dmg' ? RED : BLU; }
   else if (/^rr_[qfg]over$/.test(pu.id)) { body = G.key({ rr_qover: 'Q', rr_fover: 'F', rr_gover: 'G' }[pu.id], 'over'); bg = PUR; }
   else { body = G.star(); bg = GRY; }

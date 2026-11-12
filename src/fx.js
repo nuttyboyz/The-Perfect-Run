@@ -20,11 +20,14 @@ void main() {
   vRot = aRot;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float d = -mv.z;
-  gl_PointSize = min(aSize * uScale / max(d, 0.1), 600.0);
+  float ps = aSize * uScale / max(d, 0.1);
+  gl_PointSize = min(ps, 420.0);
   float f = uFogDensity * d;
   vFog = 1.0 - exp(-f * f);
   // Fade particles that are about to hit the camera so they never fill the screen.
-  vFog = 1.0 - (1.0 - vFog) * smoothstep(0.35, 1.6, d);
+  // (2026-11-12: a cloud or blast right on the camera washed the whole screen white-green. A puff now fades out from 4 m in, and any
+  // puff that would cover a big part of the screen is thinned in step with its size.)
+  vFog = 1.0 - (1.0 - vFog) * smoothstep(0.6, 4.0, d) * (1.0 - 0.85 * smoothstep(160.0, 420.0, ps));
   gl_Position = projectionMatrix * mv;
 }`;
 

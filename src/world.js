@@ -12,9 +12,11 @@ import { propLibrary, stoneMat, WIND, crystalCluster } from './props.js';
 import { makeTerrainMaterial } from './terrain.js';
 import { skyMaterial } from './look.js';
 import { prepStage, buildStageExtras } from './stages.js';
+import { pickLandmarkSites, buildLandmarks } from './landmarks.js';
 import { rockGeo, softBox, lathe, merge, paint, finish, setColor, noise3, clamp } from './geo.js';
 
-const SIZE = 360;
+const SIZE = 468;
+const NO_PF = [];
 const CELL = 96; // instanced props are split into spatial cells so frustum culling (and shadow culling) works
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -41,7 +43,7 @@ export class World {
     this.trees = [];
     this.grid = new Map();
     this.crates = [];
-    this.crateCount = this.duel ? 0 : 88; // four times the original 22
+    this.crateCount = this.duel ? 0 : 264; // three times the 88 there were (Nutty 2026-11-12)
     this.animated = [];
     this.quality = quality;
     const r = mulberry32(seed);
@@ -51,9 +53,9 @@ export class World {
 
     // Spawn and arena sit on opposite sides so each round is a trek. The Duel Arena sits in the middle of a flat plain.
     const a = r() * Math.PI * 2;
-    this.spawn = { x: Math.cos(a) * 95, z: Math.sin(a) * 95 };
+    this.spawn = { x: Math.cos(a) * 124, z: Math.sin(a) * 124 };
     const b = a + Math.PI + (r() - 0.5) * 1.2;
-    this.arena = this.duel ? { x: 0, z: 0, r: DUEL.arena } : { x: Math.cos(b) * 85, z: Math.sin(b) * 85, r: 26 };
+    this.arena = this.duel ? { x: 0, z: 0, r: DUEL.arena } : { x: Math.cos(b) * 110, z: Math.sin(b) * 110, r: 26 };
     this.amp = this.duel ? 0 : { graveyard: 9, forest: 11, desert: 8, frozen: 16, volcanic: 13, abyss: 12, springs: 6, space: 8, waterfall: 7, clearing: 5, volcano: 12, ruins: 7 }[this.biome.id] ?? 8;
 
     this.stage = null; this.carves = [];
@@ -69,6 +71,7 @@ export class World {
     if (this.duel) this.buildDuelCover();
     if (this.duel && this.arenaIdx) buildDuelScenery(this); // the new arenas' backdrop: buttes, ice crystals, pines
     if (!this.duel) buildStageExtras(this); // water, trees, the crashed UFO...
+    if (!this.duel) buildLandmarks(this);
     this.buildContactShadows();
     this.buildClutter();
     this.buildAmbient();
@@ -88,7 +91,7 @@ export class World {
     }
     if (this.biome.id === 'frozen' || this.biome.id === 'volcanic' || this.biome.id === 'volcano') h += Math.pow(n.ridged(x * 0.015, z * 0.015, 4), 3) * 9;
     const d = Math.hypot(x, z);
-    const edge = 132 + (n2.noise2(Math.atan2(z, x) * 6, 3) - 0.5) * 16;
+    const edge = 172 + (n2.noise2(Math.atan2(z, x) * 6, 3) - 0.5) * 16;
     if (d > edge) h += Math.pow(d - edge, 1.35) * 0.32;
     return h;
   }
@@ -193,9 +196,10 @@ export class World {
     if (!this.duel) { // the duel arenas shape their own ground (arenas.js)
       this.flats.push({ x: this.spawn.x, z: this.spawn.z, r: 12, blend: 14, h: this.rawHeight(this.spawn.x, this.spawn.z) });
       this.flats.push({ x: this.arena.x, z: this.arena.z, r: this.arena.r + 2, blend: 16, h: this.rawHeight(this.arena.x, this.arena.z) });
+      pickLandmarkSites(this); // themed walk-in structures, each on its own patch of level ground
     }
     this.buildPath();
-    const segs = [150, 200, 260][this.quality];
+    const segs = (this.duel ? [150, 200, 260] : [190, 260, 330])[this.quality];
     const geo = new THREE.PlaneGeometry(SIZE, SIZE, segs, segs).rotateX(-Math.PI / 2);
     geo.deleteAttribute('uv');
     const pos = geo.attributes.position;
@@ -239,6 +243,21 @@ export class World {
     }
   }
 
+  // The platforms that can touch a body standing at (x, z): a 12 m grid over the list, rebuilt whenever the list grows. With three
+  // times the crowd and many more buildings, walking every platform for every body each tick was the costliest thing in the game.
+  platsAt(x, z) {
+    const P = this.platforms;
+    if (!this._pg || this._pgN !== P.length) {
+      const g = (this._pg = new Map()); this._pgN = P.length;
+      for (const pf of P) {
+        const R = (pf.box ? Math.hypot(pf.hw, pf.hd) : pf.r) + 6; // room for the widest body that asks (a boss)
+        const i0 = Math.floor((pf.x - R) / 12), i1 = Math.floor((pf.x + R) / 12), j0 = Math.floor((pf.z - R) / 12), j1 = Math.floor((pf.z + R) / 12);
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = i * 1000 + j; let l = g.get(k); if (!l) g.set(k, (l = [])); l.push(pf); }
+      }
+    }
+    return this._pg.get(Math.floor(x / 12) * 1000 + Math.floor(z / 12)) || NO_PF;
+  }
+
   // Push a circle (x,z,r) out of props; returns corrected [x,z].
   collide(x, z, r, y) {
     const cs = 8;
@@ -253,7 +272,7 @@ export class World {
     }
     // Platforms block you from the side unless your feet are already high enough to step or land on top.
     if (this.platforms) {
-      for (const pf of this.platforms) {
+      for (const pf of this.platsAt(x, z)) {
         if (pf.air || (y !== undefined && y >= pf.top - 0.35)) continue;
         if (pf.box) {
           // A box (a building, a wall, a roof): push out through the nearest side, in its own frame.
@@ -284,7 +303,7 @@ export class World {
   // Ground height under a body whose feet are at y, counting jumpable platforms.
   standY(x, z, y) {
     let h = this.heightAt(x, z);
-    if (this.platforms) for (const pf of this.platforms) {
+    if (this.platforms) for (const pf of this.platsAt(x, z)) {
       if (pf.box) {
         const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), dx = x - pf.x, dz = z - pf.z;
         const lx = dx * c + dz * s, lz = -dx * s + dz * c;
@@ -306,13 +325,16 @@ export class World {
   }
 
   // Where nothing may be placed (water, the crashed UFO): set by the stage (stages.js).
-  noPlace(x, z, r = 0) { return !!(this.stage && this.stage.noPlace(x, z, r)); }
+  noPlace(x, z, r = 0) {
+    if (this.landSites) for (const s of this.landSites) if (Math.hypot(x - s.x, z - s.z) < 14.5 + r) return true; // a landmark building stands here (landmarks.js)
+    return !!(this.stage && this.stage.noPlace(x, z, r));
+  }
 
   clearOf(x, z, extra) {
     if (this.noPlace(x, z, extra)) return false;
     if (Math.hypot(x - this.spawn.x, z - this.spawn.z) < 16 + extra) return false;
     if (Math.hypot(x - this.arena.x, z - this.arena.z) < this.arena.r + 6 + extra) return false;
-    if (Math.hypot(x, z) > 128) return false;
+    if (Math.hypot(x, z) > 166) return false;
     return true;
   }
 
@@ -350,7 +372,7 @@ export class World {
     const place = (type, def, count, rng, pickVar, scaleDensity) => {
       const items = [], fork = [];
       for (let i = 0; i < count; ) {
-        let x = (rng() * 2 - 1) * 130, z = (rng() * 2 - 1) * 130;
+        let x = (rng() * 2 - 1) * 169, z = (rng() * 2 - 1) * 169;
         const cl = def.cluster || 1;
         for (let c = 0; c < cl && i < count; c++, i++) {
           const px = x + (cl > 1 ? (rng() - 0.5) * 10 : 0), pz = z + (cl > 1 ? (rng() - 0.5) * 10 : 0);
@@ -391,7 +413,7 @@ export class World {
       const def = lib[type]();
       const variants = def.variants || [def.parts];
       const vr = mulberry32(this.seed * 31 + ti++ * 7919 + 5); // variant choice never touches the gameplay stream
-      const count = Math.floor(def.n * density);
+      const count = Math.floor(def.n * density * 1.6); // the map is 30% wider: the same thickness of trees and rocks over the bigger ground
       const { items, fork } = place(type, def, count, r, () => Math.floor(vr() * variants.length));
       this.emitProps(type, def, variants, items, fork, lavaMat);
     }
@@ -455,7 +477,7 @@ export class World {
       ruins: { tufts: [['grass', [0.9, 1.6], [1300, 3000, 4500]], ['fern', [0.8, 1.4], [80, 200, 320]]], pebbles: [120, 240, 400], tint: [0.5, 0.52, 0.46] },
     }[id];
     const ok = (x, z, minClear) => {
-      if (Math.hypot(x, z) > 128) return null;
+      if (Math.hypot(x, z) > 166) return null;
       if (Math.hypot(x - this.arena.x, z - this.arena.z) < this.arena.r - 1) return null;
       if (this.blocked(x, z, minClear) || this.noPlace(x, z, minClear)) return null;
       const h = this.heightAt(x, z);
@@ -479,14 +501,14 @@ export class World {
       return merge(list);
     })();
     for (const [kind, sz, counts] of spec.tufts) {
-      const n = counts[Q];
+      const n = Math.round(counts[Q] * (this.duel ? 1 : 1.5));
       if (!n) continue;
       const tex = TX.sprayMaps(kind);
       const mat = new THREE.MeshStandardMaterial({ map: tex.map, alphaMap: tex.alphaMap, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true, roughness: 0.9, alphaToCoverage: Q >= 1 });
       windifyGrass(mat);
       const items = [];
       for (let i = 0, tries = 0; i < n && tries < n * 3; tries++) {
-        const x = (rng() * 2 - 1) * 128, z = (rng() * 2 - 1) * 128, s = sz[0] + rng() * (sz[1] - sz[0]), yaw = rng() * 6.28, tv = rng(), tw = rng();
+        const x = (rng() * 2 - 1) * 166, z = (rng() * 2 - 1) * 166, s = sz[0] + rng() * (sz[1] - sz[0]), yaw = rng() * 6.28, tv = rng(), tw = rng();
         const h = ok(x, z, 0.35);
         if (h === null) continue;
         i++;
@@ -508,7 +530,7 @@ export class World {
       const mat = stoneMat(spec.tint);
       const items = [];
       for (let i = 0, tries = 0; i < spec.pebbles[Q] && tries < spec.pebbles[Q] * 3; tries++) {
-        const x = (rng() * 2 - 1) * 128, z = (rng() * 2 - 1) * 128, s = 0.5 + rng() * 1.3, yaw = rng() * 6.28;
+        const x = (rng() * 2 - 1) * 166, z = (rng() * 2 - 1) * 166, s = 0.5 + rng() * 1.3, yaw = rng() * 6.28;
         const h = ok(x, z, 0.4);
         if (h === null) continue;
         i++;
@@ -521,7 +543,7 @@ export class World {
       const mat = new THREE.MeshStandardMaterial({ color: 0x5a2aa8, emissive: 0x9a50ff, emissiveIntensity: 1.6, roughness: 0.2, metalness: 0.1, vertexColors: true, flatShading: true });
       const items = [];
       for (let i = 0, tries = 0; i < spec.crystals[Q] && tries < spec.crystals[Q] * 3; tries++) {
-        const x = (rng() * 2 - 1) * 128, z = (rng() * 2 - 1) * 128, s = 0.6 + rng() * 1.5;
+        const x = (rng() * 2 - 1) * 166, z = (rng() * 2 - 1) * 166, s = 0.6 + rng() * 1.5;
         const h = ok(x, z, 0.4);
         if (h === null) continue;
         i++;
@@ -868,7 +890,7 @@ export class World {
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
     if (list) for (const c of list) if (y < this.colTop(c) && Math.hypot(x - c.x, z - c.z) < c.r + r) return true;
-    if (this.platforms) for (const pf of this.platforms) {
+    if (this.platforms) for (const pf of this.platsAt(x, z)) {
       if (pf.air || y > pf.top - 0.05) continue;
       if (pf.box) {
         if (pf.base !== undefined && y < pf.base - 0.3) continue;
@@ -881,7 +903,7 @@ export class World {
 
   // Is this point inside the wall, lintel or roof of a walk-in building (buildkit.js)? The third-person camera pulls in instead.
   inBuilding(x, y, z, r = 0.35) {
-    if (this.platforms) for (const pf of this.platforms) {
+    if (this.platforms) for (const pf of this.platsAt(x, z)) {
       if (!pf.bld || y > pf.top + r || (pf.base !== undefined && y < pf.base - r)) continue;
       const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = x - pf.x, rz = z - pf.z, lx = rx * c + rz * s, lz = -rx * s + rz * c;
       if (Math.abs(lx) < pf.hw + r && Math.abs(lz) < pf.hd + r && y < pf.top - (pf.pitch || 0) * Math.abs(lx) + r) return true;
@@ -938,8 +960,8 @@ export class World {
       for (const m of all) m.instanceMatrix.needsUpdate = true;
     };
     let id = 0;
-    for (let tries = 0; this.crates.length < N && tries < 4000; tries++) {
-      const x = (r() * 2 - 1) * 120, z = (r() * 2 - 1) * 120;
+    for (let tries = 0; this.crates.length < N && tries < 14000; tries++) {
+      const x = (r() * 2 - 1) * 160, z = (r() * 2 - 1) * 160;
       if (!this.clearOf(x, z, 2) || this.blocked(x, z, 1.5)) continue;
       const y = this.heightAt(x, z);
       const c = { id: id++, x, z, y, ry: r() * Math.PI, opened: false };
@@ -988,7 +1010,7 @@ export class World {
       const h = this.heightAt(x, z);
       const k = 0.55 + Math.max(-0.4, Math.min(0.6, h / 30));
       const o = (j * S + i) * 4;
-      const out = Math.hypot(x, z) > 140;
+      const out = Math.hypot(x, z) > 182;
       img.data[o] = base[0] * 255 * k * (out ? 0.4 : 1);
       img.data[o + 1] = base[1] * 255 * k * (out ? 0.4 : 1);
       img.data[o + 2] = base[2] * 255 * k * (out ? 0.4 : 1);

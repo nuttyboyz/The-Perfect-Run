@@ -234,6 +234,13 @@ export class Audio {
       case 'explode': this.noiseHit({ dur: 0.9, freq: 900, gain: 0.9 * v, sweep: 0.1 }); this.tone({ freq: 70, to: 30, dur: 0.6, gain: 0.6 * v }); break;
       case 'inferno': this.noiseHit({ dur: 1.6, freq: 500, gain: 0.7 * v, sweep: 2.5 }); this.tone({ freq: 60, to: 40, dur: 1, gain: 0.4 * v }); break;
       case 'earth': this.noiseHit({ dur: 0.8, freq: 300, gain: 0.8 * v, sweep: 0.5 }); this.tone({ freq: 55, to: 35, dur: 0.6, gain: 0.6 * v }); break;
+      case 'roar': { // a dragon: two rough voices sliding down over a chest rumble, with breath noise over the top
+        this.tone({ freq: 118, to: 52, dur: 1.9, type: 'sawtooth', gain: 0.34 * v }); this.tone({ freq: 83, to: 41, dur: 2.1, type: 'sawtooth', gain: 0.3 * v, delay: 0.05 });
+        this.tone({ freq: 176, to: 70, dur: 1.5, type: 'square', gain: 0.1 * v, delay: 0.08 }); this.tone({ freq: 44, to: 26, dur: 2.5, gain: 0.75 * v });
+        this.noiseHit({ dur: 1.9, freq: 620, q: 1.4, type: 'bandpass', gain: 0.55 * v, sweep: 0.45 }); this.noiseHit({ dur: 2.5, freq: 130, gain: 0.8 * v, sweep: 0.6 });
+        break;
+      }
+      case 'wing': this.noiseHit({ dur: 0.42, freq: 260, gain: 0.5 * v, sweep: 0.35 }); this.tone({ freq: 58, to: 34, dur: 0.3, gain: 0.22 * v }); break;
       case 'quake': this.noiseHit({ dur: 1.4, freq: 250, gain: 0.9 * v, sweep: 0.4 }); this.tone({ freq: 45, to: 28, dur: 1.2, gain: 0.7 * v }); break;
       case 'zap': this.noiseHit({ dur: 0.35, freq: 4000, type: 'highpass', gain: 0.5 * v }); this.tone({ freq: 1800, to: 300, dur: 0.25, type: 'sawtooth', gain: 0.12 * v }); break;
       case 'thunder': this.noiseHit({ dur: 1.2, freq: 1200, gain: 0.8 * v, sweep: 0.08 }); this.tone({ freq: 50, to: 30, dur: 0.9, gain: 0.5 * v }); break;

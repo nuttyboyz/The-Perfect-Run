@@ -1,5 +1,6 @@
 // Client-side views of networked things: other players, mobs, bosses, the
 // demon and NPCs. They interpolate toward the latest snapshot.
+import { updateWeaponFlames } from './flameweapon.js';
 import { PERF } from './perf.js';
 import { makeRiderBoard, RiderAnim, unpackBoard } from './skate.js';
 import { animateWeapon, makeWeapon } from './weapons.js';
@@ -115,6 +116,11 @@ export class RemotePlayerView {
     // Web Swing: the anchor of the line they hang from (presence sw, tenths of a metre); the left arm reaches for it.
     const sw = Array.isArray(p.sw) && p.sw.length === 3 ? [p.sw[0] / 10, p.sw[1] / 10, p.sw[2] / 10] : null;
     this.model.userData.anim({ speed: riding ? 0 : (p.sp || 0) / 10, pitch: (p.pt || 0) / 100, gun: true, reload: !p.gn && WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind === 'gun', weapon: true, melee: this.mlT || 0, move: this.mlMv | 0, arc: WEAPON_BY_ID[w] && WEAPON_BY_ID[w].arc, cast: p.ct ? 1 : 0, dead: !p.al, swing: sw, eyes: p.ey > 0, eyeGlow: p.ey === 2 ? 1 : 0.45 }, dt, this.t);
+    { // Flaming Weapons on this fighter ('fw' event sets flameUntil)
+      const hot = !!(p.al && this.flameUntil && this.game && this.game.now < this.flameUntil), kk = this.size || 1;
+      this.model.userData.flaming = hot; this.model.userData.fwK = kk;
+      if (fx) updateWeaponFlames(this.model, fx, hot, this.t || 0, dt, { k: kk, head: [this.pos.x, this.pos.y + 1.62 * kk, this.pos.z] });
+    }
     if (fx) flushSwipes(this.model, fx);
     const rig = this.model.userData.rig;
     if (sw && fx && p.al) fx.webLine('r' + this.id, rig ? rig.handWorld('Left') : [this.pos.x, this.pos.y + 1.6, this.pos.z], sw);
@@ -197,12 +203,16 @@ export class MobView {
     this.elite = ELITE.kinds[row[10] | 0] || null; // elite modifier: a coloured aura, a little bigger
     if (this.elite && !this.mini) { this.model.scale.multiplyScalar(1.18); this.vh *= 1.18; }
     const s = this.model.scale.x;
+    // Heavy-set (Nutty 2026-11-12): half the enemies are built thick, half regular (Nutty 2026-11-12 13:19), a wider and deeper body on the same frame.
+    const girth = !this.base.fly && !this.type.startsWith('echo') && (row[0] * 2654435761 >>> 0) % 100 < 50 ? 1.2 + ((row[0] * 40503 >>> 0) % 13) / 100 : 1;
+    this.girth = girth;
+    if (girth > 1) { this.model.scale.x *= girth; this.model.scale.z *= girth; }
     this.echo = this.type.startsWith('echo'); // a boss team mate: its health bar always shows
     this.bar = hpBar(this.base.radius * 1.8 * (this.mini ? MINI.size : this.echo ? 1.7 : 1), this.mini ? barFgMini : this.echo ? barFgEcho : barFg);
     if (this.echo) this.bar.scale.y = 1.8;
     this.bar.position.y = (this.vh + 0.35) / s;
     this.model.add(this.bar);
-    this.bar.scale.setScalar(1 / s);
+    this.bar.scale.setScalar(1 / s); this.bar.scale.x /= girth;
     scene.add(this.model);
     this.x = row[2] / 10; this.z = row[3] / 10; this.y = 0;
     this.fly = !!this.base.fly;
@@ -256,7 +266,10 @@ export class MobView {
       const dx = this.x - camera.position.x, dz = this.z - camera.position.z, d = Math.hypot(dx, dz);
       camera.getWorldDirection(_dir);
       const behind = d > 4 && (dx * _dir.x + dz * _dir.z) / d < -0.2;
-      const far = behind ? 0.2 : d < 16 ? 0 : d < 36 ? 0.05 : 0.12;
+      const far = behind ? 0.2 : d < 16 ? 0 : d < 36 ? 0.05 : d < 80 ? 0.12 : 0.3;
+      // With three times the crowd on a bigger map, anything a long way off is not drawn at all (nearer on the lower graphics tiers).
+      const seen = d < 75 + 55 * Math.min(1, PERF.lod);
+      if (seen !== this.seen) { this.seen = seen; this.model.visible = seen; }
       if (this.rig.setLod) this.rig.setLod(d);
       const st = { speed: frozen || stag ? 0 : speed, attack: this.anim, frozen, hit, stagger: stagStart };
       if (this.fly) {
@@ -265,7 +278,7 @@ export class MobView {
         st.vy = vy; st.frozen = frozen;
         st.pitch = THREE.MathUtils.clamp(Math.atan2(-vy, Math.max(speed, 1.5)) * 0.8 + 0.12, -0.7, 1.0);
       }
-      this.rig.update(st, dt, far);
+      if (seen) this.rig.update(st, dt, far);
     } else this.model.userData.anim({ speed: frozen || stag ? 0 : speed, attack: this.anim, phase: this.phase, frozen }, frozen ? 0 : dt, this.t);
     // Every enemy shows its health once you are close enough; hurt ones stay visible from further away, champions always.
     const bd = Math.hypot(this.x - camera.position.x, this.z - camera.position.z);
@@ -322,7 +335,7 @@ export class MobView {
       const t = this.rig.dieT - 0.35;
       this.model.position.y += dt * (0.5 + t * 0.35);
       this.model.rotation.y += dt * 0.5;
-      if (t > 2.4) { const k = Math.max(0.001, 1 - (t - 2.4) / 0.8); this.model.scale.setScalar(this.s0 * k); if (k <= 0.001) return false; }
+      if (t > 2.4) { const k = Math.max(0.001, 1 - (t - 2.4) / 0.8); this.model.scale.set(this.s0 * k, this.s0 * k / (this.girth || 1), this.s0 * k); if (k <= 0.001) return false; }
       else this.s0 = this.model.scale.x;
       this.rig.die(dt);
       return true;

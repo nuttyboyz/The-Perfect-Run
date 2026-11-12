@@ -97,8 +97,8 @@ export class HostSim {
   // Enemies start tough and get much tougher every round (health far faster than damage, so fights get longer before they get deadlier).
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
-  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.2, this.round) * (this.hard() ? 1.5 : 1); } // 1.2x health every round (Nutty 2026-11-11)
-  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // 1.2x damage every round (Nutty 2026-11-11)
+  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.2 * 1.1, this.round) * (this.hard() ? 3 : 1); } // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
+  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2 * 1.1, this.round) * (this.hard() ? 3 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
   bossDmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // bosses keep their own curve: +20% a round
   // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
   easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
@@ -431,7 +431,7 @@ export class HostSim {
       const p = alive[Math.floor(Math.random() * alive.length)];
       if (wide) {
         // Anywhere on the map, out of sight of everyone: the groups you meet while exploring.
-        const a = Math.random() * Math.PI * 2, rr = 20 + Math.sqrt(Math.random()) * 100;
+        const a = Math.random() * Math.PI * 2, rr = 20 + Math.sqrt(Math.random()) * 135;
         const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
         if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
         if (players.some((o) => o.alive && Math.hypot(o.x - x, o.z - z) < 44)) continue;
@@ -443,7 +443,7 @@ export class HostSim {
       const ang = ahead ? p.ry + (Math.random() - 0.5) * Math.PI * 1.2 : p.ry + Math.PI + (Math.random() - 0.5) * Math.PI * 1.2;
       const dist = (ahead ? 78 : 55) + Math.random() * 28;
       const x = p.x + Math.sin(ang) * dist, z = p.z + Math.cos(ang) * dist;
-      if (Math.hypot(x, z) > 128) continue;
+      if (Math.hypot(x, z) > 166) continue;
       if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
       if (players.some((o) => o.alive && Math.hypot(o.x - x, o.z - z) < CONFIG.minSpawnDist)) continue;
       return [x, z];
@@ -467,7 +467,8 @@ export class HostSim {
       pick.push(pool.splice(i < 0 ? 0 : i, 1)[0]);
     }
     // Weight within the round: weaker types show up more often. Ghoul/Stalker carry a small multiplier.
-    const lineup = Object.fromEntries(pick.map((o) => [o.t, [50, 26, 14][MOBS[o.t].tier - 1] * (MOBS[o.t].w ?? 1) * (0.8 + Math.random() * 0.4)]));
+    const heavy = (B) => (B.radius >= 0.8 || B.model === 'brute' ? 1.3 : 1); // Nutty 2026-11-12 13:19: half heavy-set, half regular (views.js girth does the split)
+    const lineup = Object.fromEntries(pick.map((o) => [o.t, [50, 26, 14][MOBS[o.t].tier - 1] * (MOBS[o.t].w ?? 1) * heavy(MOBS[o.t]) * (0.8 + Math.random() * 0.4)]));
     // From round 3 on, flyers join every lineup.
     const fly = (stage && STAGE_FLY[stage.id]) || [FLYERS[(r + ((this.runSeed | 0) & 3)) % FLYERS.length]];
     fly.forEach((f, i) => { lineup[f] = (i === 0 ? 16 : 9) * (0.8 + Math.random() * 0.4); });
@@ -522,7 +523,7 @@ export class HostSim {
       // A fresh round: fill most of the map with roaming groups right away, so there is always something out there.
       this.seedDue = false;
       // Round 1 starts thin (about a third of the crowd) so a new player can find their feet.
-      for (let i = 0; i < 30; i++) if (!this.spawnGroup(players, true, this.round === 0 ? 0.3 : 0.55)) break;
+      for (let i = 0; i < 90; i++) if (!this.spawnGroup(players, true, this.round === 0 ? 0.3 : 0.55)) break;
       return;
     }
     this.spawnCd -= dt;
@@ -535,14 +536,14 @@ export class HostSim {
   ramp() {
     if (this.phase !== 'play' || this.duel) return 1;
     const t = this.rt || 0;
-    return this.round === 0 ? Math.min(1, 0.3 + (t / 150) * 0.7) : Math.min(1, 0.55 + (t / 60) * 0.45);
+    return this.round === 0 ? Math.min(1, 0.22 + (t / 300) * 0.78) : Math.min(1, 0.55 + (t / 60) * 0.45);
   }
 
   // Per-type alive caps were tuned for a 16-mob field; they grow with the budget so a big field still fills up.
   capOf(B, n = 1) { return B.cap == null ? null : Math.min(B.hard ?? Infinity, Math.ceil(B.cap * this.mobBudget(n) / 16)); } // hard: never more, whatever the budget (the heavy hero-built bodies)
 
   // How many mobs the field holds at once (small swarmers and minions count for less, see cost).
-  mobBudget(n) { return Math.min(230, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.72 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
+  mobBudget(n) { return Math.min(this.duel ? 230 : 560, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.duel ? 1 : 3) * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.72 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
 
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {
@@ -557,7 +558,7 @@ export class HostSim {
     // A group appears, then a lull: a few seconds of walking before the next one. Lulls shrink as rounds go on
     // and when the field is thin, so you are never left with nothing to fight for long.
     const quiet = load < target * 0.5;
-    this.spawnCd = Math.max(this.round === 0 ? 3 : 1.4, (quiet ? 2.5 : 5) - this.round * 0.5 - n * 0.5) * 0.7 * (0.8 + Math.random() * 0.5);
+    this.spawnCd = Math.max(this.round === 0 ? 3 : 1.4, (quiet ? 2.5 : 5) - this.round * 0.5 - n * 0.5) * 0.7 * (0.8 + Math.random() * 0.5) * (this.duel ? 1 : 0.4);
     if (!pt) { this.spawnCd = 1; return true; }
     const r = this.round;
     if (!this.lineup) this.lineup = this.pickLineup(r);
@@ -565,7 +566,7 @@ export class HostSim {
     // alive cap and a max share of the live mobs, and the Ghoul/Stalker family shares one cap. Past a cap, roll something else.
     let flyers = 0;
     for (const x of this.mobs.values()) if (x.base.fly) flyers++;
-    const flyCap = flyers >= Math.min(16, 3 + this.round * 3);
+    const flyCap = flyers >= Math.min(32, (3 + this.round * 3) * (this.duel ? 1 : 2));
     const total = this.mobs.size + 1;
     const weights = {};
     // A lineup with only three or four kinds cannot stay under a third each, so the field would stall far below its budget: loosen the shares to fit.
@@ -589,7 +590,7 @@ export class HostSim {
     const pack = B.fly ? 1 + (Math.random() < 0.4 ? 1 : 0)
       : B.pack ? B.pack[0] + Math.floor(Math.random() * (B.pack[1] - B.pack[0] + 1))
       : B.tier === 3 || B.radius >= 1 ? 1 : 1 + Math.floor(Math.random() * 3);
-    const group = Math.min(target - load, 18, 8 + this.round + n * 2);
+    const group = Math.min(target - load, this.duel ? 18 : 30, (8 + this.round + n * 2) * (this.duel ? 1 : 2));
     let placed = 0;
     const place = (type, B, count) => {
       for (let i = 0; i < count && load < target && placed < group; i++) {

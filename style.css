@@ -1634,3 +1634,39 @@ body.split .ds-card b { font-size: .95rem; } body.split .ds-box { padding: 1rem;
 .arc-orbs .class-card[data-c="necro"] .cc-name { font-size: .78em; letter-spacing: 0; }
 /* How to Play: a bright shiny rim on hover. The plank is cut out with clip-path, which hides outlines, so the rim is an inset edge plus stacked glows that follow the plank's shape. */
 #btn-help:hover, #btn-help:focus-visible, #btn-help.pad-focus, #btn-help.focus { box-shadow: inset 0 0 0 3px #fff1c2, inset 0 0 14px rgba(255,214,120,.9) !important; filter: drop-shadow(0 0 1.5px #fff6d8) drop-shadow(0 0 2px #ffd166) drop-shadow(0 0 3px #ffd166) drop-shadow(0 0 18px rgba(255,196,90,.95)) brightness(1.22) !important; color: #fff; }
+
+/* ---- Play / Quickplay / Online Versus: big choices in the middle of the screen ---- */
+.midpick { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 1.4rem; padding: 1rem; }
+.midpick .mp-row { display: flex; gap: 1.4rem; flex-wrap: wrap; justify-content: center; }
+.midpick .mp-box { width: min(320px, calc(100vw - 48px)); min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .55rem; text-align: center; padding: 1.2rem 1.3rem; border-radius: 14px; backdrop-filter: blur(10px); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.midpick .mp-box:not(.primary) { background: rgba(16,14,22,.82); border: 1px solid rgba(255,255,255,.2); }
+.midpick .mp-box b { font-family: 'Russo One', var(--title); font-weight: 400; font-size: 1.7rem; letter-spacing: .06em; text-transform: uppercase; }
+.midpick .mp-box small { font-size: .88rem; font-weight: 600; opacity: .78; text-transform: none; letter-spacing: 0; }
+.midpick button.mp-box:hover, .midpick button.mp-box.pad-focus { transform: translateY(-3px) scale(1.02); }
+.midpick .mp-code .code-row { width: 100%; }
+.midpick .mp-code #join-code, .midpick .mp-code #do-code { flex: 1; min-width: 0; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; color: var(--text); font: inherit; font-weight: 700; letter-spacing: .28em; text-align: center; font-size: 1.5rem; padding: .5rem .3rem; outline: none; }
+.midpick .mp-code input:focus { border-color: #ffd166; box-shadow: 0 0 0 2px rgba(255,209,102,.35); }
+.midpick .mp-back { width: auto; min-width: 160px; }
+/* ---- the game code: a small box on the left, not a long bar ---- */
+.invite.codebox { display: inline-flex; flex-direction: column; align-items: center; gap: .15rem; width: auto; align-self: flex-start; padding: .45rem .7rem .4rem; border-radius: 10px; background: rgba(14,13,18,.88); border: 1px solid rgba(245,194,66,.5); }
+.invite.codebox .cb-label { font-size: .62rem; letter-spacing: .2em; text-transform: uppercase; color: #ffd166; }
+.invite.codebox .inv-code { font-size: 1.25rem; letter-spacing: .14em; font-weight: 800; color: #fff; line-height: 1.1; }
+.invite.codebox .cb-copy { font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; color: #cfd3dc; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: 99px; padding: .1rem .55rem; cursor: pointer; }
+.invite.codebox .cb-copy:hover, .invite.codebox .cb-copy.pad-focus { background: #ffd166; color: #1d1206; }
+.arc-party .invite.codebox { flex: 0 0 auto; display: inline-flex; padding: calc(6 * var(--u)) calc(12 * var(--u)); gap: calc(2 * var(--u)); }
+.arc-party .invite.codebox .cb-label, .arc-party .invite.codebox .cb-copy { font-size: calc(11 * var(--u)); }
+.arc-party .invite.codebox .inv-code { font-size: calc(24 * var(--u)); }
+
+/* ---- the marker beside the menu option you are on: a solid gold star (no blur, no glow, no animation, so it is there the instant the menu is) ---- */
+.fire-ring.star-mark { left: -58px; width: 42px; height: 42px; margin-top: -21px; filter: none; transition: top .14s ease-out; opacity: 1; }
+.fire-ring.star-mark::before, .fire-ring.star-mark::after { content: none; animation: none; }
+.fire-ring.star-mark svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,.65)); }
+@media (max-width: 720px) { .fire-ring.star-mark { left: auto; right: -50px; } }
+.midpick .mp-row > .mp-box { flex: 0 0 auto; width: min(320px, calc(100vw - 48px)) !important; margin: 0 !important; }
+.midpick .mp-back { background: rgba(16,14,22,.82) !important; border: 1px solid rgba(255,255,255,.25) !important; opacity: 1 !important; color: #fff; }
+/* with only the code in it, the party strip is just the small code box: no long bar behind it */
+#s-lobby.flip-on .arc-party:has(.codebox) { width: auto; max-width: calc(784 * var(--u)); background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0; overflow: visible; }
+#s-lobby.flip-on .arc-party:has(.codebox) > * { flex: 0 0 auto; }
+.midpick #join-quick b { font-size: 1.7rem; }
+/* How to Play (Nutty 2026-11-12): a white glowing border on hover */
+#btn-help:hover, #btn-help:focus-visible, #btn-help.pad-focus, #btn-help.focus { box-shadow: inset 0 0 0 3px #fff, inset 0 0 12px rgba(255,255,255,.85) !important; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 2.5px #fff) drop-shadow(0 0 5px #fff) drop-shadow(0 0 16px rgba(255,255,255,.95)) brightness(1.15) !important; }

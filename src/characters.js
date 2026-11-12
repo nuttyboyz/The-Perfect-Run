@@ -1,6 +1,7 @@
 // Playable characters: realistic skinned models driven by motion-capture
 // locomotion plus a procedural upper body (aiming, two-handed gun holds via
 // arm IK with gripping fingers, horizontal melee swings, casting).
+import { swingFire } from './flameweapon.js';
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
@@ -812,7 +813,11 @@ let RIG_UID = 0;
 export function flushSwipes(model, fx) {
   const r = model && model.userData.rig;
   if (!r || !r.swipeOut || !r.swipeOut.length) return;
-  for (const s of r.swipeOut) fx.swipe(r.swipeId + ':' + s.k, s.b, s.t, s.c, s.ph, r.firstPerson ? 0.4 : 1);
+  const hot = !!model.userData.flaming; // Flaming Weapons: the trail is fire, and flames pour off the blade as it cuts
+  for (const s of r.swipeOut) {
+    if (hot) { fx.swipe(r.swipeId + ':' + s.k, s.b, s.t, s.c, s.ph, r.firstPerson ? 0.55 : 1.25, [1, 0.42, 0.08]); swingFire(fx, s.b, s.t, r.firstPerson ? 0.5 : (model.userData.fwK || 1)); }
+    else fx.swipe(r.swipeId + ':' + s.k, s.b, s.t, s.c, s.ph, r.firstPerson ? 0.4 : 1);
+  }
   r.swipeOut.length = 0;
 }
 

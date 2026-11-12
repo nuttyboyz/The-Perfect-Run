@@ -10,7 +10,7 @@ const FLUSH_MS = 50;
 const randId = () => Math.random().toString(36).slice(2, 10);
 
 export function makeCode() {
-  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const A = '0123456789'; // numbers only, so a code is quick to say and type
   let s = '';
   for (let i = 0; i < 5; i++) s += A[Math.floor(Math.random() * A.length)];
   return s;

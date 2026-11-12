@@ -89,7 +89,7 @@ export function seeker(g, o, d, live, to, onExplode, delay = 0) {
 export function orbit(g, follow, n) {
   const scene = g.scene, fx = g.fx, geos = rockGeos(), mat = rockMat();
   const rocks = [];
-  const add = (i) => { const m = new THREE.Mesh(geos[i % geos.length], mat); m.castShadow = true; m.scale.setScalar(0.01); m.userData = { s: 0.5 + (i % 3) * 0.04, sp: [rnd(-2, 2), rnd(-2, 2), rnd(-2, 2)] }; scene.add(m); rocks.push(m); };
+  const add = (i) => { const m = new THREE.Mesh(geos[i % geos.length], mat); m.castShadow = true; m.scale.setScalar(0.01); m.userData = { s: 0.85 + (i % 3) * 0.06, sp: [rnd(-2, 2), rnd(-2, 2), rnd(-2, 2)] }; scene.add(m); rocks.push(m); };
   for (let i = 0; i < n; i++) add(i);
   const first = follow();
   if (first) { fx.dustBurst([first[0], g.world.heightAt(first[0], first[2]), first[2]], 1.2); fx.decal([first[0], 0, first[2]], TX.crackDecal(), 3.2, 5); }
@@ -107,7 +107,7 @@ export function orbit(g, follow, n) {
       h.ang += dt * 2.6;
       rocks.forEach((m, i) => {
         const a = h.ang + (i / rocks.length) * Math.PI * 2, u = m.userData, rise = Math.min(1, t / 0.45);
-        m.position.set(c[0] + Math.cos(a) * 2.3, c[1] - 1.4 * (1 - rise) + Math.sin(t * 2 + i * 2) * 0.18, c[2] + Math.sin(a) * 2.3);
+        m.position.set(c[0] + Math.cos(a) * 3, c[1] - 1.4 * (1 - rise) + Math.sin(t * 2 + i * 2) * 0.18, c[2] + Math.sin(a) * 3);
         m.scale.setScalar(u.s * rise);
         m.rotation.x += u.sp[0] * dt; m.rotation.y += u.sp[1] * dt; m.rotation.z += u.sp[2] * dt;
         if (Math.random() < 0.12) fx.debris.emit({ p: [m.position.x, m.position.y - 0.3, m.position.z], v: [rnd(-0.5, 0.5), -1, rnd(-0.5, 0.5)], life: 0.5, s0: 0.12, s1: 0.05, c0: [0.5, 0.4, 0.3, 1], c1: [0.4, 0.3, 0.2, 0], g: 10 });
@@ -500,8 +500,8 @@ export function snowball(g, follow, onEnd) {
 let POST_MAT = null, COIL_MAT = null, BAR_GEO = null, BAR_BG = null;
 export function fence(g, onFrame) {
   const fx = g.fx, scene = g.scene;
-  POST_MAT = POST_MAT || new THREE.MeshStandardMaterial({ map: photo('metal_plate_m.webp', 2, 3), color: 0x8a8f9c, roughness: 0.5, metalness: 0.8 });
-  COIL_MAT = COIL_MAT || new THREE.MeshStandardMaterial({ map: photo('rusty_metal_04_m.webp', 3, 1), color: 0xe0a060, roughness: 0.45, metalness: 0.85, emissive: 0x7a4cff, emissiveIntensity: 0.35 });
+  POST_MAT = POST_MAT || new THREE.MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.05, metalness: 1, envMap: g.envTex || null, envMapIntensity: 2.4 }); // polished chrome: it mirrors the sky and the lightning
+  COIL_MAT = COIL_MAT || new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 1, envMap: g.envTex || null, envMapIntensity: 2.8, emissive: 0x7a4cff, emissiveIntensity: 0.22 });
   BAR_GEO = BAR_GEO || new THREE.PlaneGeometry(1, 0.16);
   BAR_BG = BAR_BG || new THREE.MeshBasicMaterial({ color: 0x0a0a12, transparent: true, opacity: 0.8, depthTest: false });
   const H = 3.3, root = new THREE.Group(); scene.add(root);
@@ -581,9 +581,13 @@ export function fence(g, onFrame) {
       for (const p of posts) { fx.glow.emit({ p: [p[0], p[1] + H + 0.25, p[2]], life: 0.07, s0: 1.5 + fl, s1: 1.5 + fl, c0: [0.75, 0.6, 1, 0.6], c1: [0.7, 0.5, 1, 0.4] }); if (Math.random() < 0.12) fx.bolt([p[0], p[1] + H + 0.25, p[2]], [p[0] + rnd(-1.4, 1.4), p[1] + rnd(0.2, 2.5), p[2] + rnd(-1.4, 1.4)], { width: 0.16, dur: 0.1, color: 0xc8b8ff, branches: 0 }); }
       if (path) {
         // arcs hop between the wires here and there along the line
-        const tries = Math.min(4, 1 + Math.floor(len / 30));
-        for (let i = 0; i < tries; i++) if (Math.random() < 0.3) { const j = Math.floor(Math.random() * (path.length - 1)), q = path[j], q2 = path[j + 1]; fx.bolt([q[0], q[1] + rnd(0.7, 2.6), q[2]], [q2[0], q2[1] + rnd(0.7, 2.6), q2[2]], { width: 0.14, dur: 0.1, color: 0xd8c8ff, branches: 0 }); }
-        for (let i = 0; i < fx.n(2); i++) { const q = path[Math.floor(Math.random() * path.length)]; fx.spark.emit({ p: [q[0], q[1] + rnd(0.7, 2.6), q[2]], v: [rnd(-1.5, 1.5), rnd(0, 2.5), rnd(-1.5, 1.5)], life: rnd(0.15, 0.35), s0: 0.2, s1: 0.04, c0: [0.9, 0.85, 1, 1], c1: [0.6, 0.4, 1, 0] }); }
+        // the wires never stop crackling: jagged current runs along all three, the whole length of the line
+        const runs = Math.min(9, 3 + Math.floor(len / 8));
+        for (let i = 0; i < runs; i++) { const j = Math.floor(Math.random() * (path.length - 1)), q = path[j], q2 = path[j + 1], hy = [0.75, 1.65, 2.55][Math.floor(Math.random() * 3)]; fx.bolt([q[0], q[1] + hy, q[2]], [q2[0], q2[1] + hy, q2[2]], { width: 0.2, dur: 0.07, color: 0xe6dcff, jag: 0.3, branches: Math.random() < 0.25 ? 1 : 0 }); }
+        if (Math.random() < 0.25) { const q = path[Math.floor(Math.random() * path.length)]; fx.flash([q[0], q[1] + 1.6, q[2]], 0xc0a8ff, 9, 0.08, 9); }
+        const tries = Math.min(6, 2 + Math.floor(len / 20));
+        for (let i = 0; i < tries; i++) if (Math.random() < 0.55) { const j = Math.floor(Math.random() * (path.length - 1)), q = path[j], q2 = path[j + 1]; fx.bolt([q[0], q[1] + rnd(0.7, 2.6), q[2]], [q2[0], q2[1] + rnd(0.7, 2.6), q2[2]], { width: 0.14, dur: 0.1, color: 0xd8c8ff, branches: 0 }); }
+        for (let i = 0; i < fx.n(5); i++) { const q = path[Math.floor(Math.random() * path.length)]; fx.spark.emit({ p: [q[0], q[1] + rnd(0.7, 2.6), q[2]], v: [rnd(-1.5, 1.5), rnd(0, 2.5), rnd(-1.5, 1.5)], life: rnd(0.15, 0.35), s0: 0.2, s1: 0.04, c0: [0.9, 0.85, 1, 1], c1: [0.6, 0.4, 1, 0] }); }
         onFrame && onFrame(dt);
       }
     },
@@ -1014,3 +1018,245 @@ export function spirit(g, follow, body, at, onEnd) {
     dispose: () => { scene.remove(sp); mat.dispose(); if (body) scene.remove(body); },
   });
 }
+
+// ---- Pyre: Mini Sun. A small sun hanging at c (its middle) for `dur` seconds: a boiling fire surface, a corona, flares licking off it and a
+// scorched glow on the ground under it out to R. onTick() four times a second. Returns { grow(r, R) } to swell it after a kill.
+let SUN_GLOW = null;
+function sunGlowTex() {
+  if (SUN_GLOW) return SUN_GLOW;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const x = cv.getContext('2d'), gr = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gr.addColorStop(0, 'rgba(255,214,140,0.95)'); gr.addColorStop(0.28, 'rgba(255,150,50,0.6)'); gr.addColorStop(0.55, 'rgba(255,80,10,0.22)'); gr.addColorStop(1, 'rgba(255,40,0,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
+  SUN_GLOW = new THREE.CanvasTexture(cv); SUN_GLOW.colorSpace = THREE.SRGBColorSpace;
+  return SUN_GLOW;
+}
+const SUN_NOISE = `
+  vec3 h3(vec3 p){ p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6))); return fract(sin(p) * 43758.5453) * 2. - 1.; }
+  float n3(vec3 p){ vec3 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f);
+    return mix(mix(mix(dot(h3(i), f), dot(h3(i + vec3(1,0,0)), f - vec3(1,0,0)), u.x), mix(dot(h3(i + vec3(0,1,0)), f - vec3(0,1,0)), dot(h3(i + vec3(1,1,0)), f - vec3(1,1,0)), u.x), u.y),
+               mix(mix(dot(h3(i + vec3(0,0,1)), f - vec3(0,0,1)), dot(h3(i + vec3(1,0,1)), f - vec3(1,0,1)), u.x), mix(dot(h3(i + vec3(0,1,1)), f - vec3(0,1,1)), dot(h3(i + vec3(1,1,1)), f - vec3(1,1,1)), u.x), u.y), u.z); }
+  float fbm(vec3 p){ float a = 0.5, s = 0.; for (int i = 0; i < 5; i++){ s += a * n3(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }`;
+export function miniSun(g, c, dur = 8, r = 1.3, R = 8, onTick) {
+  const fx = g.fx, scene = g.scene, gy = g.world.heightAt(c[0], c[2]);
+  const S = { r: 0.01, tr: r, R, tR: R };
+  // the boiling surface: bright cells with darker lanes between them, hotter toward the rim (seen edge-on the fire is deeper)
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uT: { value: 0 }, uA: { value: 1 } },
+    vertexShader: 'varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec3 vP; varying vec3 vN; varying vec3 vV;` + SUN_NOISE + `
+      void main(){
+        vec3 p = normalize(vP);
+        float flow = fbm(p * 2.2 + vec3(0., uT * 0.22, uT * 0.1));
+        float cells = fbm(p * 5.5 + flow * 1.6 + vec3(uT * 0.3, 0., -uT * 0.24));
+        float fine = fbm(p * 14. - vec3(0., uT * 0.6, 0.) + cells);
+        float h = clamp(0.5 + cells * 1.25 + fine * 0.45 + flow * 0.5, 0., 1.);
+        vec3 dark = vec3(0.42, 0.045, 0.0), mid = vec3(1.0, 0.36, 0.03), hot = vec3(1.0, 0.78, 0.26), white = vec3(1.0, 0.95, 0.72);
+        vec3 col = mix(dark, mid, smoothstep(0.08, 0.5, h));
+        col = mix(col, hot, smoothstep(0.45, 0.8, h));
+        col = mix(col, white, smoothstep(0.82, 1., h) * 0.7);
+        float rim = 1. - max(dot(normalize(vN), normalize(vV)), 0.);
+        col = mix(col, vec3(1.0, 0.5, 0.08), pow(rim, 2.2) * 0.7);
+        gl_FragColor = vec4(col * (1.15 + 0.5 * uA), 1.);
+      }`,
+  });
+  const geo = new THREE.IcosahedronGeometry(1, 5);
+  const ball = new THREE.Mesh(geo, mat); ball.position.set(c[0], c[1], c[2]); ball.frustumCulled = false; scene.add(ball);
+  // flares: a slightly bigger see-through shell whose ragged tongues stand off the surface
+  const fmat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending,
+    uniforms: { uT: { value: 0 }, uA: { value: 1 } },
+    vertexShader: 'varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec3 vP; varying vec3 vN; varying vec3 vV;` + SUN_NOISE + `
+      void main(){
+        vec3 p = normalize(vP);
+        float edge = abs(dot(normalize(vN), normalize(vV)));
+        float lick = fbm(p * 3.4 + vec3(0., -uT * 0.9, uT * 0.3)) * 0.5 + 0.5;
+        float a = smoothstep(0.0, 0.75, edge) * smoothstep(0.34, 0.74, lick + edge * 0.25);
+        gl_FragColor = vec4(vec3(1.0, 0.42, 0.06) * a * 0.85 * uA, a * uA);
+      }`,
+  });
+  const shell = new THREE.Mesh(geo, fmat); shell.frustumCulled = false; shell.renderOrder = 6; ball.add(shell); shell.scale.setScalar(1.28);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunGlowTex(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 }));
+  glow.renderOrder = 5; scene.add(glow); glow.position.copy(ball.position);
+  // the ground under it: baked, glowing out to where it burns
+  const dmat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vUv;
+      void main(){ vec2 p = (vUv - 0.5) * 2.; float rr = length(p);
+        float ring = smoothstep(1., 0.93, rr) * smoothstep(0.8, 0.97, rr);
+        float heat = smoothstep(1., 0., rr) * (0.2 + 0.06 * sin(uT * 5. + rr * 9.));
+        gl_FragColor = vec4(vec3(1.0, 0.36, 0.06) * (ring * 0.75 + heat) * uA, 1.); }`,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), dmat); disc.position.set(c[0], gy + 0.16, c[2]); disc.renderOrder = 2; scene.add(disc);
+  const light = { intensity: 0, distance: 30 }; let lightT = 0; // lit through the pooled effect lights
+  fx.flash([c[0], c[1], c[2]], 0xffb060, 30, 0.4, 26);
+  fx.shockwave([c[0], gy, c[2]], R, 0xff7a20, 0.5);
+  let tick = 0, ended = false;
+  fx.add({
+    dur: dur + 0.7,
+    update: (dt, t) => {
+      const out = Math.min(1, Math.max(0, (dur + 0.7 - t) / 0.7)), inn = Math.min(1, t * 2.2), k = inn * out;
+      S.r += (S.tr - S.r) * Math.min(1, dt * 5); S.R += (S.tR - S.R) * Math.min(1, dt * 5);
+      const rr = S.r * (0.25 + 0.75 * k) * (1 + 0.025 * Math.sin(t * 6));
+      ball.scale.setScalar(rr); ball.rotation.y = t * 0.12;
+      mat.uniforms.uT.value = fmat.uniforms.uT.value = dmat.uniforms.uT.value = t;
+      mat.uniforms.uA.value = fmat.uniforms.uA.value = k; dmat.uniforms.uA.value = k;
+      glow.scale.setScalar(rr * 5.2); glow.material.opacity = 0.75 * k;
+      disc.scale.setScalar(S.R);
+      light.intensity = (26 + S.r * 14) * k; light.distance = 22 + S.R * 1.6;
+      lightT -= dt; if (lightT <= 0 && k > 0.05) { lightT = 0.1; fx.flash([c[0], c[1], c[2]], 0xff9a40, light.intensity, 0.22, light.distance); }
+      if (t < dur) {
+        for (let i = 0; i < fx.n(5); i++) { // fire boiling off the surface
+          const a = Math.random() * 6.28, y = rnd(-1, 1), q = Math.sqrt(1 - y * y), d = [Math.cos(a) * q, y, Math.sin(a) * q];
+          fx.fire.emit({ p: [c[0] + d[0] * rr, c[1] + d[1] * rr, c[2] + d[2] * rr], v: [d[0] * 1.6 + rnd(-0.5, 0.5), d[1] * 1.6 + rnd(0.4, 1.4), d[2] * 1.6 + rnd(-0.5, 0.5)], life: rnd(0.35, 0.7), s0: rr * rnd(0.45, 0.75), s1: rr * 0.12, c0: [1, 0.42, 0.06, 0.5], c1: [0.7, 0.06, 0, 0], turb: 2, rotV: rnd(-2, 2) });
+        }
+        for (let i = 0; i < fx.n(2); i++) { const a = Math.random() * 6.28, q = rnd(0.3, 1) * S.R; fx.spark.emit({ p: [c[0] + Math.cos(a) * q, gy + 0.2, c[2] + Math.sin(a) * q], v: [rnd(-0.6, 0.6), rnd(1.5, 4), rnd(-0.6, 0.6)], life: rnd(0.5, 1.1), s0: 0.12, s1: 0.02, c0: [1, 0.55, 0.12, 1], c1: [0.8, 0.1, 0, 0], g: -1 }); } // embers lifting off the baked ground
+        if (Math.random() < 0.3) fx.smoke.emit({ p: [c[0] + rnd(-rr, rr), c[1] + rr, c[2] + rnd(-rr, rr)], v: [rnd(-0.5, 0.5), rnd(1.5, 3), rnd(-0.5, 0.5)], life: rnd(1, 1.6), s0: rr * 0.8, s1: rr * 2.4, c0: [0.06, 0.04, 0.03, 0.3], c1: [0.14, 0.13, 0.13, 0], rotV: rnd(-1, 1) });
+        tick += dt;
+        if (tick >= 0.25) { tick -= 0.25; onTick && onTick(); }
+      } else if (!ended) { ended = true; fx.shockwave([c[0], gy, c[2]], S.R * 0.6, 0xff7a20, 0.35); }
+    },
+    dispose: () => { scene.remove(ball); scene.remove(glow); scene.remove(disc); geo.dispose(); mat.dispose(); fmat.dispose(); dmat.dispose(); disc.geometry.dispose(); glow.material.dispose(); },
+  });
+  return {
+    c, grow(r2, R2) { S.tr = r2; S.tR = R2; fx.flash([c[0], c[1], c[2]], 0xffc070, 34, 0.3, 28); fx.shockwave([c[0], gy, c[2]], R2, 0xffa040, 0.4);
+      for (let i = 0; i < fx.n(18); i++) { const a = Math.random() * 6.28, y = rnd(-1, 1), q = Math.sqrt(1 - y * y); fx.fire.emit({ p: [c[0], c[1], c[2]], v: [Math.cos(a) * q * 7, y * 7, Math.sin(a) * q * 7], life: rnd(0.3, 0.55), s0: r2 * 0.7, s1: 0.1, c0: [1, 0.6, 0.15, 0.7], c1: [0.9, 0.15, 0, 0], drag: 2 }); } },
+  };
+}
+
+// ---- Pyre: Sunlance. A wide shaft of sunlight from the sky onto c (ground point), radius r, for `dur` seconds after a short gathering.
+// A yellow-white hot core, orange and red fire spiralling around it, and the whole area lit as if the sun came out. onTick() four times a second.
+export function sunlance(g, c, dur = 3, r = 7, onTick) {
+  const fx = g.fx, scene = g.scene, gy = c[1], H = 90, wind = 0.55;
+  const vs = 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main(){ vUv = uv; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }';
+  // the hot core: brightest through its middle, soft at the edge, with slow streaks running down it
+  const cmat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 } }, vertexShader: vs,
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ float f = abs(dot(normalize(vN), normalize(vV)));
+        float streak = 0.82 + 0.18 * sin(vUv.x * 60. + sin(vUv.y * 9. - uT * 3.) * 2.);
+        float fadeTop = smoothstep(1., 0.55, vUv.y), base = 1. + smoothstep(0.08, 0., vUv.y) * 0.8;
+        vec3 col = mix(vec3(1.0, 0.62, 0.14), vec3(1.0, 0.93, 0.62), pow(f, 1.5));
+        gl_FragColor = vec4(col * pow(f, 1.3) * streak * fadeTop * base * uA * 0.2, 1.); }`,
+  });
+  // the aura: bands of orange and red fire winding around the shaft and sliding down it
+  const amat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 } }, vertexShader: vs,
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
+      void main(){ float a = vUv.x * 6.2832, y = vUv.y * 90.;
+        float n = noise(vec2(vUv.x * 24., y * 0.35 + uT * 2.4)) ;
+        float s1 = sin(a * 2. + y * 0.42 + uT * 5.5 + n * 2.2) * 0.5 + 0.5;
+        float s2 = sin(a * 3. - y * 0.3 + uT * 3.8 + n * 1.6) * 0.5 + 0.5;
+        float band = smoothstep(0.55, 0.95, s1), band2 = smoothstep(0.7, 1., s2);
+        vec3 col = vec3(1.0, 0.42, 0.05) * band + vec3(0.95, 0.08, 0.02) * band2 * 0.9;
+        float f = abs(dot(normalize(vN), normalize(vV)));
+        float fade = smoothstep(1., 0.35, vUv.y) * smoothstep(0., 0.03, vUv.y);
+        gl_FragColor = vec4(col * (0.35 + 0.65 * f) * fade * uA * 0.9, 1.); }`,
+  });
+  const cgeo = new THREE.CylinderGeometry(1, 1, H, 40, 1, true).translate(0, H / 2, 0);
+  const core = new THREE.Mesh(cgeo, cmat), aura = new THREE.Mesh(cgeo, amat), aura2 = new THREE.Mesh(cgeo, amat);
+  for (const m of [core, aura, aura2]) { m.position.set(c[0], gy, c[2]); m.frustumCulled = false; m.renderOrder = 6; scene.add(m); }
+  aura2.rotation.y = 2.1;
+  // where it lands: white-hot ground with a burning rim
+  const dmat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vUv;
+      void main(){ vec2 p = (vUv - 0.5) * 2.; float rr = length(p), a = atan(p.y, p.x);
+        float hot = smoothstep(0.78, 0.1, rr);
+        float rim = smoothstep(1., 0.9, rr) * smoothstep(0.62, 0.9, rr) * (0.7 + 0.3 * sin(a * 5. + uT * 6.));
+        vec3 col = vec3(1.0, 0.9, 0.55) * hot * 0.3 + vec3(1.0, 0.3, 0.04) * rim;
+        gl_FragColor = vec4(col * uA, 1.); }`,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 56).rotateX(-Math.PI / 2), dmat); disc.position.set(c[0], gy + 0.2, c[2]); disc.renderOrder = 2; scene.add(disc);
+  // real light: a warm lamp low in the shaft for what stands in it, and the whole view lifts a little, the way it does when the sun comes out
+  let lightT = 0;
+  let boost = 0, tick = 0, struck = false;
+  const total = wind + dur + 0.6;
+  fx.add({
+    dur: total,
+    update: (dt, t) => {
+      const on = t >= wind && t < wind + dur;
+      const k = t < wind ? (t / wind) * 0.3 : Math.min(1, 0.3 + (t - wind) * 6) * Math.min(1, Math.max(0, (total - t) / 0.6));
+      const w = t < wind ? 0.12 + 0.2 * (t / wind) : Math.min(1, 0.32 + (t - wind) * 7); // the shaft opens from a thin ray to full width
+      core.scale.set(r * 0.62 * w, 1, r * 0.62 * w); aura.scale.set(r * 0.86 * w, 1, r * 0.86 * w); aura2.scale.set(r * w, 1, r * w);
+      aura.rotation.y = t * 2.6; aura2.rotation.y = 2.1 - t * 1.7;
+      disc.scale.setScalar(r * Math.max(w, 0.3));
+      cmat.uniforms.uT.value = amat.uniforms.uT.value = dmat.uniforms.uT.value = t;
+      cmat.uniforms.uA.value = k; amat.uniforms.uA.value = k * (on ? 1 : 0.5); dmat.uniforms.uA.value = k;
+      lightT -= dt; if (lightT <= 0 && k > 0.05) { lightT = 0.1; fx.flash([c[0], gy + 8, c[2]], 0xffe6b0, 46 * k, 0.22, 75); }
+      const cam = g.camera.position, near = Math.max(0, 1 - Math.hypot(cam.x - c[0], cam.z - c[2]) / 90);
+      const want = 0.1 * k * near; g.renderer.toneMappingExposure += want - boost; boost = want;
+      if (on) {
+        if (!struck) { struck = true; fx.shockwave([c[0], gy, c[2]], r * 1.5, 0xffd070, 0.5); fx.flash([c[0], gy + 3, c[2]], 0xfff0c0, 24, 0.3, 40); g.shake && g.shake(0.35 * near); }
+        for (let i = 0; i < fx.n(5); i++) { const a = Math.random() * 6.28, q = Math.sqrt(Math.random()) * r; fx.fire.emit({ p: [c[0] + Math.cos(a) * q, gy + 0.3, c[2] + Math.sin(a) * q], v: [-Math.sin(a) * 3, rnd(3, 8), Math.cos(a) * 3], life: rnd(0.35, 0.7), s0: rnd(0.9, 1.6), s1: 0.25, c0: [1, 0.5, 0.08, 0.3], c1: [0.8, 0.08, 0, 0], turb: 3, rotV: rnd(-2, 2) }); }
+        for (let i = 0; i < fx.n(5); i++) { const a = Math.random() * 6.28, q = rnd(0.5, 1) * r; fx.spark.emit({ p: [c[0] + Math.cos(a) * q, gy + rnd(0.2, 6), c[2] + Math.sin(a) * q], v: [-Math.sin(a) * 6, rnd(4, 11), Math.cos(a) * 6], life: rnd(0.5, 1), s0: 0.16, s1: 0.02, c0: [1, 0.7, 0.2, 1], c1: [0.9, 0.15, 0, 0], g: -2 }); }
+        if (Math.random() < 0.6) { const a = Math.random() * 6.28; fx.smoke.emit({ p: [c[0] + Math.cos(a) * r, gy + 0.5, c[2] + Math.sin(a) * r], v: [Math.cos(a) * 2, rnd(1.5, 3), Math.sin(a) * 2], life: rnd(1, 1.6), s0: 1.2, s1: 3.6, c0: [0.07, 0.05, 0.04, 0.35], c1: [0.16, 0.15, 0.15, 0], rotV: rnd(-1, 1) }); }
+        tick += dt;
+        if (tick >= 0.25) { tick -= 0.25; onTick && onTick(); }
+      }
+    },
+    dispose: () => { g.renderer.toneMappingExposure -= boost; boost = 0; for (const m of [core, aura, aura2, disc]) scene.remove(m); cgeo.dispose(); cmat.dispose(); amat.dispose(); dmat.dispose(); disc.geometry.dispose(); },
+  });
+}
+
+// ---- Gale: Airshot. A spinning ball of wind (radius r) flying from o along d. onHit(target, dir) once for each enemy it passes through
+// (caster only: pass targets()); it bursts on a wall or at the end of its range.
+export function airshot(g, o, d, { speed = 44, range = 75, r = 1.25, targets = null, onHit = null } = {}) {
+  const fx = g.fx, scene = g.scene;
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 1 } },
+    vertexShader: 'varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec3 vP; varying vec3 vN; varying vec3 vV;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
+      void main(){ vec3 p = normalize(vP); float a = atan(p.x, p.y), h = p.z;
+        float n = noise(vec2(a * 2.5 + uT * 9., h * 5. - uT * 2.));
+        float band = sin(a * 4. + h * 7. - uT * 16. + n * 3.) * 0.5 + 0.5; // streaks winding round the ball
+        float streak = smoothstep(0.5, 0.95, band) * (0.55 + 0.45 * n);
+        float rim = pow(1. - abs(dot(normalize(vN), normalize(vV))), 1.6);
+        vec3 col = mix(vec3(0.72, 0.8, 0.86), vec3(1.), streak);
+        gl_FragColor = vec4(col, (streak * 0.75 + rim * 0.55 + 0.06) * uA); }`,
+  });
+  const grp = new THREE.Group(); grp.position.set(o[0], o[1], o[2]); scene.add(grp);
+  const dir = new THREE.Vector3(d[0], d[1], d[2]).normalize();
+  grp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+  const geo = new THREE.SphereGeometry(1, 28, 20), ball = new THREE.Mesh(geo, mat), core = new THREE.Mesh(geo, mat);
+  ball.frustumCulled = core.frustumCulled = false; ball.renderOrder = core.renderOrder = 6; core.scale.setScalar(0.6); grp.add(ball, core); grp.scale.setScalar(0.2);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xf2f6fa, transparent: true, opacity: 0.55, depthWrite: false }), ringGeo = new THREE.TorusGeometry(1.22, 0.035, 6, 40);
+  const rings = [0, 1, 2].map((i) => { const m = new THREE.Mesh(ringGeo, ringMat); m.rotation.set(i * 1.1, i * 0.7, 0); grp.add(m); return m; });
+  const hit = new Set(), p = grp.position;
+  let gone = 0;
+  const burst = () => { fx.shockwave([p.x, g.world.heightAt(p.x, p.z), p.z], 6, 0xdfe4ea, 0.35); for (let i = 0; i < fx.n(24); i++) { const a = Math.random() * 6.28, y = rnd(-1, 1), q = Math.sqrt(1 - y * y); fx.smoke.emit({ p: [p.x, p.y, p.z], v: [Math.cos(a) * q * 12, y * 8, Math.sin(a) * q * 12], life: rnd(0.35, 0.7), s0: 0.8, s1: 2.6, c0: [0.92, 0.95, 0.98, 0.4], c1: [0.92, 0.95, 0.98, 0], drag: 3 }); } };
+  fx.add({
+    dur: range / speed + 0.3,
+    update: (dt, t) => {
+      mat.uniforms.uT.value = t;
+      if (gone) { gone += dt; const k = Math.max(0, 1 - gone / 0.25); mat.uniforms.uA.value = k; ringMat.opacity = 0.55 * k; grp.scale.setScalar(r * (1 + (1 - k) * 0.9)); return gone < 0.25; }
+      grp.scale.setScalar(r * Math.min(1, 0.2 + t * 6));
+      p.addScaledVector(dir, speed * dt);
+      ball.rotation.z += dt * 15; core.rotation.z -= dt * 22;
+      rings[0].rotation.x += dt * 11; rings[1].rotation.y += dt * 13; rings[2].rotation.x -= dt * 9; rings[2].rotation.y += dt * 7;
+      for (let i = 0; i < fx.n(5); i++) { const a = Math.random() * 6.28, q = r * rnd(0.6, 1.1), sx = Math.cos(a) * q, sy = Math.sin(a) * q; fx.smoke.emit({ p: [p.x + sx, p.y + sy * 0.9, p.z + sx * 0.2], v: [-dir.x * 6 + rnd(-1, 1), rnd(-0.5, 1), -dir.z * 6 + rnd(-1, 1)], life: rnd(0.25, 0.5), s0: 0.5, s1: 1.5, c0: [0.93, 0.96, 0.99, 0.32], c1: [0.93, 0.96, 0.99, 0], drag: 2 }); }
+      const gy = g.world.heightAt(p.x, p.z);
+      if (p.y - gy < 3 && Math.random() < 0.6) fx.smoke.emit({ p: [p.x + rnd(-1, 1), gy + 0.2, p.z + rnd(-1, 1)], v: [rnd(-2, 2), rnd(0.5, 2), rnd(-2, 2)], life: rnd(0.5, 0.9), s0: 0.6, s1: 2.2, c0: [0.6, 0.55, 0.48, 0.3], c1: [0.6, 0.55, 0.48, 0], drag: 2 }); // dust torn off the ground
+      if (targets && onHit) for (const q of targets()) {
+        if (hit.has(q.id) || q.kind === 'demon') continue;
+        const cy = clamp01y(p.y, q.y, q.y + q.h);
+        if (Math.hypot(q.x - p.x, q.z - p.z) < q.r + r + 0.3 && Math.abs(p.y - cy) < r + 0.4) { hit.add(q.id); onHit(q, dir); fx.shockwave([q.x, q.y + 0.2, q.z], 3, 0xdfe4ea, 0.25); }
+      }
+      if (t * speed >= range || p.y < gy + 0.25 || g.world.solidPoint(p.x, p.y, p.z, 0.5)) { gone = 0.001; burst(); }
+    },
+    dispose: () => { scene.remove(grp); geo.dispose(); mat.dispose(); ringGeo.dispose(); ringMat.dispose(); },
+  });
+}
+const clamp01y = (y, a, b) => Math.max(a, Math.min(b, y));

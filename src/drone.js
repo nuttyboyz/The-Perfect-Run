@@ -196,7 +196,7 @@ class Sentry {
     const p = g.player, dmg = P.dmg * (p ? p.stats.dmg : 1);
     this.acc += dmg;
     const show = n % 4 === 0;
-    g.damage(t, dmg, { at: aim, silent: true, silentNum: !show, shown: show ? this.acc : undefined, src: this.src });
+    g.damage(t, dmg, { at: aim, silent: true, silentNum: !show, shown: show ? this.acc : undefined, src: this.src, wf: g.player ? g.player.wf : 0 });
     if (show) this.acc = 0;
   }
 

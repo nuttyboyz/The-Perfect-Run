@@ -405,7 +405,7 @@ function arrowProto(style) {
 // sticks where it lands for a while. Returns the effect so a test can watch it.
 // `proto` (optional) is the mesh to fly instead of a bow's arrow, head at the origin pointing +z (the crossbow's bolt).
 // An arrow that ends in an enemy who is still standing stays stuck in them (stickInto), riding the nearest bone.
-export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 'bow1', mine = false, range = 120, head = 1.5, proto = null } = {}) {
+export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 'bow1', mine = false, range = 120, head = 1.5, proto = null, wf = 0 } = {}) {
   const mesh = (proto || arrowProto(style)).clone();
   mesh.scale.setScalar(1.2); // a touch bigger in flight so the eye can follow it
   const pos = new THREE.Vector3(...o), vel = new THREE.Vector3(...d).normalize().multiplyScalar(speed), last = pos.clone(), dir = new THREE.Vector3();
@@ -433,7 +433,7 @@ export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 
           if (hitIds.has(h.t.id) || hitIds.size >= pierce) continue;
           hitIds.add(h.t.id); st.hits++;
           const k = Math.pow(0.7, hitIds.size - 1);
-          if (st.dmg) g.damage(h.t, st.dmg * k * (h.head ? head : (h.zone === 'arm' ? 0.8 : h.zone === 'leg' ? 0.6 : 1)), { at: h.point, zone: h.zone, head: h.head });
+          if (st.dmg) g.damage(h.t, st.dmg * k * (h.head ? head : (h.zone === 'arm' ? 0.8 : h.zone === 'leg' ? 0.6 : 1)), { at: h.point, zone: h.zone, head: h.head, wf });
           g.fx.impact([h.point.x, h.point.y, h.point.z], [0.75, 0.12, 0.08]);
           if (hitIds.size >= pierce) { // buried in the last one: it stays in them while they are up
             thunk(h.point, 0.8);

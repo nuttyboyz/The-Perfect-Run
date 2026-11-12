@@ -86,6 +86,11 @@ export const AB_ICONS = {
   storm: '<svg viewBox="0 0 24 24"><path d="M6 11a4 4 0 0 1 1-7.9A5 5 0 0 1 17 4a3.5 3.5 0 0 1 1 7z"/><path d="M9 13l-2 4h3l-1 4 4-6h-3l1-2zM16 13l-1 3h2l-1 3" /></svg>',
   shards: '<svg viewBox="0 0 24 24"><path d="M12 2l1.5 5-1.5 5-1.5-5zM4 7l4 3-1 4-3-2zM20 7l-4 3 1 4 3-2zM12 14l1.5 4-1.5 4-1.5-4zM5 17l3-2 2 3-3 2zM19 17l-3-2-2 3 3 2z"/></svg>',
   // the Elemental Vault
+  minisun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1l1.2 4h-2.4zM12 23l-1.2-4h2.4zM1 12l4-1.2v2.4zM23 12l-4 1.2v-2.4zM4.2 4.2l3.7 2-1.7 1.7zM19.8 19.8l-3.7-2 1.7-1.7zM19.8 4.2l-2 3.7-1.7-1.7zM4.2 19.8l2-3.7 1.7 1.7z"/></svg>',
+  flameweap: '<svg viewBox="0 0 24 24"><path d="M5 21l2-2 8.5-8.5 2 2L9 21zM17 3c2.5 2.6 3.6 5 1.2 7.4a2.6 2.6 0 0 1-4-.4c-.9-1.4-.3-2.7.8-3.8C16 5.200 17 4.400 17 3zM9 4c1.500 1.600 2.200 3 .8 4.500A1.700 1.700 0 0 1 7 8c-.5-1.500 2-2.200 2-4z"/></svg>',
+  sunlance: '<svg viewBox="0 0 24 24"><path d="M9 1h6l-1 15h-4zM4 19c2.500-2 5-3 8-3s5.500 1 8 3c-2.500 2-5 3-8 3s-5.500-1-8-3zM3 4l3 5H4zM21 4l-3 5h2z"/></svg>',
+  dragon: '<svg viewBox="0 0 24 24"><path d="M2 9c3-4 7-5 10-2 3-3 7-2 10 2-3-1-5 0-6 2 2 1 3 3 2 6l-3-3-3 6-3-6-3 3c-1-3 0-5 2-6-1-2-3-3-6-2z"/></svg>',
+  airshot: '<svg viewBox="0 0 24 24"><path d="M14 4a8 8 0 1 1-7.400 11h2.200A6 6 0 1 0 14 6a4 4 0 0 0-4 4h-2a6 6 0 0 1 6-6zM2 9h9v2H2zM4 13h8v2H4zM14 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>',
   seekers: '<svg viewBox="0 0 24 24"><path d="M6 3c2 2 3 4 1 6a2.5 2.5 0 1 1-3-2c1-1 2-2 2-4zM18 3c2 2 3 4 1 6a2.5 2.5 0 1 1-3-2c1-1 2-2 2-4zM12 11c2.5 2.5 4 5 1.5 7.5a3 3 0 1 1-4-2.5c1.2-1.2 2.5-2.5 2.5-5z"/></svg>',
   orbit: '<svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 1l2.5 2-1 2.5h-3L9.5 3zM3 15l3-.5L7.5 17l-2 2L3 18zM21 15l-3-.5-1.5 2.5 2 2 2.5-1z"/></svg>',
   meteor: '<svg viewBox="0 0 24 24"><path d="M22 2l-7 3 2 1-5 2 2 1-4 2a5.5 5.500 0 1 0 5 5l2-4 1 2 2-5 1 2z"/></svg>',
@@ -289,26 +294,38 @@ export class UI {
       this.screen('s-dstage');
     };
     this.$('#duel-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = true; g.startLocal(); };
-    this.$('#duel-online').onclick = async () => {
-      g.audio.unlock(); g.audio.play('ui');
-      this.busy('Creating your party…');
-      try { g.duelMode = true; await g.createParty(); } catch (e) { g.duelMode = false; this.showTitle(); this.toast(e.message || 'Could not create a party', 'bad'); }
+    this.$('#duel-online').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-donline'); };
+    this.$('#do-host').onclick = async () => { // a duel for a friend: they join with the code
+      g.audio.play('ui');
+      this.busy('Opening your duel…');
+      try { g.duelMode = true; await g.createParty(false); } catch (e) { g.duelMode = false; this.screen('s-donline'); this.toast(e.message || 'Could not open a duel', 'bad'); }
       this.busy(null);
     };
-    this.wireFireRing();
-    this.$('#btn-solo').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.playSolo(); };
-    this.$('#btn-create').onclick = () => {
-      g.audio.unlock(); g.audio.play('ui'); g.duelMode = false;
-      this.screen('s-create');
+    this.$('#do-quick').onclick = async () => {
+      g.audio.play('ui');
+      this.busy('Finding an opponent…');
+      try {
+        const r = await g.quickplay(true);
+        if (r === 'created') this.toast('Nobody is waiting right now, so you are hosting an open duel. The next Quick Play fighter lands here.', 'good');
+      } catch (e) { g.duelMode = false; this.screen('s-donline'); this.toast(e.message || 'Quick Play could not connect', 'bad'); }
+      this.busy(null);
     };
+    const digits = (el) => el.addEventListener('input', () => { const v = el.value.replace(/\D/g, '').slice(0, 5); if (v !== el.value) el.value = v; });
+    digits(this.$('#do-code')); digits(this.$('#join-code'));
+    this.$('#do-go').onclick = () => this.join(this.$('#do-code').value, 's-donline');
+    this.$('#do-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.join(this.$('#do-code').value, 's-donline'); });
+    this.wireFireRing();
+    this.$('#btn-solo').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; this.screen('s-play'); };
+    // Host a Run = an open game Quickplay can fill. Private Game = yours alone until you hand out the code.
+    // With no connection either one still starts, as a plain solo run.
     const create = async (pub) => {
       g.audio.play('ui'); g.duelMode = false;
-      this.busy(pub ? 'Creating your public party…' : 'Creating your private party…');
-      try { await g.createParty(pub); } catch (e) { this.showTitle(); this.toast(e.message || 'Could not create a party', 'bad'); }
+      this.busy(pub ? 'Opening your run…' : 'Setting up your game…');
+      try { await g.createParty(pub); } catch (e) { g.playSolo(); if (pub) this.toast('Could not get online, so this is a solo run.', 'bad'); }
       this.busy(null);
     };
-    this.$('#create-public').onclick = () => create(true);
-    this.$('#create-private').onclick = () => create(false);
+    this.$('#play-host').onclick = () => create(true);
+    this.$('#play-private').onclick = () => create(false);
     this.$('#join-quick').onclick = async () => {
       g.audio.unlock(); g.audio.play('ui');
       this.busy('Finding an open game…');
@@ -319,9 +336,7 @@ export class UI {
       this.busy(null);
     };
     this.$('#btn-join').onclick = () => {
-      g.audio.unlock(); g.audio.play('ui'); this.screen('s-join'); this.refreshPartyList();
-      // On the website (no claude.ai room) the open public games are found by knocking on the Quickplay spots.
-      if (g.lobby && g.lobby.scan && !this.scanning) { this.scanning = true; this.refreshPartyList(); g.lobby.scan().catch(() => {}).finally(() => { this.scanning = false; this.refreshPartyList(); }); }
+      g.audio.unlock(); g.audio.play('ui'); this.screen('s-join');
     };
     this.$('#btn-pshop').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-pshop'); renderPShop(this); };
     this.$('#btn-unlocks').onclick = () => { g.audio.play('ui'); this.screen('s-unlocks'); this.renderUnlocks(); };
@@ -501,12 +516,12 @@ export class UI {
     if (relock) setTimeout(() => g.lockPointer(), 150);
   }
 
-  async join(code) {
+  async join(code, back = 's-join') {
     code = String(code || '').trim().toUpperCase();
-    if (code.length < 4) { this.toast('Enter the 5-letter party code', 'bad'); return; }
-    this.busy('Joining party ' + code + '…');
+    if (code.length < 4) { this.toast('Enter the 5-number code', 'bad'); return; }
+    this.busy('Joining ' + code + '…');
     try { await this.game.joinParty(code); }
-    catch (e) { this.screen('s-join'); this.toast(e.message || 'Could not join', 'bad'); }
+    catch (e) { this.screen(back); this.toast(e.message || 'Could not join', 'bad'); }
     this.busy(null);
   }
 
@@ -521,6 +536,7 @@ export class UI {
   showTitle() {
     this.screen('s-title');
     if (this.game.seat !== 2) this.game.audio.startLobbyMusic();
+    if (this.ringPlace) this.ringPlace();
     const r = this.game.records || {};
     this.$('#records').innerHTML = `<div><b>${r.wins || 0}</b><span>Completed runs</span></div><div><b>${r.totalKills || 0}</b><span>Lifetime kills</span></div>`;
     this.$('#hud').classList.remove('on');
@@ -1024,7 +1040,7 @@ export class UI {
     this.$('#mode-field').classList.toggle('on', modeOn);
     this.$('#game-mode').disabled = !g.isHost;
     this.$('#game-mode').value = duel ? 'duel' : 'run';
-    this.$('#cpu-field').classList.toggle('on', g.party.kind === 'solo' && !duel);
+    this.$('#cpu-field').classList.toggle('on', g.alone && !duel);
     this.$('#round-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
     this.$('#diff-field').style.display = duel ? 'none' : ''; // Duel Mode has no difficulty, CPU Run or mutators
     this.$('#mu-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
@@ -1354,9 +1370,9 @@ export class UI {
     const g = this.game;
     const show = !locked && !g.inputLive() && !uiOpen && g.mode === 'game' && !this.$('#summary').classList.contains('on') && this.root.dataset.screen !== 's-settings';
     this.$('#pause').classList.toggle('on', show);
-    if (g.party && (g.party.kind === 'solo' || g.bot)) { g.paused = show; if (g.seat !== 2) g.audio.pauseMusic(show); } // a fight against the CPU stops for the pause menu too
+    if (g.party && (g.alone || g.bot)) { g.paused = show; if (g.seat !== 2) g.audio.pauseMusic(show); } // a fight against the CPU stops for the pause menu too
     const local = g.party && g.party.kind === 'local' && !g.bot;
-    this.$('#pause-sub').textContent = local ? 'Player ' + g.seat + ' menu' : g.party && g.party.kind !== 'solo' && !g.bot ? 'The run keeps going while you are here.' : 'Paused';
+    this.$('#pause-sub').textContent = local ? 'Player ' + g.seat + ' menu' : g.party && !g.alone && !g.bot ? 'The run keeps going while you are here.' : 'Paused';
     this.$('#pause').classList.remove('asking');
     this.$('#pause-note').textContent = !local ? '' : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
     if (!this.confirmTimer) this.$('#pause-leave').textContent = local ? (g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op') : 'Leave run';
@@ -1634,9 +1650,9 @@ export class UI {
     this.$('#elem .vote-kicker').textContent = duel ? 'Power-up round ' + (this.game.dp || 1) : 'Level up';
     this.$('#elem h2').textContent = duel ? 'Choose an Attack Power-Up' : 'Choose a Power-Up';
     this.$('#elem-sub').textContent = duel
-      ? 'The match is frozen until you both choose. Click, press 1-5, or use ◀ ▶ and Enter. Picks stack.'
-      : live ? 'Press 1-9 or 0, or ◀ ▶ then Enter · D-pad ◀ ▶ then ▲ on a controller · the run keeps going' : 'The game is paused. Click, press 1-9 or 0, or use ◀ ▶ and Enter. Everything stacks.';
-    el.classList.toggle('ten', !duel);
+      ? 'The match is frozen until you both choose. Click, press 1-5, or use ◀ ▶ and Space. Picks stack.'
+      : live ? 'Press 1-5, or ◀ ▶ then Space · D-pad ◀ ▶ then ' + 'X (A on Xbox)' + ' on a controller · the run keeps going' : 'The game is paused. Click, press 1-5, or use ◀ ▶ and Space. Everything stacks.';
+    el.classList.toggle('ten', !duel && opts.length > 5);
     this.$('#elem-cards').innerHTML = opts.map((e, i) => {
       const info = puInfo(e, p.cls);
       const n = e.el ? p.stats.elem[e.el] : p.powerups.filter((q) => q.id === e.id).length;
