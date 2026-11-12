@@ -67,6 +67,7 @@ const SKY = {
   waterfall: { moon: 0, stars: 0, cover: 0.4, cloud: [0.84, 0.88, 0.92], cloudLit: [1.32, 1.28, 1.2], sunK: 1 },
   clearing: { moon: 0, stars: 0, cover: 0.3, cloud: [0.9, 0.84, 0.74], cloudLit: [1.35, 1.2, 0.95], sunK: 1 },
   volcano: { moon: 0, stars: 0, cover: 0.62, cloud: [0.12, 0.05, 0.04], cloudLit: [1.0, 0.32, 0.1], sunK: 0.7 },
+  crypt: { moon: 0, stars: 0, cover: 0.55, cloud: [0.5, 0.44, 0.5], cloudLit: [1.4, 0.95, 0.62], sunK: 1 },
   ruins: { moon: 0, stars: 0, cover: 0.75, cloud: [0.78, 0.8, 0.8], cloudLit: [1.1, 1.08, 1.0], sunK: 0.8 },
 };
 
@@ -151,6 +152,7 @@ const GRADE = {
   frozen: { exp: 0.92, env: 0.8, vig: 0.38, sat: 1.0, tint: [0.98, 1.0, 1.05], bloom: 0.38 },
   volcanic: { exp: 1.45, env: 1.0, vig: 0.62, sat: 1.1, tint: [1.05, 0.98, 0.95], bloom: 0.6 },
   abyss: { exp: 1.5, env: 1.25, vig: 0.6, sat: 1.1, tint: [1.0, 0.97, 1.06], bloom: 0.6 },
+  crypt: { exp: 0.98, env: 0.85, vig: 0.4, sat: 1.1, tint: [1.02, 1.0, 0.97], bloom: 0.4 },
   meadow: { exp: 0.95, env: 0.8, vig: 0.32, sat: 1.12, tint: [1.02, 1.02, 0.98], bloom: 0.34 },
   dunes: { exp: 0.84, env: 0.8, vig: 0.3, sat: 1.2, tint: [1.03, 1.0, 0.95], bloom: 0.28 },
   frost: { exp: 0.84, env: 0.85, vig: 0.28, sat: 1.1, tint: [0.99, 1.0, 1.04], bloom: 0.3 },

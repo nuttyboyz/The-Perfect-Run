@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { mulberry32, makeNoise } from './rng.js';
 import * as TX from './textures.js';
 import { BIOMES, CONFIG, DUEL, DUEL_BIOMES } from './data.js';
-import { duelHeight, buildDunes, buildFrost, buildDuelScenery } from './arenas.js';
+import { duelHeight, buildDunes, buildFrost, buildGrave, buildDuelScenery } from './arenas.js';
 import { placeBoards } from './skate.js';
 import { placeDice } from './dice.js';
 import { chestParts, chestMats } from './chest.js';
@@ -139,6 +139,15 @@ export class World {
     const arK = 1 - smoothstep(this.arena.r - 1, this.arena.r + 3, Math.hypot(x - this.arena.x, z - this.arena.z));
     const flat = smoothstep(0.93, 0.985, ny);
     let b = 0, s = 0;
+    if (this.biome.id === 'crypt') {
+      // The churchyard: worn mud paths from gate to chapel and across it, mud inside the buildings' footprints, gravel round the graves.
+      const ar = Math.hypot(x - this.arena.x, z - this.arena.z), inR = 1 - smoothstep(this.arena.r - 2, this.arena.r + 2, ar);
+      const lane = (1 - smoothstep(2.2, 4.6, Math.min(Math.abs(x - this.arena.x), Math.abs(z - this.arena.z)) + wob)) * inR;
+      const rim = (1 - smoothstep(1.5, 4, Math.abs(ar - (this.arena.r - 5)) + wob)) * 0.45;
+      b = Math.max(lane * 0.95, rim, smoothstep(0.66, 0.82, n2) * 0.55);
+      s = smoothstep(0.6, 0.8, n3 * 0.55 + n1 * 0.45) * (1 - b) * 0.9;
+      return [Math.min(1, b), Math.min(1, s), 0];
+    }
     switch (id) {
       case 'graveyard':
         b = Math.max(pk * 0.95, smoothstep(0.6, 0.78, n2) * 0.9, camp * 0.85, arK * 0.9);
@@ -257,6 +266,7 @@ export class World {
           x = pf.x + nx * c - nz * s; z = pf.z + nx * s + nz * c;
           continue;
         }
+        if (y !== undefined && pf.base !== undefined && y < pf.base - 0.5) continue; // under a tower's top floor
         const dx = x - pf.x, dz = z - pf.z, d = Math.hypot(dx, dz), m = pf.r + r;
         if (d < m && d > 1e-4) { x = pf.x + (dx / d) * m; z = pf.z + (dz / d) * m; }
       }
@@ -429,6 +439,7 @@ export class World {
     const spec = {
       graveyard: { tufts: [['deadgrass', [0.9, 1.6], [500, 1400, 2400]]], pebbles: [160, 320, 520], tint: [0.5, 0.5, 0.48] },
       forest: { tufts: [['grass', [0.9, 1.6], [900, 2400, 3800]], ['fern', [1.1, 1.9], [150, 420, 700]]], pebbles: [100, 200, 350], tint: [0.5, 0.5, 0.46] },
+      crypt: { tufts: [['grass', [0.9, 1.5], [700, 1700, 2600]], ['deadgrass', [0.9, 1.6], [300, 800, 1300]]], pebbles: [120, 240, 400], tint: [0.5, 0.5, 0.48] },
       meadow: { tufts: [['grass', [0.9, 1.6], [1400, 3200, 4800]], ['fern', [0.8, 1.4], [60, 160, 260]]], pebbles: [60, 120, 200], tint: [0.5, 0.52, 0.44] },
       dunes: { tufts: [['drygrass', [0.8, 1.4], [120, 300, 500]]], pebbles: [80, 160, 260], tint: [0.8, 0.64, 0.44] },
       frost: { tufts: [['frostgrass', [0.6, 1.1], [100, 260, 420]]], pebbles: [40, 90, 160], tint: [0.62, 0.68, 0.76] },
@@ -526,6 +537,7 @@ export class World {
     const P = {
       graveyard: { n: 420, size: 0.13, col: [0.7, 0.75, 0.95], a: 0.22, vel: [0.1, 0.03, 0.06], add: true, box: [60, 22, 60], blink: 0 },
       forest: { n: 380, size: 0.1, col: [0.8, 1.0, 0.4], a: 0.9, vel: [0.1, 0.05, 0.07], add: true, box: [56, 14, 56], blink: 1 },
+      crypt: { n: 320, size: 0.1, col: [1.0, 0.86, 0.6], a: 0.4, vel: [0.3, 0.06, 0.15], add: true, box: [60, 18, 60], blink: 0 },
       meadow: { n: 260, size: 0.09, col: [1.0, 0.95, 0.7], a: 0.55, vel: [0.35, 0.08, 0.2], add: false, box: [56, 14, 56], blink: 0 },
       dunes: { n: 380, size: 0.1, col: [0.95, 0.82, 0.55], a: 0.3, vel: [2.4, 0.05, 0.8], add: false, box: [60, 16, 60], blink: 0 },
       frost: { n: 420, size: 0.1, col: [1, 1, 1], a: 0.85, vel: [0.5, -1.0, 0.3], add: false, box: [50, 24, 50], blink: 0 },
@@ -712,12 +724,15 @@ export class World {
   buildDuelCover() {
     if (this.arenaIdx === 1) { buildDunes(this); return; }
     if (this.arenaIdx === 2) { buildFrost(this); return; }
+    if (this.arenaIdx === 3) { buildGrave(this); return; }
     const { x: cx, z: cz } = this.arena;
     const y0 = this.heightAt(cx, cz);
     const stone = stoneMat([0.66, 0.63, 0.56]);
     const parts = [];
     let seed = 60;
+    const K = this.arena.r / 42; // the layout was drawn for a 42 m ring and spreads out with a bigger one
     const drum = (u, v, r, h) => {
+      u *= K; v *= K;
       const g = lathe([[r + 0.18, -0.4], [r + 0.1, 0.0], [r, 0.08], [r, h - 0.1], [r - 0.1, h], [0.01, h]], { seg: 28, noiseAmp: 0.012, seed: seed++, crease: 70 });
       paint(g, (xx, yy) => 0.62 + 0.38 * clamp((yy + 0.4) / (h + 0.4)));
       parts.push(g.translate(u, y0, v));
@@ -726,6 +741,7 @@ export class World {
     };
     const zig = (u, v) => { drum(u, v, 4.4, 1.1); drum(u, v, 3.0, 2.2); drum(u, v, 1.7, 3.3); };
     const wall = (u, v, ang, len, h, th) => {
+      u *= K; v *= K;
       const g = softBox(len, h, th, { r: 0.12, seed: seed++ });
       paint(g, (xx, yy) => 0.6 + 0.4 * clamp((yy + h / 2) / h));
       parts.push(g.translate(0, h / 2 - 0.2, 0).rotateY(-ang).translate(u, y0, v));
@@ -735,6 +751,7 @@ export class World {
       this.blobs.push({ x: cx + u, z: cz + v, y: y0, r: len * 0.42 });
     };
     const mono = (u, v, r, h) => {
+      u *= K; v *= K;
       const g = lathe([[r + 0.2, -0.4], [r + 0.1, 0.4], [r * 0.92, h * 0.5], [r * 0.88, h - 0.5], [r, h - 0.3], [r, h], [0.01, h]], { seg: 20, lobes: 5, lobeAmp: 0.03, noiseAmp: 0.02, seed: seed++, crease: 60 });
       paint(g, (xx, yy) => 0.55 + 0.45 * clamp((yy + 0.4) / 3));
       parts.push(g.translate(u, y0, v));
@@ -747,7 +764,7 @@ export class World {
     // Single drums to hop on and shoot from.
     for (const [u, v, r] of [[11, -8, 2.6], [22, 11, 2.3], [-8, -25, 2.1]]) { drum(u, v, r, 1.1); drum(-u, -v, r, 1.1); }
     // Stairs of two drums: low, then higher.
-    for (const [u, v] of [[-19, -17], [19, 17]]) { const k = Math.sign(u); drum(u, v, 2.3, 1.1); drum(u + k * 3.3, v + k * 3.3, 1.8, 2.2); }
+    for (const [u, v] of [[-19, -17], [19, 17]]) { const k = Math.sign(u); drum(u, v, 2.3, 1.1); drum(u + k * 3.3 / K, v + k * 3.3 / K, 1.8, 2.2); }
     // Tall walls to hide behind.
     wall(21, 1, Math.PI / 2, 10, 4.6, 1.4); wall(-21, -1, Math.PI / 2, 10, 4.6, 1.4);
     wall(8, -13, 0.35, 8.5, 4.2, 1.3); wall(-8, 13, 0.35, 8.5, 4.2, 1.3);
@@ -823,7 +840,7 @@ export class World {
     if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now) cyl(t.x, t.z, t.r, t.top, -Infinity); }
     if (this.platforms) for (const pf of this.platforms) {
       if (pf.air) continue;
-      if (!pf.box) { cyl(pf.x, pf.z, pf.r, pf.top - 0.05, -Infinity); continue; }
+      if (!pf.box) { cyl(pf.x, pf.z, pf.r, pf.top - 0.05, pf.base !== undefined ? pf.base - 0.3 : -Infinity); continue; }
       const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = ox - pf.x, rz = oz - pf.z;
       const lx = rx * c + rz * s, lz = -rx * s + rz * c, ldx = dx * c + dz * s, ldz = -dx * s + dz * c;
       let tin = -Infinity, tout = Infinity, ok = true;
@@ -857,9 +874,19 @@ export class World {
         if (pf.base !== undefined && y < pf.base - 0.3) continue;
         const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = x - pf.x, rz = z - pf.z;
         if (Math.abs(rx * c + rz * s) < pf.hw + r && Math.abs(-rx * s + rz * c) < pf.hd + r) return true;
-      } else if (Math.hypot(x - pf.x, z - pf.z) < pf.r + r) return true;
+      } else if (!(pf.base !== undefined && y < pf.base - 0.3) && Math.hypot(x - pf.x, z - pf.z) < pf.r + r) return true;
     }
     return this.solids.length ? this.solidAt(x, y, z) : false;
+  }
+
+  // Is this point inside the wall, lintel or roof of a walk-in building (buildkit.js)? The third-person camera pulls in instead.
+  inBuilding(x, y, z, r = 0.35) {
+    if (this.platforms) for (const pf of this.platforms) {
+      if (!pf.bld || y > pf.top + r || (pf.base !== undefined && y < pf.base - r)) continue;
+      const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = x - pf.x, rz = z - pf.z, lx = rx * c + rz * s, lz = -rx * s + rz * c;
+      if (Math.abs(lx) < pf.hw + r && Math.abs(lz) < pf.hd + r && y < pf.top - (pf.pitch || 0) * Math.abs(lx) + r) return true;
+    }
+    return false;
   }
 
   // Is this point inside a duel solid? (Rockets and grenades burst on it.)

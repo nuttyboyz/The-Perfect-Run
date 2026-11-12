@@ -639,7 +639,7 @@ export function puInfo(pu, cls) {
 // pvp scales every hit one fighter lands on the other, so 1000 health lasts a fight instead of a few seconds.
 // size: duel fighters are drawn (and hit) this many times their normal size, so they read clearly across the arena.
 export const DUEL = { cd: 5, // every ability cooldown in the arena
- hp: 1000, len: 600, pickEvery: 30, count: 3, offer: 5, stage: 2, pvp: 0.06, arena: 42, size: 2.25,
+ hp: 1000, len: 600, pickEvery: 30, count: 3, offer: 5, stage: 2, pvp: 0.06, arena: 50, size: 2.25,
  // Status effects one fighter lands on the other (Ice Gun block, frost slow, hammer shove...): longest freeze / slow, and the grace after a thaw.
  freezeMax: 3, slowMax: 3, thawImmune: 2 };
 // Gravity Gun: a well pulls everything within `pull` m toward its centre for `dur` seconds, then collapses in a blast of
@@ -667,7 +667,15 @@ export const DUEL_FROST = {
   sky: [0x3f8cf0, 0xd6ecfb], fog: 0xdcebf7, fogDensity: 0.0042, sun: 0xfff6ea, sunI: 2.8, hemi: [0xd6eaff, 0xa9bfd8], hemiI: 1.05,
   props: [], mobTint: 0xa8c4dc, stone: [0.74, 0.86, 0.98], rune: 0x3a9ad8, stage: 3,
 };
-export const DUEL_BIOMES = [DUEL_BIOME, DUEL_DUNES, DUEL_FROST];
+// The Graveyard arena: an old churchyard at golden hour, low sun and ground mist. A chapel in the middle and a crypt on each flank,
+// all of them open to walk through (buildkit.js). tex: it shares the run Graveyard's scanned ground.
+export const DUEL_GRAVE = {
+  id: 'crypt', tex: 'graveyard', name: 'Graveyard', seedTex: 535,
+  groundCols: [[0.2, 0.22, 0.15], [0.3, 0.3, 0.2], [0.23, 0.2, 0.16]], ground: 'pebbles',
+  sky: [0x4a66a8, 0xf4c9a0], fog: 0xc9c0ba, fogDensity: 0.0046, sun: 0xffdcb4, sunI: 3.0, hemi: [0xb8c6f0, 0x5c5a4a], hemiI: 0.95,
+  props: [], mobTint: 0x9aa58a, stone: [0.56, 0.56, 0.58], rune: 0x8a7a5a, stage: 0,
+};
+export const DUEL_BIOMES = [DUEL_BIOME, DUEL_DUNES, DUEL_FROST, DUEL_GRAVE];
 const dp = (id, icon, name, desc, apply) => ({ id: 'd_' + id, kind: 'duel', lv: false, icon, name, desc, apply });
 const byId = (id) => POWERUPS.find((p) => p.id === id);
 export const DUEL_PICKS = [

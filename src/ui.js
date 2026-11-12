@@ -613,6 +613,45 @@ export class UI {
       </button>`;
     };
     this.$('#wall').innerHTML = [1, 2, 3].map((t) => `<div class="shelf"><b>${tierName[t]}</b><small>${tierSub[t]}</small></div>` + WEAPONS.filter((w) => TIER(w) === t && gearUnlocked(w.id)).map(card).join('') + (WEAPONS.some((w) => TIER(w) === t && !gearUnlocked(w.id)) ? '<div class="w-more">More unlocks as you play. See <b>Unlockables</b> on the main menu.</div>' : '')).join('');
+    // The stats box to the left of the Weapon Wall: point at (or move the controller onto) any weapon and its numbers pop up there.
+    const wstat = (id) => {
+      const box = document.getElementById('arc-wstat'), w = WEAPON_BY_ID[id];
+      if (!box) return;
+      if (!w) { box.innerHTML = '<h3>Weapon stats</h3><p class="ws-hint">Point at any weapon on the wall to see its stats here.</p>'; box.dataset.w = ''; return; }
+      if (box.dataset.w === id) return;
+      box.dataset.w = id;
+      const act = w.summon || w.deploy || w.grav || w.heal, gear = w.kind === 'gear' || act;
+      const kind = w.kind === 'gear' ? 'Gear' : act ? 'Gear · Active' : w.eyes ? 'Eye beams' : w.kind === 'melee' ? 'Melee' : w.proj ? 'Explosive' : w.auto ? 'Automatic' : 'Firearm';
+      const row = (l, v, max, num) => '<div class="ws-row"><span>' + l + '</span><i style="--v:' + Math.max(4, Math.min(100, (v / max) * 100)) + '%"></i><b>' + num + '</b></div>';
+      const n1 = (v) => (Math.round(v * 10) / 10).toString();
+      let rows = '';
+      if (!gear) {
+        const hit = w.dmg * (w.pellets || 1), dps = hit / w.rate;
+        rows += row('Damage', hit, 160, w.pellets ? w.dmg + ' x ' + w.pellets : Math.round(hit));
+        if (w.kind === 'melee') {
+          rows += row('Swing speed', 1 / w.rate, 4, n1(1 / w.rate) + ' / s');
+          rows += row('Damage / second', dps, 200, Math.round(dps));
+          if (w.range) rows += row('Reach', w.range, 10, n1(w.range) + ' m');
+          if (w.arc) rows += row('Sweep', w.arc, 200, Math.round(w.arc) + '°');
+        } else {
+          const kick = w.rec ? (w.rec.v || 0) + (w.rec.h || 0) * 0.5 : 0;
+          rows += row('Fire rate', 60 / w.rate, 900, Math.round(60 / w.rate) + ' / min');
+          rows += row('Damage / second', dps, 300, Math.round(dps));
+          if (w.mag) rows += row('Magazine', w.mag, 60, w.mag);
+          if (w.reload) rows += row('Reload', 4 - Math.min(4, w.reload), 4, n1(w.reload) + ' s');
+          if (w.fall) rows += row('Range', w.fall[0], 120, w.fall[0] + ' m');
+          if (w.rec) rows += row('Recoil', kick, 4, kick < 0.5 ? 'Low' : kick < 1.6 ? 'Medium' : 'High');
+          if (w.hand) rows += row('Handling', w.hand, 14, w.hand >= 10 ? 'Quick' : w.hand >= 7 ? 'Steady' : 'Heavy');
+          if (w.scope) rows += '<div class="ws-tag">Scoped</div>';
+        }
+      }
+      box.innerHTML = '<h3>' + esc(w.name) + '</h3><div class="ws-kind">' + kind + '</div>' + (wshots[w.id] ? '<img src="' + wshots[w.id] + '" alt="">' : '')
+        + (gear ? '<div class="ws-how">' + esc(w.how || 'Passive') + '</div>' : '<div class="ws-rows">' + rows + '</div>') + '<p>' + esc(w.desc || '') + '</p>';
+    };
+    this.wstat = wstat;
+    wstat(splitLoadout(g.loadout.w).ws[0] || '');
+    { const wall = this.$('#wall'), over = (e) => { const c = e.target.closest && e.target.closest('.wcard'); if (c) wstat(c.dataset.w); };
+      wall.onmouseover = over; wall.onfocusin = over; wall.addEventListener('padfocus', over); }
     this.$$('.wcard').forEach((b) => (b.onclick = () => {
       g.audio.play('ui');
       const id = b.dataset.w, wd = WEAPON_BY_ID[id];
@@ -828,6 +867,7 @@ export class UI {
         <div class="arc-abil"></div>
         <div class="arc-party"></div>
         <div class="arc-plist" id="arc-plist"></div>
+        <div class="arc-wstat" id="arc-wstat"></div>
         <div class="arc-wall"><h3 class="arc-h">Weapon Wall <small>any 3 · weapons or gear</small></h3><div class="arc-wall-in"></div></div>
         <div class="arc-ready"><div class="arc-p1" id="arc-p1"></div></div>
         <div class="arc-roster"></div>`;

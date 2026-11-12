@@ -89,6 +89,7 @@ export const scanVariants = (id) => (index && index[id] ? index[id].variants.fil
 const L = (id, scale, tint = [1, 1, 1]) => ({ id, scale, tint });
 export const GROUND = {
   graveyard: [L('leafy_grass', 3.4, [0.85, 0.9, 0.7]), L('mud_forest', 3.0, [1.2, 1.15, 1.1]), L('gravel_ground_01', 2.4, [0.8, 0.8, 0.8]), L('rock_face', 5, [0.8, 0.8, 0.82])],
+  crypt: [L('leafy_grass', 3.4, [0.8, 1.0, 0.68]), L('mud_forest', 3.0, [1.25, 1.2, 1.15]), L('gravel_ground_01', 2.4, [0.85, 0.85, 0.85]), L('rock_face', 5, [0.8, 0.8, 0.82])],
   forest: [L('forest_ground_04', 3.2), L('brown_mud_leaves_01', 3.0), L('forest_leaves_02', 2.8, [0.95, 1, 0.9]), L('mossy_rock', 4.5)],
   meadow: [L('leafy_grass', 3.4, [1.05, 1.1, 0.95]), L('brown_mud_leaves_01', 3.0, [1.1, 1.05, 1]), L('forest_ground_04', 3.2, [1.1, 1.1, 1]), L('rock_face', 5)],
   springs: [L('leafy_grass', 3.4, [1.08, 1.14, 0.98]), L('rocky_terrain_02', 3.2), L('forest_ground_04', 3.2, [1.1, 1.15, 1]), L('rock_face', 5, [1.05, 1.05, 1])],

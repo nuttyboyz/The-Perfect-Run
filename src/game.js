@@ -2294,6 +2294,11 @@ export class Game {
       const x = pivot.x - dx * k + rx * 1.05, y = pivot.y - dy * k + 0.45 * S, z = pivot.z - dz * k + rz * 1.05;
       if (y < w.heightAt(x, z) + 0.35) { dist = Math.max(0.8, k - back / 6); break; }
     }
+    // Inside a building the camera stays inside with you: pull in to just short of the first wall or roof behind you.
+    for (let s = 1; s <= 12 && dist > 0.8; s++) {
+      const k = (s / 12) * dist;
+      if (w.inBuilding(pivot.x - dx * k + rx * 1.05, pivot.y - dy * k + 0.45 * S, pivot.z - dz * k + rz * 1.05)) { dist = Math.max(0.8, k - dist / 12 - 0.3); break; }
+    }
     const cam = this.camera;
     cam.position.set(pivot.x - dx * dist + rx * 1.05, pivot.y - dy * dist + 0.45 * S, pivot.z - dz * dist + rz * 1.05);
     const gy = w.heightAt(cam.position.x, cam.position.z) + 0.35;

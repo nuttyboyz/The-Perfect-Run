@@ -9,6 +9,7 @@ import { mulberry32 } from './rng.js';
 import { propLibrary } from './props.js';
 import * as TX from './textures.js';
 import { scanMat, groundTex } from './scan.js';
+import { Shell, hall } from './buildkit.js';
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 const TAU = Math.PI * 2;
@@ -78,7 +79,7 @@ const SOFT = (() => { // a soft round sprite for steam, smoke and glow
 })();
 
 // Rising puffs (steam, smoke, embers) from a set of sources. Each puff lives `life` seconds, climbs `rise` m and drifts with `drift`.
-function plume(w, sources, { count, color, size, rise, life, alpha, spread, additive = false, drift = [0.6, 0, 0.3], grow = 2.2 }) {
+export function plume(w, sources, { count, color, size, rise, life, alpha, spread, additive = false, drift = [0.6, 0, 0.3], grow = 2.2 }) {
   const n = Math.max(8, Math.round(count * [0.4, 0.7, 1][w.quality])), seed = new Float32Array(n * 4), pos = new Float32Array(n * 3), r = mulberry32(w.seed * 3 + 91);
   const src = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
@@ -875,7 +876,7 @@ function setupRuins(w) {
 
 // ---- buildings: box geometry with tiling scanned surfaces, every top a platform you can stand on ----
 // UVs by world size, so a 2 m tile repeats across walls and roofs however big the box is.
-function boxUV(g, k = 0.5) {
+export function boxUV(g, k = 0.5) {
   const p = g.attributes.position, n = g.attributes.normal;
   if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(p.count * 2), 2));
   const uv = g.attributes.uv;
@@ -888,7 +889,7 @@ function boxUV(g, k = 0.5) {
 // Castle and village surfaces: the scanned Poly Haven photos the ground and characters already use,
 // tiled by world size (boxUV). Stone = rock_face albedo + normal; wood / plaster = the character surface photos.
 const surfLoader = new THREE.TextureLoader();
-function surfMat(id, { tint = [1, 1, 1], rough = 0.95, bump = 0.5, rep = 1 } = {}) {
+export function surfMat(id, { tint = [1, 1, 1], rough = 0.95, bump = 0.5, rep = 1 } = {}) {
   const key = 'surf:' + id + tint.join(',') + rep;
   if (surfMat.cache.has(key)) return surfMat.cache.get(key);
   const t = surfLoader.load('assets/scan/' + id + '_m.webp'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(rep, rep);
@@ -896,7 +897,7 @@ function surfMat(id, { tint = [1, 1, 1], rough = 0.95, bump = 0.5, rep = 1 } = {
   surfMat.cache.set(key, m); return m;
 }
 surfMat.cache = new Map();
-function stoneMat(id, tint, rep = 1) {
+export function stoneMat(id, tint, rep = 1) {
   const key = 'stone:' + id + tint.join(',') + rep;
   if (surfMat.cache.has(key)) return surfMat.cache.get(key);
   const g = groundTex(id); g.albedo.repeat.set(rep, rep); g.normal.repeat.set(rep, rep);
@@ -938,23 +939,18 @@ function stairs(w, M, x, z, yaw, toH, yBase, mat, { rise = 1.05, depth = 1.3, wi
     block(w, M, x + s * d, z + c * d, yaw, width, h, depth, yBase, mat, { uvk: 0.7 });
   }
 }
-// A village house: stone footing, plastered walls with timber corners, a gable roof, a door, and steps up to the roof.
+// A village house you can walk into: plastered walls with timber corners and frames, an open doorway at the front and one at the
+// side (no doors: nothing blocks an entrance), an earth floor, a gable roof, and steps up the back to the roof.
 function house(w, M, x, z, yaw, W, D, H, r) {
   const yb = w.heightAt(x, z) - 0.2;
-  block(w, M, x, z, yaw, W, 0.6, D, yb, M.stone, { plat: false });
-  block(w, M, x, z, yaw, W - 0.2, H, D - 0.2, yb + 0.6, M.plaster, { plat: false, uvk: 0.35 });
+  const S = new Shell(w);
+  hall(S, { x, z, yaw, W, D, H: H + 0.4, th: 0.35, yb: yb + 0.2, sink: 1.2, tk: 0.4, floor: false, roof: 'gable', rise: W * 0.36, over: 0.3,
+    mats: { wall: M.plaster, trim: M.wood, roof: M.roof }, doors: [{ side: 'z+', w: 1.7, h: 2.3 }, { side: 'x+', w: 1.5, h: 2.3, off: D * 0.12 }] });
+  S.finish();
+  (w.houses ||= []).push({ x, z, yaw, W, D });
   const c = Math.cos(yaw), s = Math.sin(yaw);
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-    const lx = sx * (W / 2 - 0.1), lz = sz * (D / 2 - 0.1);
-    block(w, M, x + c * lx + s * lz, z - s * lx + c * lz, yaw, 0.28, H, 0.28, yb + 0.6, M.wood, { plat: false });
-  }
-  const door = new THREE.Mesh(boxUV(new THREE.BoxGeometry(1.0, 2.0, 0.12), 0.6), M.wood); door.position.set(x + s * (D / 2 - 0.04), yb + 1.6, z + c * (D / 2 - 0.04)); door.rotation.y = yaw; w.group.add(door);
-  block(w, M, x, z, yaw, W + 0.4, 0.3, D + 0.4, yb + 0.6 + H, M.wood, { plat: false }); // eave beam
-  gableRoof(w, M, x, z, yaw, W, D, yb + 0.9 + H, W * 0.36, M.roof);
   // Steps against the back wall up to the eave, so the roof can be reached on foot.
-  stairs(w, M, x - s * (D / 2 + 0.2), z - c * (D / 2 + 0.2), yaw + Math.PI, yb + 0.9 + H, yb, M.stone, { width: 1.6 });
-  w.addCollider(x, z, 0, 0); // (box platforms do the blocking)
-  w.blobs.push({ x, z, y: yb + 0.2, r: Math.max(W, D) * 0.7 });
+  stairs(w, M, x - s * (D / 2 + 0.2), z - c * (D / 2 + 0.2), yaw + Math.PI, yb + 1.1 + H, yb, M.stone, { width: 1.6 });
   void r;
 }
 function buildVillages(w, st, r) {
@@ -979,13 +975,20 @@ function buildCastle(w, st, r) {
   const M = buildMats(), C = st.castle, yb = C.h - 0.3, yaw = C.yaw, c = Math.cos(yaw), s = Math.sin(yaw);
   const at = (lx, lz) => [C.x + c * lx + s * lz, C.z - s * lx + c * lz];
   const WALL = 7.5, TW = 3.2, R = 20;
+  const TS = new Shell(w), towerMat = M.stone.clone(); towerMat.side = THREE.DoubleSide;
   // Four round towers at the corners, a curtain wall between them (the wall-walk is standable), a gatehouse facing the ruins.
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const [x, z] = at(sx * R, sz * R);
-    const t = new THREE.Mesh(boxUV(new THREE.CylinderGeometry(TW, TW + 0.3, 11, 18), 0.5), M.stone); t.position.set(x, yb + 5.5, z); t.castShadow = true; t.receiveShadow = true; w.group.add(t);
+    // A hollow tower: the wall is a ring with a doorway facing the courtyard, the top floor is a deck you walk under and can stand on.
+    const td = Math.atan2(C.x - x, C.z - z), gap = 0.36, DH = 3.0;
+    const ring = new THREE.Mesh(boxUV(new THREE.CylinderGeometry(TW, TW + 0.3, 11, 18, 1, true, td + gap, TAU - 2 * gap), 0.5), towerMat); ring.position.set(x, yb + 5.5, z); ring.castShadow = true; ring.receiveShadow = true; w.group.add(ring);
+    const over = new THREE.Mesh(boxUV(new THREE.CylinderGeometry(TW, TW + 0.2, 11 - DH, 4, 1, true, td - gap, 2 * gap), 0.5), towerMat); over.position.set(x, yb + DH + (11 - DH) / 2, z); over.castShadow = true; w.group.add(over);
+    const deck = new THREE.Mesh(boxUV(new THREE.CylinderGeometry(TW, TW, 0.6, 18), 0.5), M.stone); deck.position.set(x, yb + 10.7, z); deck.castShadow = true; deck.receiveShadow = true; w.group.add(deck);
+    const NS = 12, stepA = (TAU - 2 * gap) / NS, segLen = 2 * TW * Math.tan(stepA / 2) + 0.2;
+    for (let i = 0; i < NS; i++) { const a = td + gap + (i + 0.5) * stepA; TS.solid(segLen, 11, 0.7, x + Math.sin(a) * (TW - 0.35), yb, z + Math.cos(a) * (TW - 0.35), a); }
+    TS.solid(2 * TW * Math.tan(gap) + 0.2, 11 - DH, 0.7, x + Math.sin(td) * (TW - 0.35), yb + DH, z + Math.cos(td) * (TW - 0.35), td, { under: true });
     const cap = new THREE.Mesh(new THREE.ConeGeometry(TW + 0.6, 3.2, 18), M.roof); cap.position.set(x, yb + 12.6, z); cap.castShadow = true; w.group.add(cap);
-    w.platforms.push({ x, z, r: TW + 0.2, top: yb + 11 });
-    w.addCollider(x, z, TW, yb + 11);
+    w.platforms.push({ x, z, r: TW + 0.2, top: yb + 11, base: yb + 10.4 });
     // Crenellations round the top.
     for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU; block(w, M, x + Math.cos(a) * (TW - 0.2), z + Math.sin(a) * (TW - 0.2), -a, 0.9, 0.9, 0.5, yb + 11, M.stone, { plat: false }); }
   }
@@ -993,7 +996,7 @@ function buildCastle(w, st, r) {
     const [x, z] = at(lx, lz);
     if (lz === R && lx === 0) { // the gatehouse wall: two halves with an arch between
       for (const sd of [-1, 1]) { const [gx, gz] = at(sd * (len / 4 + 2), lz); block(w, M, gx, gz, yaw + ry, len / 2 - 4, WALL, 1.6, yb, M.stone); }
-      const [ax, az] = at(0, lz); block(w, M, ax, az, yaw, 8, 2.5, 1.6, yb + 5, M.stone); // lintel over the gate
+      const [ax, az] = at(0, lz); block(w, M, ax, az, yaw, 8, 2.5, 1.6, yb + 5, M.stone, { collide: false }); // lintel over the gate: walk under it
       continue;
     }
     block(w, M, x, z, yaw + ry, len, WALL, 1.6, yb, M.stone);
@@ -1004,13 +1007,16 @@ function buildCastle(w, st, r) {
   for (const sd of [-1, 1]) { const [x, z] = at(sd * (R - 1.6), -4); stairs(w, M, x, z, yaw + Math.PI, yb + WALL, yb, M.stone, { width: 2 }); }
   // The keep: a tall stone block with a battlemented top, a timber hall beside it, steps to both roofs.
   const [kx, kz] = at(-6, -4);
-  block(w, M, kx, kz, yaw, 14, 13, 12, yb, M.stone);
+  // The keep is hollow: a doorway beside the steps and one facing the hall.
+  hall(TS, { x: kx, z: kz, yaw, W: 14, D: 12, H: 12.4, th: 1.4, yb, sink: 1, tk: 0.6, floor: false, roof: 'flat', mats: { wall: M.stone, trim: M.stone, roof: M.stone },
+    doors: [{ side: 'z+', w: 3.2, h: 3.8, off: 4.2 }, { side: 'x+', w: 3.2, h: 3.8 }] });
   for (let i = -6; i <= 6; i += 2) for (const [ex, ez] of [[i, -5.7], [i, 5.7], [-6.7, i], [6.7, i]]) { const [mx, mz] = at(-6 + ex, -4 + ez); block(w, M, mx, mz, yaw, 1.0, 0.9, 1.0, yb + 13, M.stone, { plat: false }); }
   const [sx1, sz1] = at(-6, 3.2); stairs(w, M, sx1, sz1, yaw, yb + 13, yb, M.stone, { width: 2.6, rise: 1.05, depth: 1.1 });
   const [hx, hz] = at(9, 2);
-  block(w, M, hx, hz, yaw, 9, 4.5, 11, yb, M.plaster, { plat: false, uvk: 0.35 });
-  gableRoof(w, M, hx, hz, yaw, 9, 11, yb + 4.6, 3.2, M.roof);
-  const [sx2, sz2] = at(9, 8.5); stairs(w, M, sx2, sz2, yaw + Math.PI, yb + 4.6, yb, M.stone, { width: 2 });
+  hall(TS, { x: hx, z: hz, yaw, W: 9, D: 11, H: 4.1, th: 0.5, yb, sink: 1, tk: 0.5, floor: false, roof: 'gable', rise: 3.2, over: 0.4, mats: { wall: M.plaster, trim: M.wood, roof: M.roof },
+    doors: [{ side: 'x-', w: 2.4, h: 2.9 }, { side: 'z-', w: 2.4, h: 2.9 }] });
+  TS.finish();
+  const [sx2, sz2] = at(9 + 4.5 + 1.1, 7.5); stairs(w, M, sx2, sz2, yaw + Math.PI, yb + 4.6, yb, M.stone, { width: 2 }); // outside, along the hall's side wall
   // Banners on the keep.
   for (const sd of [-1, 1]) { const [bx, bz] = at(-6 + sd * 6.9, -4); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 5, 6), M.wood); pole.position.set(bx, yb + 15, bz); w.group.add(pole); const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.3), new THREE.MeshStandardMaterial({ color: 0x7a1a2a, side: THREE.DoubleSide, roughness: 0.9 })); flag.position.set(bx, yb + 16.6, bz); flag.rotation.y = yaw; w.group.add(flag); w.animated.push((t) => { flag.rotation.y = yaw + Math.sin(t * 2.2 + sd) * 0.25; }); }
   w.blobs.push({ x: C.x, z: C.z, y: yb + 0.2, r: R + 4 });

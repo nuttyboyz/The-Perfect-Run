@@ -1310,7 +1310,22 @@ html[data-cb=protan] body { filter: url(#cb-protan); } html[data-cb=deutan] body
 #s-lobby.flip-on.flip-rev :is(.arc-wall, .arc-abil, .flip-final, .arc-roster, .arc-party) { transform-origin: left center; animation-name: flipInRev; }
 #s-lobby.flip-on .arc-ready { animation: fadeIn .5s .2s ease both; }
 /* page 2: the Weapon Wall, wide */
-#s-lobby.flip-on .arc-wall { top: calc(160 * var(--u)); width: calc(900 * var(--u)); height: calc(790 * var(--u)); }
+#s-lobby.flip-on .arc-wall { top: calc(160 * var(--u)); width: calc(900 * var(--u)); height: calc(790 * var(--u)); left: calc(50% - 450 * var(--u)); right: auto; }
+/* the stats box to the left of the wall: whatever weapon you point at */
+.arc-wstat { display: none; }
+#s-lobby.flip-on[data-flip="2"] .arc-wstat { display: block; position: absolute; left: calc(40 * var(--u)); top: calc(300 * var(--u)); width: calc(440 * var(--u)); padding: calc(18 * var(--u)) calc(20 * var(--u)); border-radius: calc(10 * var(--u)); border: 1px solid #6a6f78; background: rgba(14,13,18,.88); box-shadow: 0 18px 50px rgba(0,0,0,.5); backdrop-filter: blur(10px); animation: fadeIn .35s ease both; }
+#s-lobby.arc-split .arc-wstat { display: none !important; }
+.arc-wstat h3 { margin: 0; font-family: 'Russo One', var(--title); font-weight: 400; font-size: calc(30 * var(--u)); letter-spacing: .06em; text-transform: uppercase; color: #fff; }
+.arc-wstat .ws-kind { font-size: calc(14 * var(--u)); letter-spacing: .18em; text-transform: uppercase; color: #ffd166; margin-top: calc(2 * var(--u)); }
+.arc-wstat img { display: block; width: 100%; height: calc(150 * var(--u)); object-fit: contain; margin: calc(8 * var(--u)) 0; filter: drop-shadow(0 8px 14px rgba(0,0,0,.6)); }
+.arc-wstat .ws-rows { display: flex; flex-direction: column; gap: calc(7 * var(--u)); }
+.arc-wstat .ws-row { display: grid; grid-template-columns: calc(150 * var(--u)) 1fr calc(96 * var(--u)); align-items: center; gap: calc(10 * var(--u)); font-size: calc(15 * var(--u)); color: #c9ccd4; }
+.arc-wstat .ws-row i { height: calc(9 * var(--u)); border-radius: 99px; background: linear-gradient(90deg, #ffd166 var(--v), rgba(255,255,255,.12) var(--v)); }
+.arc-wstat .ws-row b { text-align: right; color: #fff; font-weight: 700; white-space: nowrap; }
+.arc-wstat .ws-tag { align-self: flex-start; font-size: calc(13 * var(--u)); letter-spacing: .14em; text-transform: uppercase; color: #8fc4ff; border: 1px solid #4f9bff; border-radius: 99px; padding: calc(2 * var(--u)) calc(10 * var(--u)); }
+.arc-wstat .ws-how { font-size: calc(16 * var(--u)); color: #d9b8ff; margin: calc(6 * var(--u)) 0; }
+.arc-wstat p { margin: calc(12 * var(--u)) 0 0; font-size: calc(15 * var(--u)); line-height: 1.4; color: #b9bcc6; }
+.arc-wstat .ws-hint { color: #9a9da8; }
 #s-lobby.flip-on .arc .wall { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 #s-lobby.flip-on .arc .wcard { height: calc(104 * var(--u)); }
 #s-lobby.flip-on .arc .wcard .w-img { height: calc(64 * var(--u)); }
@@ -1500,7 +1515,7 @@ html[data-cb=protan] body { filter: url(#cb-protan); } html[data-cb=deutan] body
 .ds-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; gap: 1rem; margin: 1.1rem 0; }
 .ds-card { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: .5rem; padding: .55rem .55rem .7rem; font: inherit; color: #fff; cursor: pointer; border-radius: 14px; border: 2px solid rgba(255,255,255,.18); background: rgba(10,9,14,.8); box-shadow: 0 10px 26px rgba(0,0,0,.5); transition: transform .15s, border-color .15s, box-shadow .15s, opacity .3s, filter .3s; }
 .ds-card .ds-img { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 9px; background: linear-gradient(135deg, #2a3350, #151824) center / cover no-repeat; }
-.ds-card:nth-child(1) .ds-img { background-color: #3d6b2a; } .ds-card:nth-child(2) .ds-img { background-color: #c79a4a; } .ds-card:nth-child(3) .ds-img { background-color: #9fc6e6; }
+.ds-card:nth-child(1) .ds-img { background-color: #3d6b2a; } .ds-card:nth-child(2) .ds-img { background-color: #c79a4a; } .ds-card:nth-child(3) .ds-img { background-color: #9fc6e6; } .ds-card:nth-child(4) .ds-img { background-color: #6b6a72; }
 .ds-card .ds-img em { font-style: normal; font-family: 'Luckiest Guy', var(--title); font-size: 4.2rem; color: #ffd166; text-shadow: 0 4px 0 #5a3e08; }
 .ds-card b { font-family: 'Russo One', var(--title); font-weight: 400; font-size: 1.25rem; letter-spacing: .1em; text-transform: uppercase; }
 .ds-card:hover:not(:disabled), .ds-card.pad-focus { transform: translateY(-4px); border-color: #fff; box-shadow: 0 0 24px rgba(255,255,255,.35), 0 10px 26px rgba(0,0,0,.5); }

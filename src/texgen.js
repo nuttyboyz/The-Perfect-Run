@@ -298,7 +298,7 @@ export function terrainLayers(biome, q) {
   if (cache.has(key)) return cache.get(key);
   const sizes = q >= 2 ? [512, 384, 256, 384] : q === 1 ? [384, 256, 256, 256] : [256, 256, 128, 256];
   const rc = recipe(biome);
-  const lift = { graveyard: 1.5, forest: 1.4, abyss: 2.0, volcanic: 2.0, desert: 1.05, frozen: 1.0, meadow: 1.15, dunes: 1.05, frost: 1.0, springs: 1.15, space: 1.6 }[biome.id] || 1;
+  const lift = { graveyard: 1.5, forest: 1.4, abyss: 2.0, volcanic: 2.0, desert: 1.05, frozen: 1.0, meadow: 1.15, dunes: 1.05, frost: 1.0, springs: 1.15, space: 1.6, crypt: 1.5 }[biome.id] || 1;
   const layers = rc.map((r, i) => {
     r = { ...r, colors: r.colors.map((c, k) => (r.em && k === 2 ? c : c.map((v) => Math.min(1, v * lift)))) };
     const t = layerTex(r.kind, r.colors, biome.seedTex * 3 + i * 101, sizes[i], q >= 2 || (q === 1 && (i === 0 || i === 3)), r.kind === 'ice' ? 3 : r.kind === 'snow' ? 2.5 : 5, q >= 2 ? 4 : q === 1 ? 2 : 1);
