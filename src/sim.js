@@ -97,9 +97,9 @@ export class HostSim {
   // Enemies start tough and get much tougher every round (health far faster than damage, so fights get longer before they get deadlier).
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
-  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.2 * 1.1, this.round) * (this.hard() ? 3 : 1); } // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
-  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2 * 1.1, this.round) * (this.hard() ? 3 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
-  bossDmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // bosses keep their own curve: +20% a round
+  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1); } // Nutty 2026-11-12 15:11: 1.3x a round; Hard is twice that all the way // // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
+  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
+  bossDmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn() * (this.round === 0 && !this.duel ? 0.6 : 1); } // bosses keep their own curve: +20% a round; the first boss hits at 60% (playtest 2026-11-12: it killed a fresh player in seconds)
   // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
   easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
 
@@ -393,8 +393,11 @@ export class HostSim {
     m.roam = 0; m.wt = 0;
     m.atk = Math.max(m.atk, 0.5 + Math.random() * 0.5);
     if (!spread) return;
-    for (const o of this.mobs.values()) if (o.roam && o !== m && Math.hypot(o.x - m.x, o.z - m.z) < 16) this.wake(o, false);
+    for (const o of this.mobs.values()) if (o.roam && o !== m && Math.hypot(o.x - m.x, o.z - m.z) < 8) this.wake(o, false); // only its own little group comes with it (was 16 m)
   }
+
+  // How many enemies hunt the players at once in a run: round 1 starts small and it grows each round (more on Hard).
+  huntCap(players) { const n = players.filter((p) => p.alive).length || 1; return this.duel ? 1e9 : Math.round((12 + this.round * 5) * (0.6 + 0.4 * n) * (this.hard() ? 1.3 : 1) * (this.round === 0 ? Math.min(1, 0.5 + (this.rt || 0) / 360) : 1)); }
 
   // Wandering: drift between points near home, with pauses, at a third of running speed.
   wander(m, dt, t) {
@@ -434,14 +437,14 @@ export class HostSim {
         const a = Math.random() * Math.PI * 2, rr = 20 + Math.sqrt(Math.random()) * 135;
         const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
         if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
-        if (players.some((o) => o.alive && Math.hypot(o.x - x, o.z - z) < 44)) continue;
+        if (players.some((o) => o.alive && Math.hypot(o.x - x, o.z - z) < 60)) continue;
         return [x, z];
       }
       // Groups appear well out of sight in any direction (a little more often ahead, so a walk runs into them), never close.
       // (2026-11-08: fewer straight ahead and farther out, so a group never seems to pop up in front of you)
       const ahead = Math.random() < 0.3;
       const ang = ahead ? p.ry + (Math.random() - 0.5) * Math.PI * 1.2 : p.ry + Math.PI + (Math.random() - 0.5) * Math.PI * 1.2;
-      const dist = (ahead ? 78 : 55) + Math.random() * 28;
+      const dist = (ahead ? 88 : 70) + Math.random() * 28;
       const x = p.x + Math.sin(ang) * dist, z = p.z + Math.cos(ang) * dist;
       if (Math.hypot(x, z) > 166) continue;
       if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
@@ -528,7 +531,7 @@ export class HostSim {
     }
     this.spawnCd -= dt;
     if (this.spawnCd > 0) return;
-    this.spawnGroup(players, Math.random() < 0.5, this.ramp());
+    this.spawnGroup(players, Math.random() < 0.8, this.ramp()); // four in five groups appear far off as wanderers, not round the player
   }
 
   // The crowd builds over the opening of a round instead of being all there at once:
@@ -543,7 +546,7 @@ export class HostSim {
   capOf(B, n = 1) { return B.cap == null ? null : Math.min(B.hard ?? Infinity, Math.ceil(B.cap * this.mobBudget(n) / 16)); } // hard: never more, whatever the budget (the heavy hero-built bodies)
 
   // How many mobs the field holds at once (small swarmers and minions count for less, see cost).
-  mobBudget(n) { return Math.min(this.duel ? 230 : 560, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.duel ? 1 : 3) * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.72 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
+  mobBudget(n) { return Math.min(this.duel ? 230 : 560, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.duel ? 1 : 3) * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.55 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
 
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {
@@ -863,6 +866,7 @@ export class HostSim {
   updateMobs(dt, players) {
     const w = this.world;
     const list = [...this.mobs.values()];
+    this.hunting = 0; for (const m of list) if (!m.roam && !m.owner) this.hunting++; // how many are after the players right now (see huntCap)
     const ds = this.dmgScale();
     for (const m of list) {
       const base0 = m.base;
@@ -889,11 +893,15 @@ export class HostSim {
       m.kx *= Math.max(0, 1 - 5 * dt); m.kz *= Math.max(0, 1 - 5 * dt);
       const t = this.targetsFor(m.x, m.z, players);
       if (m.roam) {
-        const notice = base0.fly ? 44 : base0.ranged ? 36 : 30;
-        if (t && (t.d < notice || m.hp < m.maxHp)) this.wake(m);
+        // Nutty 2026-11-12 15:11: no more brutal crowds. Enemies notice you from closer than before, and only so many hunt you
+        // at once (huntCap): the rest keep wandering until you walk into them or hurt them.
+        const notice = base0.fly ? 34 : base0.ranged ? 28 : 20;
+        if (t && m.hp < m.maxHp) this.wake(m);
+        else if (t && t.d < notice && (this.hunting < this.huntCap(players) || t.d < 7)) { this.wake(m, false); this.hunting++; }
         else { this.wander(m, dt, t); continue; }
       }
       if (!t) continue;
+      if (!m.mini && !m.owner && t.d > 70 && m.hp >= m.maxHp) { m.roam = 1; m.hx = m.wx = m.x; m.hz = m.wz = m.z; m.wt = 0; continue; } // lost you: back to wandering where it stands
       const dx = t.x - m.x, dz = t.z - m.z;
       const d = Math.hypot(dx, dz) || 1;
       const want = Math.atan2(dx, dz);
