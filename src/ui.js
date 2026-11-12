@@ -4,6 +4,7 @@ import { renderPShop, gemURL } from './metashop.js';
 import { MUTATORS, muOn, BOTTOMLESS } from './mutators.js';
 import { getMeta } from './meta.js';
 import { Profile } from './profile.js';
+import { DUEL_BIOMES, clipName } from './data.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, NPCS, NPC_TYPES, BIOMES, BOSSES, DASH, DUEL, POWERUP_BY_ID, puInfo, TIER, splitLoadout, loadoutFull } from './data.js';
 import { JET } from './jetpack.js';
 import { WING } from './wings.js';
@@ -19,6 +20,7 @@ import { ControlsScreen, loadBinds, bindsJSON, kbPhys, padPhys, keyName, PAD_NAM
 // Every control the game ever names, as the button it is on each layout. Settings > Controller layout picks
 // the column (DualShock by default); 'kp' is player 2's right-hand keyboard half in couch co-op.
 const CLIP_MS = 3900; // length of one skill clip on the Element page
+const CPU_LEVELS = ['Easy', 'Medium', 'Hard', 'Insane'];
 const FLIP_LOBBY = document.documentElement.dataset.lobby === 'flip' || new URLSearchParams(location.search).get('lobby') === 'flip'; // flip-book select screen (test)
 
 export const CTL = {
@@ -70,6 +72,7 @@ export const ICONS = {
   Earth: '<svg viewBox="0 0 24 24"><path d="M3.5 18.5l1.2-6.2 3.8-5 6-1.3 4.6 3.6 1.4 6.4-2.6 3.5H6.2z"/><path d="M9 8.5l2.2 4.3-1.4 3.4M11.2 12.8l4.4-1.6M15.6 11.2l1.8 3.6" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   Storm: '<svg viewBox="0 0 24 24"><path fill="#9cc0ff" d="M13 2L4 14h6l-2 8 10-13h-6z"/></svg>',
   Frost: '<svg viewBox="0 0 24 24"><path d="M11 2h2v20h-2zM2 11h20v2H2zM4.2 5.6l1.4-1.4 14.2 14.2-1.4 1.4zM18.4 4.2l1.4 1.4L5.6 19.8l-1.4-1.4z"/></svg>',
+  Death: '<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C7.3 2 4 5.4 4 9.8c0 2.3.9 4 2.3 5.2.5.4.7.9.7 1.5V18c0 .6.4 1 1 1h.6v1.6c0 .5.4.9.9.9h.9v-1.6h1v1.6h1.2v-1.6h1v1.6h.9c.5 0 .9-.4.9-.9V19h.6c.6 0 1-.4 1-1v-1.5c0-.6.2-1.1.7-1.500C19.100 13.800 20 12.100 20 9.800 20 5.400 16.700 2 12 2zM8.600 8.400c1.400 0 2.400 1 2.400 2.300s-1.100 2.300-2.500 2.300S6.200 12 6.200 10.600 7.200 8.400 8.600 8.400zm6.800 0c1.400 0 2.400.9 2.400 2.200S16.800 13 15.500 13 13 12 13 10.700s1-2.300 2.400-2.300zM12 13.300l1.300 2.700h-2.600z"/></svg>',
   Wind: '<svg viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3h-2a5 5 0 1 1 5 5H3zM3 13h15a3 3 0 1 1-3 3h2a1 1 0 1 0 1-1H3zM3 18h7v2H3z"/></svg>',
 };
 
@@ -82,6 +85,30 @@ export const AB_ICONS = {
   chain: '<svg viewBox="0 0 24 24"><path d="M3 4l6 6-3 1 7 4-2 1 9 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><circle cx="9" cy="10" r="2"/><circle cx="13" cy="15" r="2"/><circle cx="21" cy="20" r="2"/></svg>',
   storm: '<svg viewBox="0 0 24 24"><path d="M6 11a4 4 0 0 1 1-7.9A5 5 0 0 1 17 4a3.5 3.5 0 0 1 1 7z"/><path d="M9 13l-2 4h3l-1 4 4-6h-3l1-2zM16 13l-1 3h2l-1 3" /></svg>',
   shards: '<svg viewBox="0 0 24 24"><path d="M12 2l1.5 5-1.5 5-1.5-5zM4 7l4 3-1 4-3-2zM20 7l-4 3 1 4 3-2zM12 14l1.5 4-1.5 4-1.5-4zM5 17l3-2 2 3-3 2zM19 17l-3-2-2 3 3 2z"/></svg>',
+  // the Elemental Vault
+  seekers: '<svg viewBox="0 0 24 24"><path d="M6 3c2 2 3 4 1 6a2.5 2.5 0 1 1-3-2c1-1 2-2 2-4zM18 3c2 2 3 4 1 6a2.5 2.5 0 1 1-3-2c1-1 2-2 2-4zM12 11c2.5 2.5 4 5 1.5 7.5a3 3 0 1 1-4-2.5c1.2-1.2 2.5-2.5 2.5-5z"/></svg>',
+  orbit: '<svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 1l2.5 2-1 2.5h-3L9.5 3zM3 15l3-.5L7.5 17l-2 2L3 18zM21 15l-3-.5-1.5 2.5 2 2 2.5-1z"/></svg>',
+  meteor: '<svg viewBox="0 0 24 24"><path d="M22 2l-7 3 2 1-5 2 2 1-4 2a5.5 5.500 0 1 0 5 5l2-4 1 2 2-5 1 2z"/></svg>',
+  stomp: '<svg viewBox="0 0 24 24"><path d="M9 2h6v9l3 1v3H6v-3l3-1zM2 20l4-3 3 3 3-3 3 3 3-3 4 3v2H2z"/></svg>',
+  rain: '<svg viewBox="0 0 24 24"><path d="M7 12a4 4 0 0 1 .5-8 5 5 0 0 1 9.500 1A3.500 3.500 0 0 1 17 12zM8 14l-1.500 4h3zM12 15l-1.500 5h3zM16 14l-1.500 4h3z"/></svg>',
+  zero: '<svg viewBox="0 0 24 24"><path d="M11 2h2v20h-2zM2 11h20v2H2zM4.200 5.600l1.400-1.400 14.200 14.200-1.400 1.400zM18.400 4.200l1.400 1.400L5.600 19.800l-1.400-1.400z"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24"><path d="M6 18a4.500 4.500 0 0 1 .5-9 6 6 0 0 1 11.500 1.500A3.800 3.800 0 0 1 18 18z"/></svg>',
+  breath: '<svg viewBox="0 0 24 24"><path d="M2 9l5-3 3 1 2-2 1 3-2 2 1 2-4 1-2 3-1-4zM13 11l9-4-3 5 3 5-9-4z"/></svg>',
+  whirl: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8zM12 6a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4zM12 10a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg>',
+  jet: '<svg viewBox="0 0 24 24"><path d="M2 11h15v2H2zM17 8l5 4-5 4zM4 6h6v2H4zM4 16h6v2H4z"/></svg>',
+  snowball: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zM8 9a1.5 1.5 0 1 1 1.500 1.500A1.500 1.500 0 0 1 8 9zM14 14a1.500 1.500 0 1 1 1.500 1.500A1.500 1.500 0 0 1 14 14zM2 21h20v1H2z"/></svg>',
+  fence: '<svg viewBox="0 0 24 24"><path d="M3 3h3v18H3zM18 3h3v18h-3zM6 7l3 1 3-2 3 2 3-1v2l-3 1-3-2-3 2-3-1zM6 14l3 1 3-2 3 2 3-1v2l-3 1-3-2-3 2-3-1z"/></svg>',
+  lifedrain: '<svg viewBox="0 0 24 24"><path d="M12 2c3 4.500 6 7.800 6 11.500a6 6 0 0 1-12 0C6 9.800 9 6.500 12 2zM9 13.500a3 3 0 0 0 3 3v-1.500a1.500 1.500 0 0 1-1.500-1.500z"/></svg>',
+  acid: '<svg viewBox="0 0 24 24"><path d="M2 17c2-3 5-4 10-4s8 1 10 4c-2 2.500-5 4-10 4s-8-1.500-10-4zM8 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM14.500 7a1.500 1.500 0 1 1 0 3 1.500 1.500 0 0 1 0-3zM11 9.500a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>',
+  raise: '<svg viewBox="0 0 24 24"><path d="M3 21h18v-2H3zM10 18v-7l-2 1.500-1-1.400L10 8.500V5.500l-1.500 1-1-1.500L10 3h2l.5 5 3-2 1 1.500-3.500 3V18z"/></svg>',
+  vines: '<svg viewBox="0 0 24 24"><path d="M11 22c0-5-4-6-4-11 0-3 2-5 2-8h2c0 3-2 5-2 8 0 4 4 5 4 11zM9 12l-4-2 1 3zM12 16l5-2-1 4zM10 7l4-3v4zM17 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/></svg>',
+  scythe: '<svg viewBox="0 0 24 24"><path d="M5 22L15 4l1.700 1L6.700 23zM13 3c5-1 8 2 9 7-3-3-6-4-9-3z"/></svg>',
+  ghostwalk: '<svg viewBox="0 0 24 24"><path d="M12 2a6 6 0 0 0-6 6v13l2.500-2 1.700 2 1.800-2 1.800 2 1.700-2 2.500 2V8a6 6 0 0 0-6-6zM9.500 8a1.300 1.300 0 1 1 0 2.600A1.300 1.300 0 0 1 9.500 8zm5 0a1.300 1.300 0 1 1 0 2.600 1.300 1.300 0 0 1 0-2.600z"/></svg>',
+  crows: '<svg viewBox="0 0 24 24"><path d="M2 9c3 0 5 1 7 3 1-3 4-5 8-5l5 1-4 2c0 5-3 9-8 9H6l2-3c-3-1-5-4-6-7zM16 9.500a.8.800 0 1 0 0 1.600.8.800 0 0 0 0-1.600z"/></svg>',
+  supper: '<svg viewBox="0 0 24 24"><path d="M6 3h12v5a6 6 0 0 1-5 5.900V19h4v2H7v-2h4v-5.100A6 6 0 0 1 6 8zM8 5v3a4 4 0 0 0 8 0V5z"/></svg>',
+  finger: '<svg viewBox="0 0 24 24"><path d="M10 2h3v9l5 1.500c1 .3 1.700 1.200 1.700 2.300V22H9l-4-7 1.500-1.500L10 15z"/></svg>',
+  blink: '<svg viewBox="0 0 24 24"><path d="M13 1L5 13h5l-2 10 9-13h-5zM1 5h4v2H1zM1 10h3v2H1zM19 14h4v2h-4zM20 19h3v2h-3z"/></svg>',
+  tornado: '<svg viewBox="0 0 24 24"><path d="M3 4h18v2H3zM5 8h14v2H5zM8 12h10v2H8zM10 16h6v2h-6zM12 20h3v2h-3z"/></svg>',
   barrier: '<svg viewBox="0 0 24 24"><path d="M2 21l2-10 2 4 2-12 2 9 2-6 2 11 2-8 2 5 2-7 2 14z"/><path d="M2 21h20" stroke="currentColor" stroke-width="1.6"/></svg>',
   veil: '<svg viewBox="0 0 24 24"><path d="M2 7c5-3 9 3 14 0s5 0 6-1M2 12c5-3 9 3 14 0s5 0 6-1M2 17c5-3 9 3 14 0s5 0 6-1" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
   dash: '<svg viewBox="0 0 24 24"><path d="M3 7h9M2 12h12M5 17h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M14 5l8 7-8 7z"/></svg>',
@@ -118,6 +145,70 @@ export class UI {
   setH(e, v) { if (typeof e === 'string') e = this.$k(e); if (e && e._h !== v) { e._h = v; e.innerHTML = v; } }
   setC(e, cls, on) { if (typeof e === 'string') e = this.$k(e); on = !!on; if (e && e.classList.contains(cls) !== on) e.classList.toggle(cls, on); }
 
+  // Duel Arena stage cards (Stage Select). withRandom adds a "Random" card (index -1).
+  stageCards(withRandom) {
+    const card = (i, name, cls) => `<button type="button" class="ds-card${cls || ''}" data-i="${i}"><span class="ds-img"${i >= 0 ? ` style="background-image:url(assets/arenas/${i}.webp)"` : ''}>${i < 0 ? '<em>?</em>' : ''}</span><b>${esc(name)}</b><span class="ds-picks"></span></button>`;
+    return DUEL_BIOMES.map((b, i) => card(i, b.name)).join('') + (withRandom ? card(-1, 'Random', ' ds-rand') : '');
+  }
+  // Two-player stage vote: both players tap a stage (blue tick with their name). Different picks: a spinner flips
+  // between the two names and lands on one.
+  duelVoteUI() {
+    const g = this.game, root = this.$('#s-lobby');
+    const host = g.party && g.hostPeer(g.party.peers()), dv = host && host.p.dv;
+    let o = this._dvEl;
+    if (!dv) { if (o && o.classList.contains('on')) { o.classList.remove('on'); clearTimeout(this._dvT); this._dvSpin = null; } return; }
+    if (!o) {
+      o = document.createElement('div');
+      o.className = 'ds-vote pad-modal';
+      o.innerHTML = `<div class="ds-box"><h2>Stage Select</h2><p class="ds-sub"></p><div class="ds-cards">${this.stageCards(false)}</div><div class="ds-spin"></div></div>`;
+      root.appendChild(o);
+      o.querySelector('.ds-cards').onclick = (e) => { const b = e.target.closest('.ds-card'); if (!b || b.disabled) return; g.audio.play('ui'); g.duelPick(+b.dataset.i); this.renderLobby(); };
+      this._dvEl = o;
+    }
+    const first = !o.classList.contains('on');
+    o.classList.add('on');
+    const ms = g.lobbyMembers(), local = g.party.kind === 'local';
+    const nm = (m) => (local ? 'PLAYER ' + (m.id === 'p2' ? 2 : 1) : m.p.n || 'Player');
+    const cards = [...o.querySelectorAll('.ds-card')], sub = o.querySelector('.ds-sub'), spin = o.querySelector('.ds-spin');
+    const pickOf = (m) => (m.p.dsi === dv.id && m.p.ds >= 0 ? m.p.ds | 0 : -1);
+    const paint = () => cards.forEach((c) => {
+      const i = +c.dataset.i, who = ms.filter((m) => pickOf(m) === i);
+      c.classList.toggle('picked', who.length > 0); c.classList.toggle('mine', who.some((m) => m.me));
+      const h = who.map((m) => `<span class="${m.me ? 'me' : ''}"><i>✓</i>${esc(nm(m))}</span>`).join('');
+      const pk = c.querySelector('.ds-picks'); if (pk.innerHTML !== h) pk.innerHTML = h;
+    });
+    if (!dv.r) {
+      if (this._dvSpin) { this._dvSpin = null; clearTimeout(this._dvT); }
+      cards.forEach((c) => { c.classList.remove('spin-on', 'landed', 'lost'); c.disabled = false; });
+      paint();
+      const mine = ms.find((m) => m.me), other = ms.find((m) => !m.me);
+      sub.textContent = mine && pickOf(mine) >= 0 ? (other && pickOf(other) >= 0 ? '' : 'Waiting for ' + (other ? nm(other) : 'the other player') + ' to pick. You can still change yours.') : 'Both players pick a stage. Same pick goes straight in. Different picks spin for it.';
+      spin.innerHTML = ''; spin.className = 'ds-spin';
+      if (first && g.pad && g.pad.active) setFocus(this.root, cards[0]);
+      return;
+    }
+    if (this._dvSpin === dv.id) return;
+    this._dvSpin = dv.id;
+    paint();
+    cards.forEach((c) => (c.disabled = true));
+    const land = cards.find((c) => +c.dataset.i === dv.r.i), stage = DUEL_BIOMES[dv.r.i] ? DUEL_BIOMES[dv.r.i].name : '';
+    const done = (txt) => { cards.forEach((c) => { c.classList.remove('spin-on'); c.classList.toggle('lost', c !== land); }); if (land) land.classList.add('landed'); spin.className = 'ds-spin done'; spin.innerHTML = txt; sub.textContent = ''; g.audio.play('ready'); };
+    if (dv.r.same || ms.length < 2) { done('<b>' + esc(stage) + '</b><span>Both picked it</span>'); return; }
+    const win = ms.find((m) => m.id === dv.r.w) || ms[0], lose = ms.find((m) => m !== win) || ms[1];
+    sub.textContent = 'Different picks. Spinning for it…';
+    spin.className = 'ds-spin go';
+    // The light sweeps the stages left to right, slows down, and stops on the winning pick.
+    const li = Math.max(0, cards.indexOf(land)), N = cards.length * 4 + li + 1; let k = 0, delay = 80;
+    const flip = () => {
+      cards.forEach((c) => c.classList.remove('spin-on'));
+      const c = cards[k % cards.length]; c.classList.add('spin-on');
+      spin.innerHTML = '<i class="ds-wheel"></i><b>' + esc(c.querySelector('b').textContent) + '</b>';
+      g.audio.play('ui', 0.5);
+      if (++k >= N) { this._dvT = setTimeout(() => done('<b>' + esc(stage) + '</b><span>' + esc(nm(win)) + '\'s pick</span>'), 500); return; }
+      delay *= 1.16; this._dvT = setTimeout(flip, delay);
+    };
+    flip();
+  }
   // Main menu: Daily Challenges shows how many of today's three are done.
   dailyTitle() { const el = this.$('#title-daily'); if (el) { try { el.textContent = Dailies.today().filter((d) => d.done).length + '/3'; } catch {} } }
   screen(id) {
@@ -187,11 +278,17 @@ export class UI {
     name.readOnly = g.seat === 1 && !!Profile.playName();
     name.addEventListener('change', () => { g.settings.name = name.value.trim().slice(0, 16) || g.settings.name; name.value = g.settings.name; g.saveSettings(); });
     this.$('#btn-couch').style.display = g.seat === 1 ? '' : 'none';
-    this.$('#btn-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; this.openCouch(); };
+    this.$('#btn-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.startLocal(); };
     this.$('#btn-duel').style.display = g.seat === 1 ? '' : 'none';
     this.$('#btn-duel').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-duel'); };
-    this.$('#duel-cpu').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.playDuelBot(); };
-    this.$('#duel-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = true; this.openCouch(); };
+    this.$('#duel-cpu').onclick = () => { // versus the CPU: pick the stage first, then the fighters
+      g.audio.unlock(); g.audio.play('ui');
+      const box = this.$('#ds-cpu');
+      box.innerHTML = this.stageCards(true);
+      box.onclick = (e) => { const b = e.target.closest('.ds-card'); if (!b) return; g.audio.play('ui'); g.duelStage = +b.dataset.i; g.playDuelBot(); };
+      this.screen('s-dstage');
+    };
+    this.$('#duel-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = true; g.startLocal(); };
     this.$('#duel-online').onclick = async () => {
       g.audio.unlock(); g.audio.play('ui');
       this.busy('Creating your party…');
@@ -346,6 +443,7 @@ export class UI {
   // Two-press guard for the buttons that end couch co-op, so a stray click or A press cannot drop both players.
   confirmEnd(btn, label, then, ask) {
     const g = this.game;
+    if (g.mode !== 'game') { (then || (() => g.leaveParty()))(); return; } // menus leave in one press; only leaving a run asks twice (Nutty 2026-11-11)
     if (btn.dataset.armed) { clearTimeout(this.confirmTimer); this.confirmTimer = null; delete btn.dataset.armed; btn.textContent = label; (then || (() => g.leaveParty()))(); return; }
     btn.dataset.armed = '1';
     btn.textContent = ask || (g.seat === 2 ? 'Press again to leave' : 'Press again to end for both');
@@ -590,7 +688,28 @@ export class UI {
   // Flip-book select (test, html[data-lobby=flip] or ?lobby=flip): the same lobby pieces, one page at a time.
   // Character, then Weapons, then Element, then Mutators with CPU Mode and Start Run. A duel stops at Element, with Ready under it.
   // Duel versus the CPU on the flip select: the player also picks the CPU's fighter.
+  flipOn() { return FLIP_LOBBY && !!(this._arc && this._arc.on); }
+  // Joining a run that is already under way: the select ends at the Element page with a Ready Up button (no run options to set).
+  lateJoin() { const g = this.game, h = g.party && !g.isHost && g.hostPeer(g.party.peers()), ph = h && h.p.w && h.p.w.ph; return !!ph && ph !== 'lobby' && !['over', 'win', 'dend'].includes(ph); }
   cpuFlow() { const g = this.game; return FLIP_LOBBY && !!g.bot && !!(this._arc && this._arc.on); }
+  // The Element panel: the three cooldowns with their descriptions and a Customize button under them. In Customize the three
+  // shrink to a column of slots, and beside them a column lists every cooldown the element owns (name, description); the ones
+  // already in a slot are shaded out, so nothing can be doubled.
+  classDetailHTML(cls) {
+    const g = this.game, K = [['q', 'Q'], ['e', 'G'], ['r', 'F']], cd = (ab) => (g.duelMode ? DUEL.cd : ab.cd) + 's';
+    const head = `<div class="cd-head"><div class="cd-icon">${ICONS[cls.element]}</div><div><div class="cd-name">${cls.name}</div><div class="cd-tag">${cls.element} · ${cls.tagline}</div></div></div>`;
+    const can = cls.pool.length > 3 && !g._cpuPick && !g.isBot;
+    if (!this.custOn || !can) return head + K.map(([k, key]) => `<div class="ab"><kbd>${esc(this.key(key))}</kbd><div><b>${cls[k].name}</b><span class="cd">${cd(cls[k])}</span><p>${cls[k].desc}</p></div></div>`).join('') + (can ? '<button type="button" class="cz-btn">Customize</button>' : '');
+    const sk = cls[this.custSlot] ? this.custSlot : 'q', eq = {};
+    for (const [k, key] of K) eq[cls[k].id] = this.key(key);
+    return head + '<div class="cz"><div class="cz-slots">'
+      + K.map(([k, key]) => `<button type="button" class="cz-slot${k === sk ? ' on' : ''}" data-k="${k}"><kbd>${esc(this.key(key))}</kbd><b>${esc(cls[k].name)}</b></button>`).join('')
+      + '<p class="cz-hint">Hover one of your three, then pick what replaces it.</p></div>'
+      + `<div class="cz-list"><h5>Replace ${esc(cls[sk].name)} with</h5>`
+      + [...cls.pool].sort((x, y) => !!eq[x.id] - !!eq[y.id]).map((ab) => `<button type="button" class="cz-opt${eq[ab.id] ? ' eq' : ''}" data-id="${ab.id}"><b>${esc(ab.name)}</b><span class="cd">${cd(ab)}</span>${eq[ab.id] ? '<em>Equipped · ' + esc(eq[ab.id]) + '</em>' : ''}<p>${esc(ab.desc)}</p></button>`).join('')
+      + '</div></div><button type="button" class="cz-btn">Done</button>';
+  }
+
   // Element page: a small clip of each of the element's three skills, one after the other.
   clipSync(show) {
     const g = this.game, F = this._flip;
@@ -599,19 +718,29 @@ export class UI {
     if (!show) { clearTimeout(this.clipT); this.clipT = null; this.clipCls = null; return; }
     if (this.clipCls === cls && this.clipT) return;
     this.clipCls = cls; this.clipI = -1;
+    if (!F.clip._bound) {
+      // Pick any skill (its row, or its dot under the video) to play that clip now; click the video to replay it.
+      F.clip._bound = true;
+      const play = (i) => { if (!this.clipNext) return; g.audio.play('ui'); this.clipI = ((i % 3) + 3) % 3 - 1; this.clipNext(); };
+      this.clipPlay = play;
+      this.$('#class-detail').addEventListener('click', (e) => { const r = e.target.closest('.ab'); if (!r) return; const i = [...this.$$('#class-detail .ab')].indexOf(r); if (i >= 0) play(i); });
+      F.clip.querySelector('.fc-dots').addEventListener('click', (e) => { const d = e.target.closest('i'); if (!d) return; e.stopPropagation(); play([...F.clip.querySelectorAll('.fc-dots i')].indexOf(d)); });
+      F.clip.querySelector('.fc-screen').addEventListener('click', () => play(this.clipI < 0 ? 0 : this.clipI));
+    }
     const next = () => {
-      const c = CLASS_BY_ID[this.clipCls]; if (!c) return;
+      const c = g.myClass(); if (!c) return;
       if (g.mode !== 'lobby' || this.flipStep !== 3) { this.clipT = null; this.clipCls = null; return; } // the page was left: stop cycling
       this.clipI = (this.clipI + 1) % 3;
       const k = ['q', 'e', 'r'][this.clipI], ab = c[k];
       const img = F.clip.querySelector('img');
-      img.src = ''; img.src = 'assets/clips/' + c.id + '-' + k + '.webp';
+      img.src = ''; img.src = 'assets/clips/' + clipName(c, ab) + '.webp';
       F.clip.style.setProperty('--cc', c.css);
       F.clip.querySelector('.fc-cap').innerHTML = '<kbd>' + esc(this.key({ q: 'Q', e: 'G', r: 'F' }[k])) + '</kbd><b>' + esc(ab.name) + '</b><span>' + (this.clipI + 1) + ' / 3</span>';
       F.clip.querySelectorAll('.fc-dots i').forEach((d, i) => d.classList.toggle('on', i === this.clipI));
       this.$$('#class-detail .ab').forEach((r, i) => r.classList.toggle('playing', i === this.clipI));
       clearTimeout(this.clipT); this.clipT = setTimeout(next, CLIP_MS);
     };
+    this.clipNext = next;
     next();
   }
   flipSync(duel) {
@@ -658,7 +787,7 @@ export class UI {
       F.fin.classList.toggle('mu-open', open);
       F.fin.querySelectorAll('.mu-row').forEach((b) => { b.classList.toggle('on', (mask & +b.dataset.b) !== 0); b.disabled = !g.isHost; });
     }
-    const last = duel ? 3 : 4, step = Math.min(last, Math.max(1, this.flipStep || 1));
+    const last = duel || this.lateJoin() ? 3 : 4, step = Math.min(last, Math.max(1, this.flipStep || 1));
     this.flipStep = step;
     if (root.dataset.flip !== String(step)) root.dataset.flip = step;
     root.classList.toggle('flip-duel', !!duel);
@@ -674,7 +803,7 @@ export class UI {
   }
   setFlip(n, quiet) {
     if (!FLIP_LOBBY) return;
-    const g = this.game, root = this.$('#s-lobby'), last = g.duelMode ? 3 : 4, to = Math.min(last, Math.max(1, n | 0));
+    const g = this.game, root = this.$('#s-lobby'), last = g.duelMode || this.lateJoin() ? 3 : 4, to = Math.min(last, Math.max(1, n | 0));
     if (to === (this.flipStep || 1)) return;
     root.classList.toggle('flip-rev', to < (this.flipStep || 1));
     this.flipStep = to;
@@ -687,17 +816,18 @@ export class UI {
   // with the roster along the bottom, element orbs and abilities on the left, the Weapon Wall and Ready on the right.
   // Split-screen couch play keeps the old three-column lobby, so every piece goes back where it came from.
   arcLayout() {
-    const g = this.game, on = !document.body.classList.contains('split');
+    const g = this.game, on = true, split = document.body.classList.contains('split'); // split-screen seats use the same flip select, sized to their half
     const root = this.$('#s-lobby');
     if (!this._arc) {
       const a = document.createElement('div');
       a.className = 'arc';
       a.innerHTML = `<div class="arc-shade"></div>
         <div class="arc-top"><div class="arc-logo">THE PERFECT RUN</div><div class="arc-opts"></div><div class="arc-chip arc-pp"><small>PP</small><b id="arc-pp">0</b></div><div class="arc-leave"></div></div>
-        <div class="arc-hero"><div class="arc-name"></div><div class="arc-bars" id="arc-bars"></div><div class="arc-skins"></div></div>
+        <div class="arc-hero"><div class="arc-name"></div><div class="arc-bars" id="arc-bars"></div><div class="arc-skins"></div><button type="button" class="cpu-level" id="cpu-level"></button></div>
         <div class="arc-orbs"></div>
         <div class="arc-abil"></div>
         <div class="arc-party"></div>
+        <div class="arc-plist" id="arc-plist"></div>
         <div class="arc-wall"><h3 class="arc-h">Weapon Wall <small>any 3 · weapons or gear</small></h3><div class="arc-wall-in"></div></div>
         <div class="arc-ready"><div class="arc-p1" id="arc-p1"></div></div>
         <div class="arc-roster"></div>`;
@@ -710,7 +840,16 @@ export class UI {
         ['.slots', '.arc-wall-in'], ['#wall', '.arc-wall-in'], ['#btn-ready', '.arc-ready'], ['#char-cards', '.arc-roster'],
       ].map(([sel, to]) => { const n = this.$(sel); return { n, to: q(to), home: n.parentNode, next: n.nextSibling }; }) };
     }
+    if (!this._cpuLvBound && !g.isBot) {
+      // Duel versus the CPU: a button under the skins steps the CPU Level through Easy, Medium, Hard, Insane.
+      this._cpuLvBound = true;
+      window.__cpuLevel = Math.max(0, Math.min(3, g.settings.cpuLevel ?? 1));
+      this._arc.el.querySelector('#cpu-level').onclick = () => { g.audio.play('ui'); g.settings.cpuLevel = window.__cpuLevel = ((g.settings.cpuLevel ?? 1) + 1) % 4; g.saveSettings(); this.renderLobby(); };
+    }
     const A = this._arc;
+    root.classList.toggle('arc-split', split);
+    if (split) { const r = this.root.getBoundingClientRect(), u = Math.min(r.width / 1280, r.height / 1080).toFixed(4) + 'px'; if (A.u !== u) { A.u = u; A.el.style.setProperty('--u', u); } }
+    else if (A.u) { A.u = null; A.el.style.removeProperty('--u'); }
     if (A.on === on) return;
     A.on = on;
     for (const m of A.moves) {
@@ -732,7 +871,7 @@ export class UI {
         const free = skinIsFree(s), ok = skinUnlocked(lo.ch, s);
         return `<button class="skin-chip${ok ? '' : ' locked'}" data-sk="${s.id}" title="${esc(s.name)}">
           <i class="sw" style="background:linear-gradient(135deg, ${(s.sw || ['#888'])[0]} 50%, ${(s.sw || ['#888', '#444'])[1] || '#444'} 50%)"></i>
-          <span class="sk-name">${esc(s.name)}</span><em>${free ? 'Free' : s.pp + ' PP'}</em></button>`;
+          <span class="sk-name">${esc(s.name)}</span>${free ? '' : '<em>' + s.pp + ' PP</em>'}</button>`;
       }).join('');
       this.$$('.skin-chip', row).forEach((b) => (b.onclick = () => {
         const sk = skinsOf(g.loadout.ch).find((x) => x.id === b.dataset.sk);
@@ -759,7 +898,7 @@ export class UI {
   }
 
   // Round start with mutators on: each one's name in dripping blood-red letters, gone after about 3 seconds.
-  mutatorBanner(list) {
+  mutatorBanner(list, extra = 0) {
     let el = document.getElementById('mu-banner');
     if (el) el.remove();
     if (!list.length) return;
@@ -767,18 +906,19 @@ export class UI {
     list.forEach((m, i) => {
       const d = document.createElement('div');
       d.textContent = m.name.toUpperCase() + ' APPLIED';
-      d.style.animationDelay = (i * 0.14) + 's, ' + (2.5 + i * 0.05) + 's';
+      d.style.animationDelay = (i * 0.14) + 's, ' + (2.5 + extra + i * 0.05) + 's';
       el.appendChild(d);
     });
     (this.root.querySelector('#hud') || this.root).appendChild(el);
-    clearTimeout(this._muT); this._muT = setTimeout(() => el.remove(), 3600);
+    clearTimeout(this._muT); this._muT = setTimeout(() => el.remove(), 3600 + extra * 1000);
   }
 
   renderLobby() {
+    this.duelVoteUI();
     const g = this.game;
     if (g.mode !== 'lobby' || !g.party) return;
     const lo = g.loadout;
-    const cls = CLASS_BY_ID[lo.c];
+    const cls = g.myClass();
     const chr = CHAR_BY_ID[lo.ch] || CHAR_BY_ID.veteran;
     const step = g.lobbyStep || 1, armed = loadoutFull(lo.w);
     this.$('#pick-char').classList.toggle('on', step === 1);
@@ -818,11 +958,22 @@ export class UI {
     }
     this.$('#stage-name').innerHTML = `<div class="sn-role">${chr.role}</div><div class="sn-name">${chr.name}</div><div class="sn-blurb">${esc(chr.blurb)}</div>`;
     this.$('#class-detail').style.setProperty('--cc', cls.css);
-    this.$('#class-detail').innerHTML = `
-      <div class="cd-head"><div class="cd-icon">${ICONS[cls.element]}</div><div><div class="cd-name">${cls.name}</div><div class="cd-tag">${cls.element} · ${cls.tagline}</div></div></div>
-      <div class="ab"><kbd>${esc(this.key('Q'))}</kbd><div><b>${cls.q.name}</b><span class="cd">${g.duelMode ? DUEL.cd : cls.q.cd}s</span><p>${cls.q.desc}</p></div></div>
-      <div class="ab"><kbd>${esc(this.key('G'))}</kbd><div><b>${cls.e.name}</b><span class="cd">${g.duelMode ? DUEL.cd : cls.e.cd}s</span><p>${cls.e.desc}</p></div></div>
-      <div class="ab"><kbd>${esc(this.key('F'))}</kbd><div><b>${cls.r.name}</b><span class="cd">${g.duelMode ? DUEL.cd : cls.r.cd}s</span><p>${cls.r.desc}</p></div></div>`;
+    { const cdEl = this.$('#class-detail'), h = this.classDetailHTML(cls);
+      if (cdEl._h !== h) { cdEl._h = h; cdEl.innerHTML = h; }
+      if (!this._czBound) {
+        // Customize: hover (or click) one of your three cooldowns, then click its replacement in the column beside them.
+        this._czBound = true;
+        const IDX = { q: 0, e: 1, r: 2 };
+        cdEl.addEventListener('click', (e) => {
+          if (e.target.closest('.cz-btn')) { g.audio.play('ui'); this.custOn = !this.custOn; this.renderLobby(); return; }
+          const sl = e.target.closest('.cz-slot');
+          if (sl) { this.custSlot = sl.dataset.k; this.renderLobby(); if (this.clipPlay) this.clipPlay(IDX[sl.dataset.k]); return; }
+          const o = e.target.closest('.cz-opt');
+          if (o && !o.classList.contains('eq')) { const k = this.custSlot || 'q'; if (g.setAbility(k, o.dataset.id)) { this.renderLobby(); if (this.clipPlay) this.clipPlay(IDX[k]); else g.audio.play('ui'); } }
+        });
+        cdEl.addEventListener('mouseover', (e) => { const sl = e.target.closest('.cz-slot'); if (sl && this.custSlot !== sl.dataset.k) { this.custSlot = sl.dataset.k; this.renderLobby(); } });
+      }
+    }
     const members = g.lobbyMembers();
     const host = g.hostPeer(g.party.peers());
     const hostRl = host && host.p.lb ? host.p.lb.rl : g.settings.roundLen;
@@ -840,7 +991,7 @@ export class UI {
     this.renderMuChips();
     this.flipSync(duel);
     const startWord = duel ? 'Start Duel' : 'Start Run';
-    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch ? 'Local duel' : 'Duel party ' + (g.partyCode || '')) : couch ? 'Local co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
+    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch || g.couchWait ? 'Local duel' : 'Duel party ' + (g.partyCode || '')) : couch || g.couchWait ? 'Local co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
     // Couch co-op: publish which step this seat is on so the other seat can show it.
     if (couch && g.party.mine.ls !== step) g.party.set({ ls: step });
     const memberHtml = (m, seat) => {
@@ -866,6 +1017,21 @@ export class UI {
         <div class="m-state">${state}</div>
       </div>`;
     };
+    { const cl = this.$('#cpu-level'), lv = Math.max(0, Math.min(3, g.settings.cpuLevel ?? 1));
+      if (cl) { const h = g.bot ? 'CPU Level<b>' + CPU_LEVELS[lv] + '</b><i>▸</i>' : ''; if (cl._h !== h) { cl._h = h; cl.innerHTML = h; cl.dataset.lv = lv; cl.style.display = g.bot ? '' : 'none'; } } }
+    { // Party panel on the right of the select: everyone in the game, a crown by the host.
+      const pl = this.$('#arc-plist');
+      if (pl) {
+        const nm = (m) => g.bot ? (m.me ? 'You' : 'CPU') : couch ? 'Player ' + (m.id === 'p2' ? 2 : 1) : m.p.n;
+        const rows = (couch ? members.slice().sort((a, b) => (a.id < b.id ? -1 : 1)) : members).map((m) => {
+          const c = CLASS_BY_ID[m.p.c] || cls, st = g.bot && !m.me ? CPU_LEVELS[Math.max(0, Math.min(3, g.settings.cpuLevel ?? 1))] : m.p.rdy ? 'Ready' : m.p.ig ? 'In game' : m.p.host && !couch ? 'Host' : 'Picking';
+          return `<div class="pl-row${m.me ? ' me' : ''}${m.p.rdy ? ' rdy' : ''}" style="--cc:${c.css}"><i class="pl-ic">${ICONS[c.element]}</i><b>${esc(nm(m))}</b>${m.p.host ? '<span class="pl-crown" title="Host">👑</span>' : ''}<em>${st}</em></div>`;
+        }).join('');
+        const wait = g.couchWait ? '<div class="pl-row wait"><i class="pl-ic">＋</i><b>Player 2</b><em>Press a button on a controller</em></div>' : '';
+        const html = `<h4>Party <small>${members.length}${g.party.kind === 'solo' || couch || g.bot ? '' : ' / ' + CONFIG.maxPlayers}</small></h4>` + rows + wait;
+        if (pl._h !== html) { pl._h = html; pl.innerHTML = html; }
+      }
+    }
     this.$('#members').innerHTML = couch
       ? members.slice().sort((a, b) => (a.id < b.id ? -1 : 1)).map((m) => memberHtml(m, m.id === 'p2' ? 2 : 1)).join('')
       : members.map((m) => memberHtml(m, 0)).join('') + (g.party.kind === 'solo' ? '' : `<div class="member empty-slot">${members.length}/5 · waiting for friends</div>`);
@@ -905,10 +1071,11 @@ export class UI {
       btn.classList.remove('waiting');
       return;
     }
+    if (g.couchWait && duel) { btn.textContent = 'Waiting for Player 2'; btn.disabled = true; btn.classList.remove('is-ready', 'waiting'); return; }
     const wait = g.isHost ? members.filter((m) => !m.me && !m.p.rdy).length : 0;
     if (!armed) btn.textContent = 'Pick 3 items to ready up';
     else if (g.isHost) btn.innerHTML = wait ? `${startWord}<small>${wait} ${wait > 1 ? 'players still need' : 'player still needs'} to ready up</small>` : startWord;
-    else btn.textContent = g.ready ? 'Ready ✓' : 'Ready up';
+    else btn.textContent = g.ready ? 'Ready ✓' : this.lateJoin() ? 'Ready Up' : 'Ready up';
     btn.disabled = !armed;
     btn.classList.toggle('is-ready', !g.isHost && g.ready);
     btn.classList.toggle('waiting', armed && g.isHost && wait > 0);
@@ -1131,7 +1298,7 @@ export class UI {
     this.$('#killfeed').innerHTML = '';
     this.couchKeysCard();
     const p = this.game.loadout;
-    const cls = CLASS_BY_ID[p.c];
+    const cls = this.game.myClass();
     this.root.style.setProperty('--class', cls.css);
     this.$('#ab-q .ab-icon').innerHTML = AB_ICONS[cls.q.id] || ICONS[cls.element];
     this.$('#ab-r .ab-icon').innerHTML = AB_ICONS[cls.r.id] || ICONS[cls.element];
@@ -1234,9 +1401,9 @@ export class UI {
     }
     const fpv = g.settings.view === 'first' || !!g.fpNow;
     const adsF = p.alive ? p.ads : 0;
-    const scopedW = wp.id === 'dmr' || wp.id === 'sniper' || wp.id === 'lever';
+    const scopedW = !!wp.scope;
     { const wk = p.board ? Math.round((p.windK || 0) * 20) / 20 : 0, we = this.$k('#wind'); if (we && we._k !== wk) { we._k = wk; we.style.opacity = wk * 0.85; } }
-    const chc = (wp.kind === 'melee' ? 'melee' : '') + (adsF > 0.5 ? (fpv ? ' ads' : ' ads-tp') : ''), ch = this.$k('#crosshair');
+    const chc = (wp.kind === 'melee' ? 'melee' : '') + (adsF > 0.5 ? (fpv ? (scopedW ? ' ads scoped' : ' ads') : ' ads-tp') : ''), ch = this.$k('#crosshair');
     if (ch._k !== chc) { ch._k = chc; ch.className = chc; }
     const so = '0', sc = this.$k('#scope'); // the black scope overlay is gone: scoped guns show a real scope picture (scope.js)
     if (sc._o !== so) { sc._o = so; sc.style.opacity = so; }

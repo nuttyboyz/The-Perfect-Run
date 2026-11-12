@@ -73,6 +73,15 @@ function moveBasis(p, dir, frame) {
   const y = new THREE.Vector3().crossVectors(z, x);
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z)).premultiply(frame);
 }
+// Fist weapons keep their own left and right whichever way the strike travels (the left fist never crosses over to the
+// right): the knuckles point out along the move, the weapon's x stays the wearer's left.
+function fistBasis(p, frame) {
+  const ca = Math.cos(p.az), sa = Math.sin(p.az), ce = Math.cos(p.el), se = Math.sin(p.el);
+  const z = V(sa * ce, se, ca * ce).normalize();
+  const x = new THREE.Vector3().crossVectors(UP, z).normalize();
+  const y = new THREE.Vector3().crossVectors(z, x);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z)).premultiply(frame);
+}
 const templates = new Map();
 let animSource = null;
 
@@ -409,7 +418,7 @@ export class CharacterRig {
       } else { swingAng = e * wide; twist = swingAng * 0.45; }
     }
     // Melee weapons follow their own pair of attack motions (meleemoves.js); st.move picks which one this swing is.
-    let mvPose = null, mvDir = null;
+    let mvPose = null, mvDir = null, fistGuard = null;
     if (MELEE_V2 && melee > 0 && wd && wd.kind === 'melee' && !wd.cane && !wd.reaper) {
       const mv = moveOf({ id: wd.id, shield: !!wd.shield, fist: !!wd.fist }, st.move);
       mvPose = samplePose(mv, melee); mvDir = strikeDir(mv);
@@ -474,13 +483,17 @@ export class CharacterRig {
             if (st.scope && wd.eyepiece === undefined) wd.eyepiece = findEyepiece(wpn);
             const ep = st.scope ? wd.eyepiece : null;
             // A scope: the eye goes to its eye relief behind the ocular lens. Open sights: behind the rear sight.
-            const sight = ep ? V(-ep.p.x, -ep.p.y, eyeRelief(ep) + CAM_LEAD - ep.p.z) : V(-mz.x, -(mz.y + (st.adsUp ?? 0.075)), (st.adsBack ?? 0.78) + 0.16 - mz.z);
+            // Open sights and red dots: the eye sits exactly on the gun's own sight line (weapons.js sightOf), so the shot
+            // lands where the sights line up. A gun with no sights: a little above the barrel.
+            const sl = wd.sight;
+            const sight = ep ? V(-ep.p.x, -ep.p.y, eyeRelief(ep) + CAM_LEAD - ep.p.z) : sl ? V(-sl.x, -sl.y, (st.adsBack ?? 0.78) + 0.16 - mz.z) : V(-mz.x, -(mz.y + (st.adsUp ?? 0.075)), (st.adsBack ?? 0.78) + 0.16 - mz.z);
             off.lerp(sight, e);
           }
-          if (st.recoil) { off.z -= (wd.shoulder ? 0.02 : 0.05) * st.recoil; off.y += 0.012 * st.recoil; }
+          const rk = (st.recoil || 0) * (1 - 0.8 * (st.ads || 0));
+          if (st.recoil) { off.z -= (wd.shoulder ? 0.02 : 0.05) * st.recoil * (1 - 0.5 * (st.ads || 0)); off.y += 0.012 * rk; }
           gp = eye.clone().add(off.multiplyScalar(K).applyQuaternion(aimQ));
           gq = aimQ.clone();
-          if (st.recoil) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), (wd.shoulder ? -0.03 : -0.1) * st.recoil));
+          if (st.recoil) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), (wd.shoulder ? -0.03 : -0.1) * rk));
           const special = wd.fist || wd.shoulder;
           if (st.reload) {
             if (wd.shoulder) gp.add(V(0, -0.03, -0.03).applyQuaternion(aimQ)); // recharging: the cannon sags a little
@@ -505,7 +518,8 @@ export class CharacterRig {
             const ca = Math.cos(p2.az), ce = Math.cos(p2.el);
             const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), ca * ce).normalize().applyQuaternion(aimQ);
             gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.36 : twoH ? 0.42 : 0.48) * p2.r * K);
-            gq = moveBasis(p2, mvDir, aimQ);
+            gq = wd.fist ? fistBasis(p2, aimQ) : moveBasis(p2, mvDir, aimQ);
+            if (wd.fist) fistGuard = { p: eye.clone().add(V(0, -0.3 + bob, 0.4).multiplyScalar(K).applyQuaternion(aimQ)), q: aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           } else if (melee > 0) {
             const pivot = eye.clone().add(V(0, -0.24, 0.02).multiplyScalar(K).applyQuaternion(aimQ));
             const a = swingAng * 0.75;
@@ -567,7 +581,8 @@ export class CharacterRig {
           const ce = Math.cos(p2.el);
           const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), Math.cos(p2.az) * ce).normalize().applyQuaternion(yaw);
           gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.3 : twoH ? 0.42 : 0.5) * p2.r * h);
-          gq = moveBasis(p2, mvDir, yaw);
+          gq = wd.fist ? fistBasis(p2, yaw) : moveBasis(p2, mvDir, yaw);
+          if (wd.fist) fistGuard = { p: sc.clone().add(V(0, -0.2, 0.28).multiplyScalar(h).applyQuaternion(yaw)), q: yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           if (twoH) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -0.15));
         } else if (melee > 0) {
           const pivot = sc.clone().add(V(0, -0.1 * h, 0));
@@ -599,10 +614,24 @@ export class CharacterRig {
       m.decompose(wpn.position, wpn.quaternion, wpn.scale);
       wpn.scale.setScalar(1); // the root's own scale (setScale) then enlarges the weapon with the body
       wpn.updateMatrixWorld(true);
+      // Fist weapons strike one hand at a time (Nutty 2026-11-12): attack 1 the right arm only, attack 2 the left arm
+      // only. The striking half rides the move with the weapon; the other half is pinned back at the guard.
+      const fistOn = wd.halves && fistGuard ? (st.move | 0) % 2 : -1;
+      if (wd.halves) {
+        for (let i = 0; i < 2; i++) {
+          const hf = wd.halves[i];
+          if (fistOn >= 0 && i !== fistOn) {
+            const mG = new THREE.Matrix4().compose(fistGuard.p, fistGuard.q, new THREE.Vector3().setFromMatrixScale(wpn.matrixWorld));
+            mG.premultiply(wpn.matrixWorld.clone().invert()).decompose(hf.position, hf.quaternion, hf.scale);
+            hf.scale.setScalar(1);
+          } else { hf.position.set(0, 0, 0); hf.quaternion.identity(); }
+        }
+        wpn.updateMatrixWorld(true);
+      }
       // Blade spans for the swipe trail: only while the cut itself is under way.
       if (melee > 0.2 && melee < 0.74 && wd.swipe) {
         const c = this.root.getWorldPosition(new THREE.Vector3());
-        for (let i = 0; i < wd.swipe.length; i++) this.swipeOut.push({ k: i, ph: melee, b: wd.swipe[i][0].clone().applyMatrix4(wpn.matrixWorld), t: wd.swipe[i][1].clone().applyMatrix4(wpn.matrixWorld), c });
+        for (let i = 0; i < wd.swipe.length; i++) if (fistOn < 0 || i === fistOn) this.swipeOut.push({ k: i, ph: melee, b: wd.swipe[i][0].clone().applyMatrix4(wpn.matrixWorld), t: wd.swipe[i][1].clone().applyMatrix4(wpn.matrixWorld), c });
       }
       if (wd.reaper) {
         // Right hand on the shaft, left hand joins for the swing. Weapon axes: z shaft, x blade, y = z cross x.
@@ -619,9 +648,12 @@ export class CharacterRig {
         }
       } else if (wd.fist) {
         // Punching grip: both fists close round their knuckle bars, knuckles pointing along the blades.
-        const fw = V(0, 0, 1).applyQuaternion(gq), px = V(1, 0, 0).applyQuaternion(gq);
-        this.grab('Right', wd.fist[0].clone().applyMatrix4(wpn.matrixWorld), fw, px, 1.0, right, h);
-        this.grab('Left', wd.fist[1].clone().applyMatrix4(wpn.matrixWorld), fw.clone(), px.clone().negate(), 1.0, right.clone().negate(), h);
+        // Each fist follows its own half of the weapon (one may be striking while the other holds the guard).
+        const hm = (i) => (wd.halves ? wd.halves[i].matrixWorld : wpn.matrixWorld);
+        const hq = (i) => (wd.halves ? wd.halves[i].getWorldQuaternion(new THREE.Quaternion()) : gq);
+        const qR = hq(0), qL = hq(1);
+        this.grab('Right', wd.fist[0].clone().applyMatrix4(hm(0)), V(0, 0, 1).applyQuaternion(qR), V(1, 0, 0).applyQuaternion(qR), 1.0, right, h);
+        this.grab('Left', wd.fist[1].clone().applyMatrix4(hm(1)), V(0, 0, 1).applyQuaternion(qL), V(-1, 0, 0).applyQuaternion(qL), 1.0, right.clone().negate(), h);
       } else {
       // Right hand to the grip. Hand frames in weapon space.
       const wq = gq;

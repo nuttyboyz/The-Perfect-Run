@@ -336,6 +336,9 @@ export class MenuScene {
     } else if (c === 'rime') {
       if (Math.random() < 0.6 * k) fx.shard.emit({ p: [p.x + R() * 1.4, 0.2 + Math.random() * 2, p.z + R() * 1.4], v: [R() * 0.2, -0.2, R() * 0.2], life: 2, s0: 0.12, s1: 0.06, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], rotV: 2 });
       if (Math.random() < 0.2 * k) fx.glow.emit({ p: [p.x + R(), 0.15, p.z + R()], v: [R() * 0.3, 0.05, R() * 0.3], life: 2, s0: 1.4, s1: 2.2, c0: [0.6, 0.85, 1, 0.12], c1: [0.6, 0.85, 1, 0] });
+    } else if (c === 'necro') {
+      if (Math.random() < 0.5 * k) fx.glow.emit({ p: [p.x + R() * 1.4, 0.1, p.z + R() * 1.4], v: [0, 0.8 + Math.random(), 0], life: 1, s0: 0.3, s1: 0.06, c0: [0.4, 1, 0.55, 0.8], c1: [0.1, 0.7, 0.3, 0] });
+      if (Math.random() < 0.2 * k) fx.smoke.emit({ p: [p.x + R(), 0.1, p.z + R()], v: [R() * 0.4, 0.3, R() * 0.4], life: 2, s0: 0.7, s1: 1.8, c0: [0.1, 0.22, 0.14, 0.35], c1: [0.15, 0.3, 0.2, 0] });
     } else if (c === 'gale') {
       if (Math.random() < 0.5 * k) {
         const a = this.t * 4 + Math.random() * 6, r = 0.9 + Math.random() * 0.3;

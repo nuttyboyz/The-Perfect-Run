@@ -1,6 +1,8 @@
 // The local player: movement, weapons, abilities, damage, beds and death.
 import * as THREE from 'three';
 import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME } from './mutators.js';
+import * as Vault from './vault.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { CONFIG, DUEL, GRAV, HEAL, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
@@ -23,13 +25,15 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const v3 = () => new THREE.Vector3();
 const tmp = v3(), tmp2 = v3();
 // Muzzle flash size (metres across) by gun: handguns small, shotguns and belt-fed big.
-export const flashSize = (id) => ({ pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
+// How much of a bullet's damage is left at this distance (data.js `fall`).
+export const rangeK = (wp, d) => { const f = wp.fall; return !f || d <= f[0] ? 1 : d >= f[1] ? f[2] : 1 - (1 - f[2]) * (d - f[0]) / (f[1] - f[0]); };
+export const flashSize = (id) => ({ ak: 0.38, pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
 
 export class LocalPlayer {
-  constructor(game, { ch, sk, cls, weapons, name }) {
+  constructor(game, { ch, sk, cls, weapons, name, clsObj }) {
     this.game = game;
     this.ch = CHAR_BY_ID[ch] || CHAR_BY_ID.veteran;
-    this.cls = CLASS_BY_ID[cls];
+    this.cls = clsObj || CLASS_BY_ID[cls]; // clsObj: the element with this player's own three cooldowns (Customize)
     this.name = name;
     this.weapons = weapons; // any three items: weapons first, then up to two pieces of gear (never selected as the held weapon)
     this.gears = new Set(weapons.map((w) => WEAPON_BY_ID[w]).filter((w) => w && w.gear).map((w) => w.gear));
@@ -158,12 +162,14 @@ export class LocalPlayer {
     this.btHold = muOn(BULLET_TIME) && adsBtn && this.alive && !this.out;
     this.blockStep(dt, adsBtn && !!this.weapon.shield);
     const wantAds = adsBtn && this.weapon.kind === 'gun' && !this.weapon.eyes && !this.board && !this.climb && !this.sprinting && !this.dash;
-    this.ads += ((wantAds ? 1 : 0) - this.ads) * Math.min(1, dt * 11);
+    this.ads += ((wantAds ? 1 : 0) - this.ads) * Math.min(1, dt * (wantAds ? this.weapon.hand || 11 : 12)); // heavier guns come up to the eye slower
     this.aimIn += ((aimBtn ? 1 : 0) - this.aimIn) * Math.min(1, dt * 11);
     // Look.
-    const lookK = g.settings.sens * 0.0022 * (1 - 0.45 * this.ads) * (1 + ((g.settings.sensAds ?? 1) - 1) * this.ads);
+    const lookK = g.settings.sens * 0.0022 * (1 - 0.45 * this.ads) * (1 + ((g.settings.sensAds ?? 1) - 1) * this.ads) * (g.scope && g.scope.zoomed ? Math.min(1, g.camera.fov / 36) : 1); // behind a scope the view turns slower, in step with the zoom
     this.yaw -= input.dx * lookK;
-    this.pitch = Math.max(-1.1, Math.min(1.25, this.pitch + input.dy * lookK * (g.settings.invertY ? -1 : 1)));
+    { const dp = input.dy * lookK * (g.settings.invertY ? -1 : 1);
+      this.pitch = Math.max(-1.1, Math.min(1.25, this.pitch + dp));
+      if (g.rcl && dp > 0 && g.rcl.p > 0) g.rcl.p = Math.max(0, g.rcl.p - dp); } // pulling down against the kick is your own correction: it is not undone
 
     // Move.
     const k = input.keys;
@@ -320,6 +326,7 @@ export class LocalPlayer {
     if (wp.spin) { this.game.audio.gunLoop(this.spinK, this.game.now - (this.lastShot || -9) < 0.12, 1 / wp.rate * this.stats.rate); this.loopOn = true; }
     else if (this.loopOn) { this.game.audio.gunLoopStop(); this.loopOn = false; }
     this.recoilT = Math.max(0, this.recoilT - dt * 9);
+    if (this.bloom) this.bloom = Math.max(0, this.bloom - dt * 0.05); // automatic fire opens the spread; it closes again in a moment
     m.userData.anim({
       speed: this.board ? 0 : this.speedNow, pitch: this.pitch, gun: wp.kind === 'gun', reload: this.reloadT > 0,
       weapon: true, melee: this.meleeT > 0 ? 1 - this.meleeT / Math.max(0.2, wp.rate / this.stats.rate) : 0, move: this.meleeMove | 0,
@@ -428,7 +435,7 @@ export class LocalPlayer {
       let dir = tmp.copy(g.aim.point).sub(origin).normalize();
       if (dir.dot(g.aim.dir) < 0.3) dir = g.aim.dir.clone();
       launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed: wp.boltSpeed || 95, dmg: wp.dmg * this.stats.dmg, pierce: wp.pierce || 1, mine: true, range: 160, proto: boltProto() });
-      g.audio.play('shot_crossbow', 0.9); g.recoil(wp.kick ?? 0.4); this.lastShot = g.now;
+      g.audio.play('shot_crossbow', 0.9); g.recoilW(wp, wp.kick ?? 0.4); this.lastShot = g.now;
       const end = origin.clone().addScaledVector(dir, 60);
       g.emitFx(['shot', q10(origin.x), q10(origin.y), q10(origin.z), q10(end.x), q10(end.y), q10(end.z), wp.id]);
       if (this.ammo[this.cur] === 0) this.reload();
@@ -442,7 +449,7 @@ export class LocalPlayer {
     let lastEnd = null, gravAt = null;
     for (let i = 0; i < pellets; i++) {
       const dir = tmp.copy(g.aim.point).sub(origin).normalize();
-      const sp = spread * (this.speedNow > 7 ? 1.6 : 1) * (this.onGround ? 1 : 2) * (1 - 0.6 * this.ads);
+      const sp = (spread + (this.bloom || 0)) * (this.speedNow > 7 ? 1.6 : 1) * (this.onGround ? 1 : 2) * (1 - 0.6 * this.ads);
       dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2;
       dir.normalize();
       const hits = g.rayHit(origin, dir, reach, wp.pierce || 1);
@@ -464,7 +471,7 @@ export class LocalPlayer {
         g.el.healAura([this.pos.x, this.pos.y, this.pos.z], 0.4);
       } else if (hits.length) {
         for (const h of hits) {
-          const dmg = wp.dmg * this.stats.dmg * (ZONE_K[h.zone] || 1);
+          const dmg = wp.dmg * this.stats.dmg * (ZONE_K[h.zone] || 1) * rangeK(wp, h.dist ?? h.point.distanceTo(origin));
           if (wp.ice) { this.iceHit(h.t, dmg, wp.ice, h.point, h.head); continue; }
           if (!rapid) { g.damage(h.t, dmg, { at: h.point, zone: h.zone, head: h.head }); continue; }
           // Minigun and Pulse Cannon: every bullet counts on the host, but only every third makes a number, blood and a tick.
@@ -488,7 +495,8 @@ export class LocalPlayer {
     if (wp.energy) { if (n % 2 === 0) g.fx.pulseMuzzle([origin.x, origin.y, origin.z], (g.settings.view === 'first' || !!g.fpNow) ? 0.3 : 1); }
     else if (!wp.quiet && (!rapid || n % 2 === 0)) g.fx.muzzle([origin.x, origin.y, origin.z], [g.aim.dir.x, g.aim.dir.y, g.aim.dir.z], undefined, flashSize(wp.id));
     if (!rapid) g.audio.play('shot_' + wp.id, wp.quiet ? 0.8 : 1); // the minigun and Pulse Cannon sound as one continuous loop (audio.gunLoop / beamLoop)
-    g.recoil(wp.kick ?? (wp.id === 'shotgun' || wp.id === 'coach' || wp.id === 'revolver' || wp.id === 'dmr' || wp.id === 'lever' ? 1 : 0.35));
+    g.recoilW(wp, wp.kick ?? (wp.id === 'shotgun' || wp.id === 'coach' || wp.id === 'revolver' || wp.id === 'dmr' || wp.id === 'lever' ? 1 : 0.35));
+    if (wp.rec && wp.rec.bloom) this.bloom = Math.min(wp.rec.bloom * 9, (this.bloom || 0) + wp.rec.bloom);
     if (!rapid || n % (wp.energy ? 2 : 3) === 0) g.emitFx(['shot', q10(origin.x), q10(origin.y), q10(origin.z), q10(lastEnd.x), q10(lastEnd.y), q10(lastEnd.z), wp.id]);
     if (this.ammo[this.cur] === 0) this.reload();
   }
@@ -560,7 +568,7 @@ export class LocalPlayer {
       if (!first) for (let i = 0; i < 6; i++) g.fx.fire.emit({ p: [b.x, b.y, b.z], v: [-dir.x * rnd(8, 18), rnd(-1, 1), -dir.z * rnd(8, 18)], life: rnd(0.1, 0.22), s0: 0.5, s1: 0.1, c0: [1, 0.7, 0.3, 0.8], c1: [1, 0.3, 0.05, 0], drag: 3 });
     }
     g.audio.play('shot_' + wp.id);
-    g.recoil(wp.kick ?? 1);
+    g.recoilW(wp, wp.kick ?? 1);
     g.shake(wp.proj === 'rocket' ? 0.28 : 0.14);
     g.emitFx(['rk', ...oa.map(q10), ...da.map((x) => Math.round(x * 100)), WEAPONS.indexOf(wp)]);
   }
@@ -637,7 +645,10 @@ export class LocalPlayer {
     }
     // Each weapon's attacks alternate (meleemoves.js): slash then stab, chop then cut, and so on.
     if (MELEE_V2) {
-      this.meleeMove = ((this.meleeMove | 0) + 1) % movesFor(wp).length;
+      // The pair alternates; after a pause the combo starts over from the first attack (fists: the right arm).
+      const fresh = this.game.now - (this.meleeAt ?? -99) > wp.rate / this.stats.rate + 0.9;
+      this.meleeAt = this.game.now;
+      this.meleeMove = fresh ? 0 : ((this.meleeMove | 0) + 1) % movesFor(wp).length;
       this.stab = moveOf(wp, this.meleeMove).type === 'thrust';
     } else {
       if (wp.shield) { this.stab = !this.stab; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.stab ? 'thrust' : undefined; } // sword and shield: slash, stab, slash, stab
@@ -708,7 +719,7 @@ export class LocalPlayer {
       hitAny = true; n++;
     }
     // The swing trail is drawn from the blade itself (CharacterRig -> FX.swipe), not here.
-    if (hitAny) g.audio.play('hit_melee');
+    if (hitAny) { g.audio.play('hit_melee'); g.shake(Math.min(0.45, 0.08 + wp.dmg / 450)); } // a heavy weapon landing is felt
   }
 
   // Ability mastery: damage multiplier for the move with this id.
@@ -849,7 +860,7 @@ export class LocalPlayer {
     this.dashDmg = DASH.dmg * this.stats.dmg * this.stats.mast.d.dmg;
     // The trail left behind keeps biting for a couple of seconds: fire burns, frost slows, storm shocks, earth crushes, wind cuts.
     const el = this.cls.element, tdmg = 7 * this.stats.dmg * this.stats.mast.d.dmg;
-    const to = el === 'Fire' ? { burn: 2 } : el === 'Frost' ? { slow: 1.5 } : el === 'Storm' ? { freeze: 0.3 } : el === 'Wind' ? { slow: 0.6 } : {};
+    const to = el === 'Fire' ? { burn: 2 } : el === 'Frost' ? { slow: 1.5 } : el === 'Storm' ? { freeze: 0.3 } : el === 'Wind' ? { slow: 0.6 } : el === 'Death' ? { slow: 1 } : {};
     g.el.dash(el, a, b, (p, q, k) => g.lineDamage(p, q, 1.15, tdmg * (el === 'Earth' ? 1.5 : 1) * (0.5 + 0.5 * k), { ...to, silentNum: true }));
     g.audio.play('wind', 0.5);
     g.ui.flashAbility('d');
@@ -1322,25 +1333,29 @@ export class LocalPlayer {
     g.emitFx(['sr', ...ca.map(q10), seed]);
   }
 
-  // Ice Shards: tiny shards form around you, then dart at the nearest enemies (a ring outward if nobody is near).
+  // Ice Shards: four large diamond crystals form around you, then dart at the nearest enemies (a ring outward if nobody is near).
+  // Each one shatters on its mark: the full hit there, a lighter one on anything right beside it. (Nutty 2026-11-12)
   ab_shards() {
     const g = this.game;
     const o = [this.pos.x, this.pos.y + 1.3, this.pos.z];
-    const n = 10 + 4 * (this.stats.extra || 0);
-    const ts = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - o[0], t.z - o[2]) < 20)
+    const n = 4 + 2 * (this.stats.extra || 0);
+    const ts = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - o[0], t.z - o[2]) < 24)
       .sort((u, v) => Math.hypot(u.x - o[0], u.z - o[2]) - Math.hypot(v.x - o[0], v.z - o[2]));
     const pts = [], ids = [];
     for (let i = 0; i < n; i++) {
       const t = ts.length ? ts[i % ts.length] : null;
-      if (t) { pts.push([t.x + (Math.random() - 0.5) * 0.4, t.y + t.h * (0.4 + Math.random() * 0.4), t.z + (Math.random() - 0.5) * 0.4]); ids.push(t.id); }
-      else { const a = (i / n) * 6.283; pts.push([o[0] + Math.sin(a) * 9, o[1], o[2] + Math.cos(a) * 9]); ids.push(null); }
+      if (t) { pts.push([t.x + (Math.random() - 0.5) * 0.4, t.y + t.h * (0.45 + Math.random() * 0.25), t.z + (Math.random() - 0.5) * 0.4]); ids.push(t.id); }
+      else { const a = (i / n) * 6.283; pts.push([o[0] + Math.sin(a) * 10, o[1], o[2] + Math.cos(a) * 10]); ids.push(null); }
     }
-    const dmg = 16 * this.stats.dmg * this.mm('shards');
-    g.el.iceShards(o, pts, (i) => {
+    const dmg = 44 * this.stats.dmg * this.mm('shards'); // 4 x 44 = 176, a little over the old 10 x 16
+    Vault.crystals(g, o, pts, (i, p) => {
       const id = ids[i];
       if (id == null) return;
-      const t = g.targets().find((q) => q.id === id);
-      if (t) g.damage(t, dmg, { slow: 2, at: [t.x, t.y + t.h * 0.6, t.z], silentNum: i % 2 === 1 });
+      for (const t of g.targets()) {
+        if (t.kind === 'demon') continue;
+        if (t.id === id) g.damage(t, dmg, { slow: 2.5, at: [t.x, t.y + t.h * 0.6, t.z] });
+        else if (Math.hypot(t.x - p[0], t.z - p[2]) < 2.6 + t.r) g.damage(t, dmg * 0.4, { slow: 2, at: [t.x, t.y + t.h * 0.6, t.z], silentNum: true });
+      }
     });
     g.audio.play('ice');
     g.emitFx(['is', ...o.map(q10), ...pts.flat().map(q10)]);
@@ -1498,6 +1513,549 @@ export class LocalPlayer {
       });
       g.emitFx(['wr', ...o.map(q10), ...d.map((v) => Math.round(v * 100))]);
     }
+    g.audio.play('cyclone');
+  }
+
+  // ================= The Elemental Vault: cooldowns swapped in on the Element page (Customize) =================
+  // Homing Fireballs: 3 flaming skulls that find the nearest enemies by themselves and burst on impact.
+  ab_seekers() {
+    const g = this.game, m = this.muzzleWorld(), o = [m.x, m.y + 0.3, m.z];
+    const n = 3 + (this.stats.extra || 0), dmg = this.stats.dmg * this.mm('seekers'), f = this.forward();
+    const ts = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - o[0], t.z - o[2]) < 70)
+      .sort((u, v) => Math.hypot(u.x - o[0], u.z - o[2]) - Math.hypot(v.x - o[0], v.z - o[2]));
+    const ends = [];
+    for (let i = 0; i < n; i++) {
+      const t = ts.length ? ts[i % ts.length] : null, a = (i - (n - 1) / 2) * 0.55;
+      const d = [f[0] * Math.cos(a) + f[2] * Math.sin(a), 0.6, -f[0] * Math.sin(a) + f[2] * Math.cos(a)];
+      const fx = o[0] + d[0] * 34, fz = o[2] + d[2] * 34, far = [fx, g.world.heightAt(fx, fz) + 0.6, fz];
+      const id = t ? t.id : null, to = t ? [t.x, t.y + t.h * 0.55, t.z] : far;
+      Vault.seeker(g, o, d, () => { const q = id != null && g.targets().find((x) => x.id === id); return q ? [q.x, q.y + q.h * 0.55, q.z] : null; }, to,
+        (p) => g.areaDamage(p, 4.2, 48 * dmg, { burn: 4, falloff: 0.5, kb: 6 }), i * 0.12);
+      ends.push(...to);
+    }
+    g.audio.play('fire_cast');
+    g.emitFx(['fs', ...o.map(q10), ...ends.map(q10)]);
+  }
+
+  // Blink: a short teleport (up to 14 m) toward the crosshair, stopping short of anything solid. The spot you left keeps a ball
+  // of live electricity for 1.5 s: it shocks and stuns what stands in it at once, then again twice a second.
+  ab_blink() {
+    const g = this.game, o = [this.pos.x, this.pos.y, this.pos.z];
+    const a = g.aim.point; let dx = a.x - o[0], dz = a.z - o[2]; const dl = Math.hypot(dx, dz);
+    if (dl < 0.5) { const f = this.forward(); dx = f[0]; dz = f[2]; } else { dx /= dl; dz /= dl; }
+    const max = Math.min(14, Math.max(4, dl));
+    let far = 0;
+    for (let d = 1; d <= max; d += 0.5) { const X = o[0] + dx * d, Z = o[2] + dz * d; if (g.world.solidPoint(X, Math.max(g.world.heightAt(X, Z), o[1]) + 1.1, Z, 0.6)) break; far = d; }
+    if (far < 1) return false; // walled in: nowhere to go
+    const x = o[0] + dx * far, z = o[2] + dz * far, y = Math.max(g.world.heightAt(x, z), o[1]);
+    this.pos.set(x, y, z); this.vel.x = 0; this.vel.z = 0;
+    const dmg = this.stats.dmg * this.mm('blink');
+    Vault.blink(g, o, [x, y, z], (k) => g.areaDamage(o, 7, (k ? 28 : 90) * dmg, k ? { slow: 1.5, silentNum: true } : { freeze: 1.2, slow: 2 }));
+    g.shake(0.2);
+    g.audio.play('zap'); g.audio.play('thunder', 0.5);
+    g.emitFx(['tb', ...o.map(q10), q10(x), q10(y), q10(z)]);
+  }
+
+  // Where an aimed stream starts and points this frame: from the muzzle, along the crosshair.
+  aimRay() {
+    const g = this.game, m = this.muzzleWorld(), d = tmp.copy(g.aim.point).sub(m).normalize();
+    return { o: [m.x, m.y + 0.1, m.z], d: [d.x, d.y, d.z] };
+  }
+  // Every enemy a stream from o along d (length L, half-width w0 growing by wk per metre) is touching right now.
+  streamHits(o, d, L, w0, wk = 0) {
+    const out = [];
+    for (const t of this.game.targets()) {
+      if (t.kind === 'demon') continue;
+      const rx = t.x - o[0], ry = t.y + t.h * 0.5 - o[1], rz = t.z - o[2], al = rx * d[0] + ry * d[1] + rz * d[2];
+      if (al < 0 || al > L + t.r) continue;
+      const px = rx - d[0] * al, py = ry - d[1] * al, pz = rz - d[2] * al;
+      if (Math.hypot(px, pz) < w0 + wk * al + t.r && Math.abs(py) < w0 + wk * al + t.h * 0.5) out.push(t);
+    }
+    return out;
+  }
+
+  // Dragon Breath: an 18 m stream of fire, full length from the first frame, that follows where you face for 4 s. No holding.
+  ab_breath() {
+    const g = this.game, dur = 4, dmg = 24 * this.stats.dmg * this.mm('breath');
+    let n = 0;
+    Vault.breath(g, () => (this.alive ? this.aimRay() : null), dur, 18, (o, d) => {
+      n++;
+      for (const t of this.streamHits(o, d, 18, 1.1, 0.09)) g.damage(t, dmg, { burn: 3, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+    });
+    g.audio.play('inferno'); g.audio.play('fire_cast');
+    g.emitFx(['fd', Math.round(dur * 10)]);
+  }
+
+  // Whirlpool: 6 s of spinning water at the crosshair (within 30 m). It drags in what is near, holds and staggers what is in it,
+  // and each enemy takes more the longer it has been inside (up to 4x).
+  ab_whirl() {
+    const g = this.game, a = g.aim.point;
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 30) { dx *= 30 / dl; dz *= 30 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, c = [x, g.world.heightAt(x, z), z], R = 7;
+    const dmg = 9 * this.stats.dmg * this.mm('whirl'), inside = new Map();
+    let n = 0;
+    Vault.whirlpool(g, c, 6, R, () => {
+      n++;
+      for (const t of g.targets()) {
+        if (t.kind === 'demon') continue;
+        const ex = c[0] - t.x, ez = c[2] - t.z, dd = Math.hypot(ex, ez) || 1;
+        if (dd < R + t.r) {
+          const k = (inside.get(t.id) || 0) + 1; inside.set(t.id, k);
+          const mul = Math.min(4, 1 + k * 0.15); // 4 ticks a second: full strength after 5 s inside
+          g.damage(t, dmg * mul, { freeze: 0.4, slow: 1.5, kx: ex / dd * 6 - ez / dd * 4, kz: ez / dd * 6 + ex / dd * 4, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+        } else { inside.delete(t.id); if (dd < R + 6 + t.r) g.damage(t, 1, { kx: ex / dd * 13, kz: ez / dd * 13, silent: true }); }
+      }
+    });
+    g.audio.play('ice_big');
+    g.emitFx(['rw', ...c.map(q10)]);
+  }
+
+  // Pressure Jet: a thin, hard stream of water along the crosshair for 2.5 s. It goes through every enemy in line and staggers them.
+  ab_jet() {
+    const g = this.game, dur = 2.5, dmg = 22 * this.stats.dmg * this.mm('jet');
+    let n = 0;
+    Vault.jet(g, () => (this.alive ? this.aimRay() : null), dur, 45, (o, d, L) => {
+      n++;
+      for (const t of this.streamHits(o, d, L, 0.7)) g.damage(t, dmg, { freeze: 0.35, kx: d[0] * 5, kz: d[2] * 5, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+    });
+    g.audio.play('ice'); g.audio.play('wind', 0.6);
+    g.emitFx(['rj', Math.round(dur * 10)]);
+  }
+
+  // Snowball: 10 s inside a rolling ball of snow. It grows with every metre rolled, hits harder the bigger it is, goes straight
+  // through enemies and slows each one it touches for 3 s. The cooldown starts when it breaks.
+  ab_snowball() {
+    const g = this.game;
+    if (this.snow) return false;
+    const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'snowball') || 'q';
+    const S = this.snow = { until: g.now + 10, r: 1.1, last: [this.pos.x, this.pos.z], hit: new Map() };
+    this.model.visible = false;
+    Vault.snowball(g, () => {
+      if (!this.alive || g.now >= S.until || this.snow !== S) return null;
+      const mx = this.pos.x - S.last[0], mz = this.pos.z - S.last[1], md = Math.hypot(mx, mz);
+      if (md < 20) S.r = Math.min(3.4, S.r + md * 0.03); // +1 m of radius every 33 m rolled
+      S.last = [this.pos.x, this.pos.z];
+      const dmg = 34 * this.stats.dmg * this.mm('snowball') * Math.pow(S.r / 1.1, 1.5);
+      for (const t of g.targets()) {
+        if (t.kind === 'demon' || Math.hypot(t.x - this.pos.x, t.z - this.pos.z) > S.r + t.r + 0.3 || Math.abs(t.y - this.pos.y) > S.r * 2 + 1) continue;
+        if (g.now - (S.hit.get(t.id) || -9) < 0.6) continue;
+        S.hit.set(t.id, g.now);
+        const ex = t.x - this.pos.x, ez = t.z - this.pos.z, ed = Math.hypot(ex, ez) || 1;
+        g.damage(t, dmg, { slow: 3, kx: ex / ed * 7, kz: ez / ed * 7, at: [t.x, t.y + t.h * 0.6, t.z] });
+        g.audio.play('ice', 0.5);
+      }
+      return { p: [this.pos.x, this.pos.y, this.pos.z], r: S.r };
+    }, () => {
+      this.model.visible = true;
+      if (this.snow === S) { this.snow = null; this.cds[k] = (g.duel ? DUEL.cd : this.cls[k] && this.cls[k].id === 'snowball' ? this.cls[k].cd : 10) * this.stats.cdr * this.stats.mast[k].cd; }
+      g.audio.play('ice_big', 0.6);
+    });
+    g.audio.play('ice');
+    g.emitFx(['rs', 100]);
+    this.castT = 0.35; g.ui.flashAbility(k);
+    return false; // the cooldown starts when the snowball breaks
+  }
+
+  // Tesla Fence: the first press plants a post at the crosshair, the second plants the other and strings the fence between
+  // them, however far apart. Whoever walks into the line takes massive damage and is thrown back; each of those hits wears the
+  // fence down (20 crossings by ordinary enemies; bigger ones count 2 or 3, a boss 5). It is gone after 15 s regardless, and the cooldown starts then.
+  ab_fence() {
+    const g = this.game;
+    const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'fence') || 'q';
+    let F = this.fence;
+    if (F && !F.h.alive) F = this.fence = null; // the stage changed under it
+    if (F && F.h.strung) return false; // it stands until it is destroyed
+    const a = g.aim.point, p = [a.x, g.world.heightAt(a.x, a.z), a.z];
+    if (!F) {
+      F = this.fence = { h: null, hp: 20, max: 20, hit: new Map() };
+      F.h = Vault.fence(g, () => {
+        if (g.player !== this || this.fence !== F) { F.h.end(false); return; }
+        const A = F.h.a, B = F.h.b, ex = B[0] - A[0], ez = B[2] - A[2], L2 = ex * ex + ez * ez || 1, L = Math.sqrt(L2);
+        const dmg = 260 * this.stats.dmg * this.mm('fence');
+        for (const t of g.targets()) {
+          if (t.kind === 'demon') continue;
+          const rx = t.x - A[0], rz = t.z - A[2], u = (rx * ex + rz * ez) / L2;
+          if (u < 0 || u > 1) continue;
+          const side = (rx * ez - rz * ex) / L; // signed distance from the line
+          if (Math.abs(side) > t.r + 0.55) continue;
+          if (g.now - (F.hit.get(t.id) || -9) < 0.7) continue;
+          F.hit.set(t.id, g.now);
+          const s = side >= 0 ? 1 : -1;
+          g.damage(t, dmg, { freeze: 0.9, kx: ez / L * s * 10, kz: -ex / L * s * 10, at: [t.x, t.y + t.h * 0.6, t.z] });
+          F.h.zap(u); g.audio.play('zap', 0.8);
+          F.hp -= t.kind === 'boss' ? 5 : t.kind === 'player' ? 2 : t.h >= 4 || t.r >= 1.3 ? 3 : t.h >= 3 || t.r >= 0.9 ? 2 : 1; // big, tough enemies wear it down faster
+          F.h.hp(F.hp / F.max);
+          g.emitFx(['tf', 3, Math.round(Math.max(0, F.hp) / F.max * 100), Math.round(u * 100)]);
+          if (F.hp <= 0) break;
+        }
+        if (!F.until) F.until = g.now + 15; // it stands for 15 s at most
+        F.h.time(Math.max(0, (F.until - g.now) / 15));
+        if (F.hp <= 0 || g.now >= F.until) {
+          F.h.end(true); g.audio.play('thunder'); g.shake(0.3);
+          g.emitFx(['tf', 0]);
+          this.fence = null;
+          this.cds[k] = (g.duel ? DUEL.cd : this.cls[k] && this.cls[k].id === 'fence' ? this.cls[k].cd : 12) * this.stats.cdr * this.stats.mast[k].cd;
+        }
+      });
+      F.h.post(p);
+      g.emitFx(['tf', 1, ...p.map(q10)]);
+    } else {
+      if (Math.hypot(p[0] - F.h.a[0], p[2] - F.h.a[2]) < 2) return false; // the posts need a little room between them
+      F.h.post(p);
+      g.emitFx(['tf', 2, ...F.h.a.map(q10), ...p.map(q10)]);
+    }
+    g.audio.play('zap'); g.audio.play('earth', 0.5);
+    this.castT = 0.35; g.ui.flashAbility(k);
+    return false; // the cooldown starts when the fence is destroyed
+  }
+
+  // Life Drain: latch onto the enemy at the crosshair (the nearest one if none is under it) and pull its life into yourself for 3 s.
+  // It bleeds all the while; the drain kills it if it runs long enough. "Wider Drain" adds one more victim per stack.
+  ab_lifedrain() {
+    const g = this.game, ray = this.aimRay();
+    const near = (t) => Math.hypot(t.x - this.pos.x, t.z - this.pos.z);
+    let list = this.streamHits(ray.o, ray.d, 28, 1.8, 0.06).sort((p, q) => near(p) - near(q));
+    if (!list.length) list = g.targets().filter((t) => t.kind !== 'demon' && near(t) < 14).sort((p, q) => near(p) - near(q));
+    list = list.slice(0, 1 + (this.stats.extra || 0));
+    if (!list.length) return false; // nothing to drain: the power is not spent
+    const dmg = 26 * this.stats.dmg * this.mm('lifedrain'), dur = 3;
+    for (const first of list) {
+      const id = first.id; let last = [first.x, first.y + first.h * 0.6, first.z], dead = false, tick = 0, n = 0;
+      const find = () => g.targets().find((t) => t.id === id);
+      Vault.drain(g, () => (this.alive && !dead ? [this.pos.x, this.pos.y + 1.2, this.pos.z] : null), (dt) => {
+        const t = find();
+        if (!t || near(t) > 34) { dead = true; return null; }
+        last = [t.x, t.y + t.h * 0.6, t.z];
+        tick -= dt;
+        if (tick <= 0) {
+          tick = 0.25; n++;
+          g.damage(t, dmg, { silentNum: n % 2 === 0, at: last }); // `at` makes it bleed on every pull
+          this.heal(this.stats.maxHp * 0.012);
+          g.emitFx(['nl', ...last.map(q10)]);
+          if (n % 2) g.audio.play('heal', 0.25);
+        }
+        return last;
+      }, dur);
+    }
+    g.audio.play('necro_rise', 0.6);
+  }
+
+  // Acid Splash: a huge pool of acid at your feet for 8 s. It hurts and slows whatever wades in it; each enemy it touched stays
+  // poisoned for 3 s after it last stood in the pool, even once the pool has dried up.
+  ab_acid() {
+    const g = this.game, c = [this.pos.x, g.world.heightAt(this.pos.x, this.pos.z), this.pos.z], R = 9;
+    const dmg = 18 * this.stats.dmg * this.mm('acid'), pdmg = 12 * this.stats.dmg * this.mm('acid'), poison = new Map();
+    let n = 0;
+    Vault.acid(g, c, 8, R, (wet) => {
+      n++;
+      for (const t of g.targets()) {
+        if (t.kind === 'demon') continue;
+        const at = [t.x, t.y + t.h * 0.6, t.z];
+        if (wet && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 3) {
+          poison.set(t.id, g.now + 3);
+          g.damage(t, dmg, { slow: 1.2, silentNum: n % 2 === 0, shown: dmg });
+          Vault.poisonDrip(g, at);
+        } else if ((poison.get(t.id) || 0) > g.now) {
+          g.damage(t, pdmg, { silentNum: n % 2 === 0 });
+          Vault.poisonDrip(g, at);
+        }
+      }
+    });
+    g.audio.play('ice_big', 0.7); g.audio.play('necro_fall', 0.7);
+    g.emitFx(['na', ...c.map(q10)]);
+  }
+
+  // Raise the Dead: for 10 s every enemy you kill gets back up and fights for you (the host decides, like the old mutator).
+  // In a duel three of the dead climb out of the ground and hunt the other fighter.
+  ab_raise() {
+    const g = this.game, until = g.now + 10;
+    g.request('raise');
+    Vault.raise(g, () => (this.alive && g.now < until ? [this.pos.x, this.pos.y, this.pos.z] : null), 10);
+    g.audio.play('necro_rise');
+    g.emitFx(['nr']);
+  }
+
+  // Black Thorn Vines: vines burst out at the crosshair (within 30 m) and stand for as long as the cooldown runs. Anything inside
+  // is torn at four times a second. When the cooldown runs out the thorns fly into every enemy within 24 m, and it recharges again.
+  ab_vines() {
+    const g = this.game, a = g.aim.point;
+    const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'vines') || 'q';
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 30) { dx *= 30 / dl; dz *= 30 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, c = [x, g.world.heightAt(x, z), z], R = 7;
+    const cd = (g.duel ? DUEL.cd : this.cls[k] && this.cls[k].id === 'vines' ? this.cls[k].cd : 10) * this.stats.cdr * this.stats.mast[k].cd;
+    const dmg = 26 * this.stats.dmg * this.mm('vines'), tdmg = 95 * this.stats.dmg * this.mm('vines');
+    let n = 0;
+    Vault.vines(g, c, R, cd, () => {
+      n++;
+      for (const t of g.targets()) if (t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 6) g.damage(t, dmg, { slow: 0.6, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * rnd(0.3, 0.8), t.z] });
+    }, (tips) => {
+      const list = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < 24);
+      const ends = list.map((t) => { const id = t.id; let last = [t.x, t.y + t.h * 0.6, t.z]; return () => { const q = g.targets().find((w) => w.id === id); if (q) last = [q.x, q.y + q.h * 0.6, q.z]; return last; }; });
+      Vault.thorns(g, [c[0], c[1], c[2]], ends, (i) => { const q = g.targets().find((w) => w.id === list[i].id); if (q) g.damage(q, tdmg, { freeze: 0.5, at: [q.x, q.y + q.h * 0.6, q.z] }); }, tips);
+      g.emitFx(['nx', ...c.map(q10), ...list.slice(0, 20).flatMap((t) => [q10(t.x), q10(t.y + t.h * 0.6), q10(t.z)])]);
+      g.audio.play('swing');
+      if (g.player === this && this.alive) this.cds[k] = Math.max(this.cds[k], cd); // then it recharges again
+    });
+    g.audio.play('earth'); g.shake(0.25);
+    g.emitFx(['nt', ...c.map(q10), Math.round(cd * 10)]);
+  }
+
+  // Reaper's Scythe: a giant ghostly scythe sweeps one full circle round you. Each enemy is cut as the blade passes it.
+  ab_scythe() {
+    const g = this.game, R = 8.2, a0 = Math.atan2(Math.cos(this.yaw), Math.sin(this.yaw)) - Math.PI / 2;
+    const dmg = 175 * this.stats.dmg * this.mm('scythe'), cut = new Set();
+    let prev = a0;
+    Vault.scythe(g, () => (this.alive ? [this.pos.x, this.pos.y, this.pos.z] : null), a0, (ang) => {
+      for (const t of g.targets()) {
+        if (t.kind === 'demon' || cut.has(t.id)) continue;
+        const dx = t.x - this.pos.x, dz = t.z - this.pos.z, d = Math.hypot(dx, dz);
+        if (d > R + t.r || Math.abs(t.y - this.pos.y) > 4) continue;
+        let ta = Math.atan2(dz, dx); while (ta < a0) ta += Math.PI * 2; // where round the circle it stands, from the start of the sweep
+        if (ta <= ang + 0.15 || ang >= a0 + Math.PI * 2 - 0.05) { cut.add(t.id); g.damage(t, dmg, { freeze: 0.6, kx: dx / (d || 1) * 9, kz: dz / (d || 1) * 9, at: [t.x, t.y + t.h * 0.55, t.z] }); }
+      }
+      prev = ang;
+    }, R - 0.7);
+    g.audio.play('swing'); g.audio.play('wind', 0.6); g.shake(0.2);
+    g.emitFx(['ny', Math.round(a0 * 100)]);
+  }
+
+  // Ghost Walk: your body stays where it is; your spirit runs on for 6 s, faster and untouchable, free to attack. Then (or when you
+  // press it again) you snap back to your body. The cooldown starts when you are back.
+  ab_ghostwalk() {
+    const g = this.game;
+    const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'ghostwalk') || 'q';
+    if (this.ghost) { this.ghost.until = 0; return false; } // pressed again: go back now
+    const G = this.ghost = { until: g.now + 6, at: [this.pos.x, this.pos.y, this.pos.z], yaw: this.yaw };
+    let body = null;
+    try { body = SkeletonUtils.clone(this.model); body.position.copy(this.model.position); body.quaternion.copy(this.model.quaternion); body.scale.copy(this.model.scale); body.visible = true; body.traverse((m) => { m.visible = true; }); } catch (e) { body = null; }
+    this.model.visible = false;
+    this.invulnUntil = Math.max(this.invulnUntil || 0, g.now + 6.2);
+    this.hasteUntil = Math.max(this.hasteUntil || 0, g.now + 6);
+    Vault.spirit(g, () => {
+      if (this.ghost !== G || !this.alive || g.now >= G.until || g.player !== this) return null;
+      this.model.visible = false;
+      return [this.pos.x, this.pos.y, this.pos.z];
+    }, body, G.at, () => {
+      this.model.visible = true;
+      if (this.ghost === G) {
+        this.ghost = null;
+        if (g.player === this && this.alive) { this.pos.set(G.at[0], G.at[1], G.at[2]); this.vel.set(0, 0, 0); } // snap back to the body
+        this.invulnUntil = Math.min(this.invulnUntil || 0, g.now + 0.3); this.hasteUntil = Math.min(this.hasteUntil || 0, g.now);
+        this.cds[k] = (g.duel ? DUEL.cd : this.cls[k] && this.cls[k].id === 'ghostwalk' ? this.cls[k].cd : 10) * this.stats.cdr * this.stats.mast[k].cd;
+        g.emitFx(['ng', ...G.at.map(q10), 0]);
+        g.audio.play('necro_fall', 0.6);
+      }
+    });
+    g.audio.play('necro_rise');
+    g.emitFx(['ng', ...G.at.map(q10), 60]);
+    this.castT = 0.35; g.ui.flashAbility(k);
+    return false; // the cooldown starts when the spirit is back in the body
+  }
+
+  // Crow Swarm: red-eyed crows dive onto the crosshair (within 40 m) and tear at everything within 8 m of it for 5 s.
+  ab_crows() {
+    const g = this.game, a = g.aim.point;
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 40) { dx *= 40 / dl; dz *= 40 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, c = [x, g.world.heightAt(x, z), z], R = 8;
+    const dmg = 21 * this.stats.dmg * this.mm('crows');
+    let n = 0;
+    Vault.crows(g, c, R, 5, () => {
+      n++;
+      for (const t of g.targets()) if (t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 7) g.damage(t, dmg, { silentNum: n % 2 === 0, kx: rnd(-3, 3), kz: rnd(-3, 3), at: [t.x + rnd(-0.3, 0.3), t.y + t.h * rnd(0.5, 0.95), t.z + rnd(-0.3, 0.3)] });
+    });
+    g.audio.play('wind');
+    g.emitFx(['nc', ...c.map(q10)]);
+  }
+
+  // Last Supper: for 8 s every enemy that dies heals you (5% of your health each). In a duel each hit you land heals you a little.
+  ab_supper() {
+    const g = this.game;
+    this.supperUntil = g.now + 8;
+    const until = this.supperUntil;
+    Vault.supper(g, () => (this.alive && g.now < until ? [this.pos.x, this.pos.y, this.pos.z] : null), 8);
+    g.audio.play('heal');
+    g.emitFx(['ns']);
+  }
+  supperFeed(from, k = 1) {
+    const g = this.game;
+    if (!this.alive) return;
+    if (k < 1 && g.now - (this.supperHitT || -9) < 0.2) return; // duel hits: at most five sips a second
+    this.supperHitT = g.now;
+    this.heal(this.stats.maxHp * 0.05 * k);
+    Vault.supperWisp(g, Array.isArray(from) ? from : [from.x, from.y, from.z], () => (this.alive ? [this.pos.x, this.pos.y, this.pos.z] : null));
+    g.ui.healFlash && g.ui.healFlash();
+  }
+
+  // Finger of Death: every enemy within 16 m dies on the spot, its soul leaving its body. Bosses and champions are spared.
+  // In a duel it takes a fifth of the other fighter's health instead.
+  ab_finger() {
+    const g = this.game, R = 16, souls = [];
+    for (const t of g.targets()) {
+      if (t.kind === 'demon' || t.kind === 'boss' || Math.hypot(t.x - this.pos.x, t.z - this.pos.z) > R + t.r) continue;
+      if (t.kind === 'mob' && t.view && (t.view.mini || t.view.echo)) continue; // champions and a boss's echoes are spared
+      if (t.kind === 'player') g.damage(t, 0.2 * DUEL.hp / DUEL.pvp, { chain: true, at: [t.x, t.y + t.h * 0.6, t.z] }); // a fifth of a duelist's health
+      else g.damage(t, 1e7, { chain: true, kill: true, silentNum: true });
+      Vault.soul(g, [t.x, t.y, t.z], t.h);
+      souls.push(q10(t.x), q10(t.y), q10(t.z), Math.round(t.h * 10));
+      if (souls.length >= 96) break;
+    }
+    g.fx.shockwave([this.pos.x, g.world.heightAt(this.pos.x, this.pos.z), this.pos.z], R, 0x101418, 0.6);
+    g.fx.flash([this.pos.x, this.pos.y + 1.5, this.pos.z], 0x9fc8ff, 22, 0.4, 20);
+    g.audio.play('necro_fall'); g.audio.play('thunder', 0.5); g.shake(0.3);
+    if (souls.length) g.emitFx(['nd', ...souls]);
+  }
+
+  // Boulder Orbit: three rocks rise and circle you. Each press throws one at the crosshair; the cooldown starts with the last.
+  ab_orbit() {
+    const g = this.game;
+    if (!this.rocks || this.rocks.n <= 0 || !this.rocks.fx.alive) {
+      const n = 3 + (this.stats.extra || 0);
+      this.rocks = { n, fx: Vault.orbit(g, () => (this.alive ? [this.pos.x, this.pos.y + 1.25, this.pos.z] : null), n) };
+      g.audio.play('earth'); g.shake(0.15);
+      g.emitFx(['bo', n]);
+      this.castT = 0.35; g.ui.flashAbility(Object.keys(this.cds).find((k) => this.cls[k] && this.cls[k].id === 'orbit') || 'q');
+      return false; // no cooldown yet
+    }
+    const R = this.rocks, from = R.fx.take() || [this.pos.x, this.pos.y + 1.6, this.pos.z];
+    R.n--;
+    const d = tmp.copy(g.aim.point).sub({ x: from[0], y: from[1], z: from[2] }).normalize(), da = [d.x, d.y, d.z];
+    g.el.boulder(from, da, {
+      speed: 38,
+      hitTest: (pos) => g.targets().some((t) => t.kind !== 'demon' && Math.hypot(t.x - pos.x, t.z - pos.z) < t.r + 0.7 && pos.y > t.y - 0.3 && pos.y < t.y + t.h + 0.4),
+      onImpact: (p) => { g.areaDamage(p, 4.5, 80 * this.stats.dmg * this.mm('orbit'), { kb: 11, freeze: 0.9, falloff: 0.35 }); g.shake(0.3); g.audio.play('quake', 0.6); },
+    });
+    g.emitFx(['eb', ...from.map(q10), ...da.map((v) => Math.round(v * 100))]);
+    g.emitFx(['bo', R.n]);
+    g.audio.play('earth');
+    this.castT = 0.35;
+    if (R.n > 0) return false; // still rocks to throw
+    this.rocks = null;
+  }
+
+  // Meteor Call: mark the ground under the crosshair; 2 s later a giant flaming rock lands on it.
+  ab_meteor() {
+    const g = this.game, a = g.aim.point;
+    let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz);
+    if (dl > 70) { dx *= 70 / dl; dz *= 70 / dl; }
+    const x = this.pos.x + dx, z = this.pos.z + dz, p = [x, g.world.heightAt(x, z), z];
+    const dmg = 300 * this.stats.dmg * this.mm('meteor');
+    Vault.meteor(g, p, (c) => { g.areaDamage(c, 9.5, dmg, { burn: 5, kb: 14, freeze: 1.2, falloff: 0.4 }); g.shake(0.8); g.audio.play('quake'); g.audio.play('inferno', 0.7); });
+    g.audio.play('fire_cast');
+    g.emitFx(['bm', ...p.map(q10)]);
+  }
+
+  // Seismic Stomp: leap, then come down hard. Everything within 11 m is staggered and badly hurt.
+  ab_stomp() {
+    const g = this.game;
+    if (this.stomping) return false;
+    this.stomping = true;
+    if (this.onGround) { this.vel.y = 15; this.pos.y += 0.06; this.onGround = false; } else this.vel.y = Math.max(this.vel.y, 7);
+    let fell = false;
+    g.fx.add({
+      dur: 4,
+      update: (dt, t) => {
+        if (!this.alive) return false;
+        if (!fell && (t > 0.42 || (t > 0.1 && this.vel.y < 3))) fell = true;
+        if (fell) this.vel.y = Math.min(this.vel.y, -48);
+        if (t > 0.1 && (this.onGround || t > 3)) {
+          const c = [this.pos.x, this.pos.y, this.pos.z];
+          Vault.stomp(g, c);
+          g.areaDamage(c, 11, 190 * this.stats.dmg * this.mm('stomp'), { freeze: 2.2, kb: 9, falloff: 0.3 });
+          g.shake(0.7); g.audio.play('quake');
+          g.emitFx(['bs', ...c.map(q10)]);
+          return false;
+        }
+      },
+      dispose: () => { this.stomping = false; },
+    });
+    g.audio.play('jump');
+  }
+
+  // Healing Rain: a small heavy rain storm over where you stand, 7 s. Each runner under it is mended by their own game (fx 'hr'); enemies in it are poisoned.
+  ab_rain() {
+    const g = this.game, c = [this.pos.x, this.pos.y, this.pos.z];
+    const dmg = 8 * this.stats.dmg * this.mm('rain'); let n = 0;
+    g.healRain(c, true, () => { // the same drops are poison to enemies: 32 a second while they stand in it
+      n++;
+      for (const t of g.targets()) {
+        if (t.kind === 'demon' || Math.hypot(t.x - c[0], t.z - c[2]) > 12 + t.r) continue;
+        g.damage(t, dmg, { slow: 1, silent: n % 4 !== 0, shown: dmg * 4, at: [t.x, t.y + t.h * 0.6, t.z] });
+        if (n % 2 === 0) g.fx.smoke.emit({ p: [t.x, t.y + t.h * 0.7, t.z], v: [0, 1, 0], life: 0.7, s0: 0.5, s1: 1.6, c0: [0.45, 0.95, 0.35, 0.5], c1: [0.4, 0.9, 0.3, 0] });
+      }
+    });
+    g.audio.play('ice');
+    g.emitFx(['hr', ...c.map(q10)]);
+  }
+
+  // Absolute Zero: everything hostile within 24 m stops dead for 5 s, shots in mid-air included (Game.handleEvent 'p').
+  ab_zero() {
+    const g = this.game, c = [this.pos.x, this.pos.y, this.pos.z], R = 24, dur = 5;
+    const dmg = 12 * this.stats.dmg * this.mm('zero');
+    for (const t of g.targets()) {
+      if (t.kind === 'demon' || Math.hypot(t.x - c[0], t.z - c[2]) > R + t.r) continue;
+      g.damage(t, dmg, { lock: dur, at: [t.x, t.y + t.h * 0.6, t.z], silentNum: true });
+      if (t.kind === 'player') continue; // the other duelist seals themselves in takeStatus
+      if (t.view) g.el.encase(t.view, t.r, t.h, dur);
+      g.emitFx(['ic', t.id, q10(t.r), q10(t.h), q10(dur)]);
+    }
+    g.zeroZone = { x: c[0], z: c[2], r: R, until: g.now + dur };
+    Vault.zero(g, c, R, dur);
+    g.shake(0.4);
+    g.audio.play('ice_big');
+    g.emitFx(['az', ...c.map(q10)]);
+  }
+
+  // Cloud Form: you are mist until the power is ready again (like Rock Armor). Nothing can hurt you (takeDamage), the host's enemies
+  // cannot see you (presence hd, sim targetsFor), and you can attack the whole time. (Nutty 2026-11-12)
+  ab_cloud() {
+    const g = this.game, k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'cloud') || 'e';
+    const dur = (g.duel ? DUEL.cd : this.cls[k].cd) * this.stats.cdr * this.stats.mast[k].cd; // the same rule in a run and in the arena, where every power is 5 s
+    this.cloud = { until: g.now + dur };
+    this.invulnUntil = Math.max(this.invulnUntil || 0, g.now + dur);
+    this.model.visible = false;
+    Vault.mist(g, () => (this.alive && this.cloud && g.now < this.cloud.until ? [this.pos.x, this.pos.y, this.pos.z] : null), () => { this.model.visible = true; this.cloud = null; });
+    g.audio.play('howl', 0.6);
+    g.emitFx(['wc', Math.round(dur * 10)]);
+  }
+
+  // Windmill: a tornado that chases your crosshair for 6 s. It drags in what is near, lifts and carries what it catches, shreds them,
+  // swallows enemy shots that reach it (Game.handleEvent 'p'), and whatever it drops is hurt again by the fall.
+  ab_tornado() {
+    const g = this.game, dur = 6, dmg = 10 * this.stats.dmg * this.mm('tornado'), f0 = this.forward();
+    const zone = { x: this.pos.x + f0[0] * 3, z: this.pos.z + f0[2] * 3, r: 8, until: g.now + dur + 0.3 };
+    g.windZones = (g.windZones || []).filter((w) => w.until > g.now); g.windZones.push(zone);
+    let n = 0;
+    const held = new Map(); // id -> the tick it was last carried on
+    const drop = (id) => { // let go: it falls, and the landing hurts
+      held.delete(id);
+      g.fx.add({ dur: 1, update: (dt, t) => {
+        if (t < 0.6) return;
+        const q = g.targets().find((x) => x.id === id);
+        if (q) { g.damage(q, 60 * this.stats.dmg * this.mm('tornado'), { freeze: 0.7, at: [q.x, q.y + q.h * 0.5, q.z] }); g.fx.dustBurst([q.x, q.y, q.z], 1.1); }
+        return false;
+      } });
+    };
+    g.fx.add({ dur: dur + 0.2, update: (dt, t) => { if (t >= dur + 0.05) { for (const id of [...held.keys()]) drop(id); return false; } } });
+    const steer = () => {
+      const a = g.aim.point, dx = a.x - zone.x, dz = a.z - zone.z, d = Math.hypot(dx, dz);
+      steer.k = Math.min(1, d / 4);
+      return d > 0.3 ? [dx / d, 0, dz / d] : [f0[0], 0, f0[2]];
+    };
+    g.el.cyclone([this.pos.x, this.pos.y, this.pos.z], steer, dur, 17, (c) => {
+      zone.x = c[0]; zone.z = c[2];
+      for (const t of g.targets()) {
+        if (t.kind === 'demon') continue;
+        const dx = c[0] - t.x, dz = c[2] - t.z, dd = Math.hypot(dx, dz) || 1;
+        if (dd < 7 + t.r) { held.set(t.id, n); g.damage(t, dmg, { kx: dx / dd * 8, kz: dz / dd * 8, launch: 9, silentNum: n % 4 !== 0, at: [t.x, t.y + t.h * 0.6, t.z] }); }
+        else if (dd < 15 + t.r) g.damage(t, 1, { kx: dx / dd * 15, kz: dz / dd * 15, silent: true });
+      }
+      for (const [id, at] of held) if (at !== n) drop(id); // it slipped out of the funnel
+      if (n % 2 === 0) g.emitFx(['wt', q10(c[0]), q10(c[2]), n === 0 ? 1 : 0]);
+      n++;
+    });
     g.audio.play('cyclone');
   }
 
@@ -1727,7 +2285,7 @@ export class LocalPlayer {
       p: [q10(this.pos.x), q10(this.pos.y), q10(this.pos.z)], ry: Math.round(this.yaw * 100), pt: Math.round(this.pitch * 100),
       hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0, bt: this.btHold ? 1 : 0,
       wi: this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
-      ct: this.castT > 0 ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
+      ct: this.castT > 0 ? 1 : 0, hd: this.cloud && this.cloud.until > this.game.now ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
       jp: this.jetEquipped() ? (this.jet.level > 0.1 ? 2 : 1) : this.hasGear('wings') ? (this.wing.soar ? 4 : this.game.now - this.wing.flapT < 0.45 ? 5 : 3) : 0,
       dr: this.drone && this.alive ? (this.drone.firing ? 2 : 1) : 0,
       tr: this.turret ? [q10(this.turret.obj.position.x), q10(this.turret.obj.position.y), q10(this.turret.obj.position.z), Math.round(this.yaw * 100)] : 0,

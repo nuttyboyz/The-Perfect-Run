@@ -12,13 +12,16 @@ import { World } from './world.js';
 import { LocalPlayer, flashSize } from './player.js';
 import { HostSim, THERMES } from './sim.js';
 import { RemotePlayerView, MobView, BossView, DemonView, NpcView } from './views.js';
+import * as Vault from './vault.js';
+import { classWith } from './data.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
 import { SoloParty, RoomParty, RoomLobby, BCParty, BCLobby, PeerParty, getRoom, makeCode, PeerSlotLobby } from './net.js';
 import { Audio } from './audio.js';
 import { MenuScene } from './menu.js';
 import { kbLogical } from './controls.js';
 import { setWeaponEnv, boltProto } from './weapons.js';
-import { ScopeView, CAM_LEAD } from './scope.js';
+import { ScopeView, CAM_LEAD, scopeZoomFov, RETICLES } from './scope.js';
+import { moveOf, samplePose } from './meleemoves.js';
 import { launchArrow, longbowPick } from './longbow.js';
 import { Governor } from './perf.js';
 import { CHAR_BY_ID, CHARACTERS } from './characters.js';
@@ -368,6 +371,59 @@ export class Game {
     b.destroy();
   }
 
+  // Customize (Element page): the element this player has picked, with their own three cooldowns in its slots. Remembered per element.
+  myClass() {
+    if (this.isBot) return CLASS_BY_ID[this.loadout.c];
+    if (!this.abPicks) this.abPicks = LS.get(this.lsKey('abils'), {}) || {};
+    return classWith(this.loadout.c, this.abPicks[this.loadout.c]);
+  }
+  // Put cooldown `id` in slot k ('q' | 'r' | 'e'). Refused when it is already in one of the three: no doubles.
+  setAbility(k, id) {
+    const c = this.myClass(), cur = { q: c.q.id, r: c.r.id, e: c.e.id };
+    if (!(k in cur) || !c.pool.some((a) => a.id === id) || Object.values(cur).includes(id)) return false;
+    cur[k] = id;
+    this.abPicks[c.id] = [cur.q, cur.r, cur.e];
+    LS.set(this.lsKey('abils'), this.abPicks);
+    return true;
+  }
+  // Healing Rain over `c`: everyone sees the storm; each runner standing under it mends themselves (6% of full health a second). toxic(): the caster's rain hurts enemies.
+  healRain(c, heals, toxic) {
+    Vault.rain(this, c, 7, 12, () => {
+      const p = this.player;
+      if (toxic) toxic();
+      if (!heals || !p || !p.alive || Math.hypot(p.pos.x - c[0], p.pos.z - c[2]) > 12.5) return;
+      p.heal(p.stats.maxHp * 0.015);
+      Vault.healSpark(this, [p.pos.x, p.pos.y, p.pos.z]);
+    });
+  }
+
+  // Local Co-op has no setup screen: it goes straight to the select. Player 2's half opens by itself the moment a controller is free for them:
+  // a second controller, or the only controller while player 1 is on keyboard and mouse. Until then player 1 picks alone.
+  autoCouchDev() {
+    const pads = connectedPads();
+    if (pads.length >= 2) { const mine = this.pad.active && typeof this.pad.lastIdx === 'number' ? pads.find((p) => p.index === this.pad.lastIdx) : null, p1 = mine || pads[0]; return { p1: p1.index, p2: pads.find((p) => p !== p1).index }; }
+    if (pads.length === 1 && !this.pad.active) return { p1: null, p2: pads[0].index };
+    return null;
+  }
+  startLocal() {
+    const dev = this.autoCouchDev();
+    if (dev) { this.startCouch(dev); return; }
+    this.playSolo(); this.couchWait = true;
+    this.ui.renderLobby();
+    this.ui.toast('Player 2: press any button on a second controller to join', '');
+  }
+  couchWaitTick() {
+    if (!this.couchWait || this.mode !== 'lobby' || this.couch) return;
+    const dev = this.autoCouchDev();
+    if (!dev) return;
+    const lo = { ...this.loadout, w: [...this.loadout.w] }, duel = this.duelMode, step = this.ui.flipStep;
+    this.leaveParty();
+    this.duelMode = duel;
+    this.startCouch(dev);
+    this.setLoadout(lo); this.ui.flipStep = step; this.ui.renderLobby();
+    this.ui.toast('Player 2 joined', 'good');
+  }
+
   // Couch co-op: this seat hosts, a second seat opens on the right half of the screen.
   // dev = { p1: pad index or null (player 1 also plays on that controller), p2: pad index or 'kb' }.
   startCouch(dev) {
@@ -517,7 +573,7 @@ export class Game {
     this.menu.show(this.loadout);
     if (!this.lobbyHooked) { this.lobbyHooked = true; this.party.onChange(() => { if (this.mode === 'lobby') this.ui.renderLobby(); }); }
     this.lobbyTimer = setInterval(() => {
-      if (this.mode === 'lobby') this.ui.renderLobby();
+      if (this.mode === 'lobby') { this.couchWaitTick(); this.duelVoteTick(); if (this.mode === 'lobby') this.ui.renderLobby(); }
       if (this.isHost && this.lobby && this.partyCode) {
         const n = this.party.peers().length;
         // Private parties are never listed: friends join with the invite link or the code.
@@ -591,7 +647,9 @@ export class Game {
 
   leaveParty() {
     if (this.seat === 2 && this.opts.onLeave) { this.opts.onLeave(); return; }
+    this.couchWait = false;
     if (this._cpuPick) this.cpuPickEnd(false);
+    this._dv = null;
     if (this.couch) this.endCouch();
     if (this.bot) this.endBot();
     clearInterval(this.lobbyTimer);
@@ -626,12 +684,57 @@ export class Game {
     if (this.duelMode) {
       const n = this.lobbyMembers().length;
       if (n !== 2) { this.ui.toast(n < 2 ? 'A duel needs a second fighter' : 'A duel is for exactly two players', 'bad'); return; }
-      this.sim.startDuel();
+      if (this._dv) return; // the stage vote is already open
+      if (!this.bot) { this.duelVoteOpen(); return; } // two players: both pick a stage first
+      this.sim.startDuel(this.duelStage ?? -1); // versus the CPU: the stage was picked before the fighters
     } else this.sim.startRun(this.settings.roundLen === 0 ? 0 : 10 * 60, { space: Unlocks.has('space'), hard: !!this.settings.hard, mu: this.settings.mu & MU_MASK });
     this.sim.lastPlayers = this.lobbyMembers().map((p) => ({ id: p.id }));
     const k = this.party && this.party.kind;
     SPEED.n = 1; // every run starts at normal speed; T or D-pad down cycles it once Game speed is unlocked
     this.party.set({ w: this.sim.snapshot() });
+  }
+
+  // ---------------- Duel stage vote (two players, couch or online) ----------------
+  // The host opens the vote in its presence ('dv'); each player answers with 'ds' (arena index) tagged with the
+  // vote's id ('dsi'). Same pick: straight in. Different picks: the host draws one of the two and every screen
+  // plays the spinner before the match starts.
+  duelVoteOpen() {
+    this._dv = { id: Date.now() };
+    this.party.set({ dv: { id: this._dv.id }, ds: -1, dsi: this._dv.id });
+    this.ui.renderLobby();
+  }
+  duelVoteCancel() {
+    if (!this._dv) return;
+    this._dv = null;
+    if (this.party) this.party.set({ dv: 0 });
+  }
+  duelPick(i) {
+    if (!this.party) return;
+    const host = this.hostPeer(this.party.peers()), dv = host && host.p.dv;
+    if (!dv || dv.r) return;
+    this.party.set({ ds: i | 0, dsi: dv.id });
+  }
+  duelVoteTick() {
+    const v = this._dv;
+    if (!v || !this.isHost) return;
+    if (this.mode !== 'lobby') { this._dv = null; return; }
+    const ms = this.lobbyMembers();
+    if (ms.length !== 2) { this.duelVoteCancel(); return; }
+    if (!v.r) {
+      const pk = ms.map((m) => (m.p.dsi === v.id && m.p.ds >= 0 ? m.p.ds | 0 : -1));
+      if (pk[0] < 0 || pk[1] < 0) return;
+      const same = pk[0] === pk[1], w = same ? 0 : Math.random() < 0.5 ? 0 : 1;
+      v.r = { i: pk[w], w: ms[w].id, same: same ? 1 : 0 };
+      v.goAt = Date.now() + (same ? 1600 : 5600);
+      this.party.set({ dv: { id: v.id, r: v.r } });
+    } else if (Date.now() >= v.goAt) {
+      this._dv = null;
+      this.party.set({ dv: 0 });
+      this.sim.startDuel(v.r.i);
+      this.sim.lastPlayers = ms.map((q) => ({ id: q.id }));
+      SPEED.n = 1;
+      this.party.set({ w: this.sim.snapshot() });
+    }
   }
 
   // ---------------- entering / leaving the game ----------------
@@ -641,7 +744,7 @@ export class Game {
     clearInterval(this.lobbyTimer);
     if (this.lobby && this.isHost) this.lobby.advertise(null);
     this.ui.showGame();
-    this.player = new LocalPlayer(this, { ch: this.loadout.ch, sk: this.loadout.sk, cls: this.loadout.c, weapons: this.loadout.w, name: this.myName });
+    this.player = new LocalPlayer(this, { ch: this.loadout.ch, sk: this.loadout.sk, cls: this.loadout.c, clsObj: this.myClass(), weapons: this.loadout.w, name: this.myName });
     this.hits = []; this.reqs = []; this.fxOut = [];
     this.lastEv = 0; this.epoch = null;
     this.myW = this.lastW = this.syncedW = null; this.snapT = 0;
@@ -733,12 +836,15 @@ export class Game {
   render(scene, camera) {
     if (this.headless) return;
     if (this.gov) this.gov.beforeRender();
-    if (this.scope && this.scope.on && scene === this.scene) this.scope.render([this.player.model]);
+    // Behind a scope your own body and gun are left out of the picture (scope.js), so nothing can block the glass.
+    const me = this.scope && this.scope.zoomed && scene === this.scene && this.player ? this.player.model : null, was = me && me.visible;
+    if (me) me.visible = false;
     if (this.composer) {
       this.renderPass.scene = scene;
       this.renderPass.camera = camera;
       this.composer.render();
     } else this.renderer.render(scene, camera);
+    if (me) me.visible = was;
   }
 
   trackPerf(dt) {
@@ -786,8 +892,8 @@ export class Game {
       this.party.set({ w: this.sim.snapshot() });
       if (this.sim.phase !== 'lobby') this.enterGame();
       else if (this.party.kind === 'local') this.couchCountdown();
-    } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && loadoutFull(this.loadout.w)) {
-      this.enterGame();
+    } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && loadoutFull(this.loadout.w) && (this.ready || !this.ui.flipOn())) {
+      this.enterGame(); // a late joiner goes in when they press Ready Up on the Element page
     }
   }
 
@@ -796,6 +902,7 @@ export class Game {
     const ms = this.lobbyMembers();
     const ok = ms.length >= (this.couch ? 2 : 1) && ms.every((m) => m.p.rdy && loadoutFull(m.p.wp));
     let left = 0;
+    if (this._dv) { if (!ok) this.duelVoteCancel(); this.cdAt = null; if (this.party.mine.cd) this.party.set({ cd: 0 }); return; } // stage vote in progress
     if (ok) {
       if (this.cdAt == null) this.cdAt = this.now + 3;
       left = Math.max(1, Math.ceil(this.cdAt - this.now));
@@ -882,6 +989,7 @@ export class Game {
     this.bulletTimeFx(dt);
     const rdt = vdt; vdt *= MU.bt; // Bullet Time: the world's visuals (enemies, effects, grass) follow the slowed clock; players do not
     this.updateRemotePlayers(peers, rdt);
+    this.recoilStep(dt);
     this.updateCamera(dt);
     this.updateAim();
     if (!paused) {
@@ -983,7 +1091,7 @@ export class Game {
     this.duelArena = this.duel ? (((w.ar | 0) % DUEL_BIOMES.length) + DUEL_BIOMES.length) % DUEL_BIOMES.length : 0; // which Duel Arena the host picked for this match
     if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) this.loadRound(w.sd, w.rd);
     this.round = w.rd;
-    if (w.ph === 'play' && MU.on && this.round !== this._muRound) { this._muRound = this.round; this.ui.mutatorBanner(muList(MU.on)); this.audio.play('mu_sting', 0.8); }
+    if (w.ph === 'play' && MU.on && this.round !== this._muRound) { this._muRound = this.round; this.ui.mutatorBanner(muList(MU.on), this.round === 0 ? 5 : 0); this.audio.play('mu_sting', 0.8); }
     if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) Dailies.best('round', this.round + 1); }
     this.tl = w.tl;
     this.endless = w.rl === 0;
@@ -1134,17 +1242,39 @@ export class Game {
       }
       case 'p': {
         const [, , x, y, z, vx, vy, vz, dmg, style] = e;
-        const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet
-        let hit = false, back = false;
+        const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(style === 4 ? 0x3aa0ff : style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet, 4: the Visitor's bursting plasma
+        let hit = false, back = false, held = null;
         this.el.orb([x / 10, y / 10, z / 10], [vx / 10, vy / 10, vz / 10], {
-          color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
+          color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
           onUpdate: (pos, vel) => {
             if (hit || !p.alive) return;
+            { // Absolute Zero: a shot inside the frozen air hangs where it is until the cold lets go.
+              const zz = this.zeroZone;
+              if (zz && this.now < zz.until && (pos.x - zz.x) ** 2 + (pos.z - zz.z) ** 2 < zz.r * zz.r) {
+                if (!held) { held = vel.clone(); vel.set(0, 0, 0); }
+                if (Math.random() < 0.15) this.fx.shard.emit({ p: [pos.x, pos.y, pos.z], v: [0, -0.3, 0], life: 0.5, s0: 0.3, s1: 0.1, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0] });
+                return;
+              }
+              if (held) { vel.copy(held); held = null; }
+              // Tornado Life: a shot that reaches the funnel is swallowed.
+              if (!back && this.windZones) for (const wz of this.windZones) if (this.now < wz.until && (pos.x - wz.x) ** 2 + (pos.z - wz.z) ** 2 < wz.r * wz.r) { hit = true; this.el.windDeflect([pos.x, pos.y, pos.z]); return false; }
+            }
             if (back) {
               // Turned back by the Eye of the Storm: it strikes the first enemy in its way.
               const t = this.targets().find((q) => q.kind !== 'demon' && Math.hypot(q.x - pos.x, q.z - pos.z) < q.r + 0.8 && pos.y > q.y - 0.4 && pos.y < q.y + q.h + 0.4);
               if (t) { hit = true; this.damage(t, 30 * p.stats.dmg * p.mm('eye'), { kx: vel.x * 0.3, kz: vel.z * 0.3, at: [pos.x, pos.y, pos.z] }); this.el.windDeflect([pos.x, pos.y, pos.z]); return false; }
               return;
+            }
+            if (style === 4) {
+              // Plasma bursts where it lands: a small blast that catches anyone standing close.
+              const gy = this.world.heightAt(pos.x, pos.z);
+              if (pos.y <= gy + 0.3) {
+                hit = true;
+                this.fx.explosion([pos.x, gy + 0.5, pos.z], 0.5, { color: [0.25, 0.6, 1], smoke: false });
+                this.audio.play('slam', this.distVol(pos.x, pos.z) * 0.35);
+                if (Math.hypot(pos.x - p.pos.x, pos.z - p.pos.z) < 3.2 && p.pos.y - gy < 2.5) p.takeDamage(Math.round(dmg * 0.6), 'proj');
+                return false;
+              }
             }
             const dx = pos.x - p.pos.x, dy = pos.y - (p.pos.y + 1.1), dz = pos.z - p.pos.z;
             if (p.eyeOn() && dx * dx + dz * dz < p.eye.r * p.eye.r && dy > -2 && dy < 9) {
@@ -1161,11 +1291,13 @@ export class Game {
               hit = true;
               p.takeDamage(dmg, 'proj');
               this.fx.impact([pos.x, pos.y, pos.z], [col.r, col.g, col.b]);
+              if (style === 4) this.fx.explosion([pos.x, pos.y, pos.z], 0.5, { color: [0.25, 0.6, 1], smoke: false });
               return false;
             }
           },
         });
         if (style === 0) this.audio.play('spit', this.distVol(x / 10, z / 10));
+        if (style === 4) this.audio.play('shot_alienblaster', this.distVol(x / 10, z / 10) * 0.7);
         break;
       }
       case 's': {
@@ -1194,6 +1326,7 @@ export class Game {
           if (risen) v.risen = true; // Necromancer: the body drops, then gets back up as yours (the thrall takes over from here)
           if (v.rig && !v.base.bomb && (risen || !muOn(PINATA))) this.views.dying.push(v); else v.dispose(); // a piñata bursts: no body left
         }
+        if (p && p.supperUntil > this.now) p.supperFeed([X, y + 1, Z]); // Last Supper: every death feeds the Necromancer
         if (killer === me) {
           const pcGain = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed)); // PC bonuses stop at double
           p.totalKills++;
@@ -1369,21 +1502,90 @@ export class Game {
         break;
       }
       case 'qw': {
-        const [, , x, z, w10] = e;
-        this.el.telegraph([x / 10, 0, z / 10], 9, w10 / 10, 0x5aa8ff);
+        const [, , x, z, w10, own] = e;
+        this.el.telegraph([x / 10, 0, z / 10], 9, w10 / 10, own && this.views.boss ? this.views.boss.def.glow : 0x5aa8ff);
         break;
       }
       case 'qk': {
         // The ground smash: an expanding blue shockwave ring on the floor (a second one follows when he is enraged).
-        const [, , x, z, n] = e;
+        const [, , x, z, n, rg, sp, own] = e;
         const X = x / 10, Z = z / 10, y = this.world.heightAt(X, Z);
-        const T = THERMES, dur = T.quakeRange / T.quakeSpeed;
+        const T = { quakeRange: rg || THERMES.quakeRange, quakeSpeed: sp || THERMES.quakeSpeed }, dur = T.quakeRange / T.quakeSpeed; // other bosses' stomps send their own size
+        const qc = own && this.views.boss ? this.views.boss.def.glow : 0x5aa8ff;
         this.fx.dustBurst([X, y, Z], 6);
-        this.fx.shockwave([X, y, Z], T.quakeRange, 0x5aa8ff, dur, 0.5);
-        this.fx.shockwave([X, y, Z], T.quakeRange, 0xbfe0ff, dur, 1.4);
-        if (n > 1) this.timers.push({ t: 0.7, fn: () => this.fx.shockwave([X, y, Z], T.quakeRange, 0x5aa8ff, dur, 0.5) });
+        this.fx.shockwave([X, y, Z], T.quakeRange, qc, dur, 0.5);
+        this.fx.shockwave([X, y, Z], T.quakeRange, 0xffffff, dur, 1.4);
+        if (n > 1) this.timers.push({ t: 0.7, fn: () => this.fx.shockwave([X, y, Z], T.quakeRange, qc, dur, 0.5) });
         this.audio.play('slam', this.distVol(X, Z));
         this.shake(Math.max(0, 0.9 - this.distTo(X, Z) / 60));
+        break;
+      }
+      case 'vt': {
+        // The Visitor blinks: a green flash and a rising column of light where it left and where it lands.
+        const [, , x0, z0, x1, z1] = e;
+        for (const [X, Z] of [[x0 / 10, z0 / 10], [x1 / 10, z1 / 10]]) {
+          const y = this.world.heightAt(X, Z);
+          this.fx.shockwave([X, y, Z], 8, 0x7dffb0, 0.45);
+          this.fx.flash([X, y + 6, Z], 0x7dffb0, 40, 0.3, 30);
+          for (let i = 0; i < 16; i++) this.fx.glow.emit({ p: [X + (Math.random() - 0.5) * 4, y + Math.random() * 12, Z + (Math.random() - 0.5) * 4], v: [0, 7, 0], life: 0.55, s0: 1.3, s1: 0.1, c0: [0.5, 1, 0.7, 0.9], c1: [0.5, 1, 0.7, 0] });
+        }
+        if (this.views.boss) this.views.boss.snap = true;
+        this.audio.play('deflect', Math.max(0.35, this.distVol(x1 / 10, z1 / 10)));
+        break;
+      }
+      case 'ax': {
+        // Thermes' axe: 1 overhead cleave (the slam warning shows where), 2 a wide sweep, 3 the whirlwind.
+        const [, , kind, x, z, d100, yaw100, rng] = e;
+        const X = x / 10, Z = z / 10;
+        this.audio.play('swing', Math.max(0.5, this.distVol(X, Z)));
+        if (kind === 2) {
+          this.timers.push({ t: d100 / 100, fn: () => {
+            const yw = yaw100 / 100;
+            for (let i = 0; i < 26; i++) {
+              const a = yw - 1.75 + (i / 25) * 3.5, r = rng * (0.55 + Math.random() * 0.45), px = X + Math.sin(a) * r, pz = Z + Math.cos(a) * r, py = this.world.heightAt(px, pz);
+              this.fx.dustBurst([px, py, pz], 0.7);
+              this.fx.spark.emit({ p: [px, py + 1, pz], v: [Math.sin(a) * 9, 3 + Math.random() * 4, Math.cos(a) * 9], life: 0.4, s0: 0.3, s1: 0.05, c0: [0.6, 0.85, 1, 1], c1: [0.3, 0.5, 1, 0], g: 10 });
+            }
+            this.audio.play('slam', this.distVol(X, Z) * 0.7);
+            this.shake(Math.max(0, 0.5 - this.distTo(X, Z) / 50));
+          } });
+        } else if (kind === 3) this.audio.play('roar', 0.5);
+        break;
+      }
+      case 'bw': { this.ui.toast(String(e[2] || ''), 'bad'); this.audio.play('roar', 0.6); break; } // a boss warning
+      case 'mt': {
+        // Thermes' meteor: a warning circle, a burning rock falling out of the sky for the whole warning, then the crash.
+        const [, , x, z, r10, d100, dmg] = e;
+        const X = x / 10, Z = z / 10, R = r10 / 10, D = d100 / 100, y = this.world.heightAt(X, Z);
+        this.el.telegraph([X, 0, Z], R, D, 0xff5a1a);
+        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(R * 0.42, 1), new THREE.MeshStandardMaterial({ color: 0x2a1408, emissive: 0xd03a08, emissiveIntensity: 0.9, roughness: 0.9, flatShading: true }));
+        const sx = X + 60, sz = Z - 35, sy = y + 170;
+        rock.position.set(sx, sy, sz);
+        this.scene.add(rock);
+        let done = false;
+        const fx = this.fx;
+        fx.add({
+          dur: D + 0.05,
+          update: (dt, t) => {
+            const k = Math.min(1, t / D), kk = k * k; // it speeds up as it comes down
+            rock.position.set(sx + (X - sx) * kk, sy + (y - sy) * kk, sz + (Z - sz) * kk);
+            rock.rotation.x += dt * 2.2; rock.rotation.z += dt * 1.4;
+            const q = rock.position;
+            for (let i = 0; i < fx.n(3); i++) fx.glow.emit({ p: [q.x + (Math.random() - 0.5) * R * 0.5, q.y + (Math.random() - 0.5) * R * 0.5, q.z + (Math.random() - 0.5) * R * 0.5], v: [(sx - X) * 0.05, 4, (sz - Z) * 0.05], life: 0.7, s0: R * 0.55, s1: 0.4, c0: [1, 0.55, 0.15, 0.9], c1: [1, 0.2, 0.05, 0] });
+            fx.smoke.emit({ p: [q.x, q.y, q.z], v: [(sx - X) * 0.03, 2, (sz - Z) * 0.03], life: 1.6, s0: R * 0.5, s1: R * 1.1, c0: [0.12, 0.08, 0.07, 0.7], c1: [0.1, 0.08, 0.08, 0] });
+          },
+          dispose: () => { if (done) return; done = true; this.scene.remove(rock); rock.geometry.dispose(); rock.material.dispose(); },
+        });
+        this.timers.push({ t: D, fn: () => {
+          const yy = this.world ? this.world.heightAt(X, Z) : y;
+          fx.dustBurst([X, yy, Z], R / 2);
+          fx.shockwave([X, yy, Z], R * 1.3, 0xff7a30, 0.55);
+          fx.flash([X, yy + 2, Z], 0xffa040, 16, 0.3, 40);
+          for (let i = 0; i < fx.n(26); i++) { const an = Math.random() * 6.28; fx.debris.emit({ p: [X, yy + 0.4, Z], v: [Math.cos(an) * (4 + Math.random() * 12), 6 + Math.random() * 14, Math.sin(an) * (4 + Math.random() * 12)], life: 0.8 + Math.random() * 0.8, s0: 0.3 + Math.random() * 0.6, s1: 0.2, c0: [0.35, 0.2, 0.12, 1], c1: [0.25, 0.15, 0.1, 0], g: 18, drag: 0.3 }); }
+          this.audio.play('slam', this.distVol(X, Z));
+          this.shake(Math.max(0, 1 - this.distTo(X, Z) / 60));
+          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - yy < 3) p.takeDamage(dmg, 'slam');
+        } });
         break;
       }
       case 'cw': {
@@ -1581,7 +1783,84 @@ export class Game {
       case 'sq': { const pts = []; for (let i = 0; i + 2 < a.length; i += 3) pts.push(P(i)); this.el.chain(pts); this.audio.play('zap', vol); break; }
       case 'sr': this.el.thunderstorm(P(0), a[3], 4, 13); this.audio.play('thunder', vol); break;
       case 'iq': this.el.frostNova(P(0), a[3] ? a[3] / 10 : 7); this.audio.play('ice', vol); break;
-      case 'is': { const pts = []; for (let i = 3; i + 2 < a.length; i += 3) pts.push(P(i)); this.el.iceShards(P(0), pts); this.audio.play('ice', vol); break; }
+      case 'is': { const pts = []; for (let i = 3; i + 2 < a.length; i += 3) pts.push(P(i)); Vault.crystals(this, P(0), pts); this.audio.play('ice', vol); break; }
+      // ---- the Elemental Vault ----
+      case 'fs': { const o = P(0); for (let i = 3, k = 0; i + 2 < a.length; i += 3, k++) { const to = P(i), dx = to[0] - o[0], dz = to[2] - o[2], l = Math.hypot(dx, dz) || 1; Vault.seeker(this, o, [dx / l, 0.6, dz / l], null, to, null, k * 0.12); } this.audio.play('fire_cast', vol); break; }
+      case 'bo': {
+        const m = this._orbits || (this._orbits = new Map()), h = m.get(v);
+        if (h && h.alive) h.set(a[0]);
+        else if (a[0] > 0) m.set(v, Vault.orbit(this, () => (v.alive && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y + 1.25, v.pos.z] : null), a[0]));
+        break;
+      }
+      case 'tb': Vault.blink(this, P(0), P(3)); this.audio.play('zap', vol); break;
+      case 'nl': { // Life Drain: one pull of blood from that spot into the runner
+        const at = P(0), end = this.now + 0.3;
+        Vault.drain(this, () => (v.alive && this.now < end ? [v.pos.x, v.pos.y + 1.2, v.pos.z] : null), () => at, 0.3);
+        this.fx.blood(at, [0.35, 0.05, 0.08]);
+        break;
+      }
+      case 'na': Vault.acid(this, P(0)); this.audio.play('necro_fall', vol); break;
+      case 'nt': { // Black Thorn Vines: a[3] = seconds they stand; then 'nx' sends the thorns out
+        Vault.vines(this, P(0), 7, a[3] / 10); this.audio.play('earth', vol); break;
+      }
+      case 'nx': { const o = P(0), ends = []; for (let i = 3; i + 2 < a.length; i += 3) ends.push(P(i)); Vault.thorns(this, o, ends.map((e) => () => e)); this.audio.play('swing', vol); break; }
+      case 'ny': Vault.scythe(this, () => (v.alive ? [v.pos.x, v.pos.y, v.pos.z] : null), a[0] / 100); this.audio.play('swing', vol); break;
+      case 'ng': { // Ghost Walk: that runner's spirit is out for a[3]/10 s; their body waits at P(0)
+        const until = this.now + a[3] / 10, body = P(0);
+        if (a[3] <= 0) { v.spiritEnd = 0; break; }
+        v.spirit = true; v.spiritEnd = until;
+        Vault.spirit(this, () => (v.alive && this.now < v.spiritEnd && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), null, body, () => { v.spirit = false; });
+        this.audio.play('necro_rise', vol);
+        break;
+      }
+      case 'nc': Vault.crows(this, P(0), 8, 5); this.audio.play('wind', vol); break;
+      case 'ns': { const until = this.now + 8; Vault.supper(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 8); break; }
+      case 'nd': { for (let i = 0; i + 3 < a.length; i += 4) Vault.soul(this, P(i), a[i + 3] / 10); this.audio.play('necro_fall', vol); break; }
+      case 'nr': { const until = this.now + 10; Vault.raise(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 10); this.audio.play('necro_rise', vol); break; }
+      case 'tf': { // Tesla Fence: 1 = first post, 2 = both posts (strung), 3 = health % and where it was hit, 0 = destroyed
+        const m = this._fences || (this._fences = new Map());
+        let h = m.get(v); if (h && !h.alive) h = null;
+        if (a[0] === 0) { if (h) h.end(true); m.delete(v); this.audio.play('thunder', vol); break; }
+        if (a[0] === 3) { if (h) { h.hp(a[1] / 100); h.zap(a[2] / 100); } this.audio.play('zap', vol * 0.8); break; }
+        if (a[0] === 1) { if (h) h.end(false); h = Vault.fence(this); m.set(v, h); h.post(P(1)); }
+        else { if (!h) { h = Vault.fence(this); m.set(v, h); h.post(P(1)); } h.post(P(4)); }
+        this.audio.play('zap', vol);
+        break;
+      }
+      case 'fd': case 'rj': { // Dragon Breath / Pressure Jet: the stream follows where that runner faces
+        const until = this.now + a[0] / 10;
+        const ray = () => { if (!v.alive || this.now > until || this.views.players.get(v.id) !== v) return null; const cp = Math.cos(v.pitch || 0); return { o: [v.pos.x + Math.sin(v.yaw) * 0.6, v.pos.y + 1.45, v.pos.z + Math.cos(v.yaw) * 0.6], d: [Math.sin(v.yaw) * cp, -Math.sin(v.pitch || 0), Math.cos(v.yaw) * cp] }; };
+        if (kind === 'fd') { Vault.breath(this, ray, a[0] / 10, 18); this.audio.play('inferno', vol); } else { Vault.jet(this, ray, a[0] / 10, 45); this.audio.play('ice', vol); }
+        break;
+      }
+      case 'rw': Vault.whirlpool(this, P(0)); this.audio.play('ice_big', vol); break;
+      case 'rs': { // Snowball: it grows with the distance that runner rolls, the same rule as their own game uses
+        const until = this.now + a[0] / 10, S = { r: 1.1, last: [v.pos.x, v.pos.z] };
+        v.ball = true;
+        Vault.snowball(this, () => {
+          if (!v.alive || this.now > until || this.views.players.get(v.id) !== v) return null;
+          const md = Math.hypot(v.pos.x - S.last[0], v.pos.z - S.last[1]); if (md < 20) S.r = Math.min(3.4, S.r + md * 0.03); S.last = [v.pos.x, v.pos.z];
+          return { p: [v.pos.x, v.pos.y, v.pos.z], r: S.r };
+        }, () => { v.ball = false; });
+        this.audio.play('ice', vol);
+        break;
+      }
+      case 'bm': Vault.meteor(this, P(0), () => this.audio.play('quake', vol)); this.audio.play('fire_cast', vol); break;
+      case 'bs': Vault.stomp(this, P(0)); this.audio.play('quake', vol); break;
+      case 'hr': this.healRain(P(0), !this.duel); this.audio.play('ice', vol); break;
+      case 'az': { const c = P(0); Vault.zero(this, c); this.zeroZone = { x: c[0], z: c[2], r: 24, until: this.now + 5 }; this.audio.play('ice_big', vol); break; }
+      case 'wc': { const until = this.now + a[0] / 10; v.mist = true; Vault.mist(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), () => { v.mist = false; }); this.audio.play('howl', vol * 0.6); break; }
+      case 'wt': {
+        const x = a[0] / 10, z = a[1] / 10;
+        if (a[2] || !v._tw || v._tw.until < this.now) {
+          const w = v._tw = { x, z, r: 8, until: this.now + 6.2 }, cc = [x, z];
+          this.windZones = (this.windZones || []).filter((q) => q.until > this.now); this.windZones.push(w);
+          const steer = () => { const dx = w.x - cc[0], dz = w.z - cc[1], d = Math.hypot(dx, dz); steer.k = Math.min(1.3, d / 3); return d > 0.3 ? [dx / d, 0, dz / d] : [0, 0, 1]; };
+          this.el.cyclone([x, this.world.heightAt(x, z), z - 3], steer, 6, 17, (c) => { cc[0] = c[0]; cc[1] = c[2]; });
+          this.audio.play('cyclone', vol);
+        } else { v._tw.x = x; v._tw.z = z; }
+        break;
+      }
       case 'ib': this.el.iceBarrier(P(0), P(3), 8); this.audio.play('ice_big', vol); break;
       // 'ic' with a 'P:id' target: a duelist sealed in ice (their own game emits it)
       case 'ic': { const tv = a[0] === 'B' ? this.views.boss : typeof a[0] === 'string' && a[0][0] === 'P' ? this.views.players.get(a[0].slice(2)) : this.views.mobs.get(a[0]); if (tv) this.el.encase(tv, a[1] / 10, a[2] / 10, a[3] ? a[3] / 10 : 10); break; }
@@ -1735,9 +2014,9 @@ export class Game {
     const pos = o.at || [t.x, t.y + t.h * 0.7, t.z];
     if (t.kind === 'demon') { this.ui.damageNumber(this.project(pos), 'IMMUNE', 'immune'); return; }
     // Physical power-ups: Killer Instinct crits, Executioner finishes the wounded, Heavy Rounds shove.
-    if (!o.chain && t.kind !== 'player') {
+    if (!o.chain) { // the other duelist is an enemy like any other: crits, executes and shoves land on them too (Nutty 2026-11-11)
       if (p.stats.crit && Math.random() < p.stats.crit) { dmg *= 2; o = { ...o, crit: true }; }
-      if (p.stats.execute && t.view && t.view.hp < 0.34) dmg *= 1 + p.stats.execute;
+      if (p.stats.execute && t.view && (t.kind === 'player' ? t.view.hp / (t.view.mh || 1) : t.view.hp) < 0.34) dmg *= 1 + p.stats.execute;
       if (p.stats.kb && !o.kx && !o.kz) { const dx = t.x - p.pos.x, dz = t.z - p.pos.z, dd = Math.hypot(dx, dz) || 1; o = { ...o, kx: dx / dd * p.stats.kb, kz: dz / dd * p.stats.kb }; }
     }
     dmg = Math.round(dmg);
@@ -1768,8 +2047,9 @@ export class Game {
     this.queueHit(t.id, dmg, o);
     // Against the other duelist the host scales hits down; show and count what actually lands.
     const eff = t.kind === 'player' ? Math.max(1, Math.round(dmg * DUEL.pvp)) : dmg;
-    p.damageDealt += dmg;
-    if (t.kind !== 'player' && dmg > 0 && this.dailyOn()) Dailies.add('dmg', Math.round(dmg));
+    if (t.kind === 'player' && p.supperUntil > this.now && !o.silent) p.supperFeed(pos, 0.4); // Last Supper in a duel: every hit you land feeds you a little
+    if (!o.kill) p.damageDealt += dmg; // Finger of Death kills outright: it is not damage for the records
+    if (t.kind !== 'player' && dmg > 0 && !o.kill && this.dailyOn()) Dailies.add('dmg', Math.round(dmg));
     if (p.stats.lifesteal) p.heal(eff * p.stats.lifesteal);
     if (!o.silentNum && !o.silent) this.ui.damageNumber(this.project(pos), o.shown != null ? Math.round(o.shown * (eff / (dmg || 1))) : eff, o.head ? 'crit' : o.crit ? 'pcrit' : o.zone === 'arm' || o.zone === 'leg' ? 'limb' : t.kind === 'boss' ? 'boss' : '');
     if (!o.silent) { this.ui.hitmarker(false, !!o.head); this.audio.play('hit'); }
@@ -1876,6 +2156,36 @@ export class Game {
 
   shake(a) { if (this.settings.shake === false) return; this.shakeAmt = Math.min(1, Math.max(this.shakeAmt, a)); }
   recoil(a) { if (this.player) this.player.pitch -= a * 0.012; }
+  // Real recoil (data.js `rec`, degrees): each shot throws the muzzle up and a little sideways over a few frames; a burst
+  // climbs harder shot by shot until it levels off; when the trigger rests, part of the kick settles back by itself.
+  recoilW(wp, a) {
+    const p = this.player, r = wp && wp.rec;
+    if (!p) return;
+    if (!r) return this.recoil(a);
+    const R = this.rcl || (this.rcl = { p: 0, y: 0, n: 0, t: -9, qp: 0, qy: 0, sum: 0 });
+    if (this.now - R.t > 0.3) { R.n = 0; R.sum = 0; }
+    R.n++; R.t = this.now;
+    const D = Math.PI / 180, aim = 1 - 0.3 * (p.ads || 0);
+    const tired = r.cap ? Math.max(0.18, 1 - R.sum / (r.cap * D)) : 1;
+    const v = r.v * D * aim * (1 + Math.min(R.n - 1, 8) * (r.grow || 0)) * (R.n === 1 ? r.first || 1 : 1) * tired;
+    const h = ((Math.random() * 2 - 1) * r.h + (r.b || 0) * (R.n > 2 ? 1 : 0.35)) * D * aim;
+    R.qp += v; R.qy += h; R.sum += v;
+    R.p += v * r.ret; R.y += h * r.ret;
+  }
+  recoilStep(dt) {
+    const R = this.rcl, p = this.player;
+    if (!R || !p) return;
+    if (R.qp || R.qy) {
+      const k = Math.min(1, dt * 30), dp = R.qp * k, dy = R.qy * k;
+      R.qp = Math.abs(R.qp - dp) < 1e-6 ? 0 : R.qp - dp; R.qy = Math.abs(R.qy - dy) < 1e-6 ? 0 : R.qy - dy;
+      p.pitch = Math.max(-1.1, p.pitch - dp); p.yaw -= dy;
+    }
+    if (this.now - R.t > 0.1 && (R.p || R.y)) {
+      const k = Math.min(1, dt * 8), bp = R.p * k, by = R.y * k;
+      R.p = Math.abs(R.p - bp) < 1e-6 ? 0 : R.p - bp; R.y = Math.abs(R.y - by) < 1e-6 ? 0 : R.y - by;
+      p.pitch = Math.min(1.25, p.pitch + bp); p.yaw += by;
+    }
+  }
 
   // ---------------- camera / aim ----------------
   // Sights see-through: while aiming, every weapon mesh gets a ghost copy of its material that fades to ~12% opacity
@@ -1936,9 +2246,13 @@ export class Game {
     this.fpNow = !!fp;
     if (rig) rig.firstPerson = !!fp;
     // Aim down sights: zoom in (scoped weapons a lot), and in first person line the eye up behind the gun.
-    const scoped = wpn.id === 'dmr' || wpn.id === 'sniper' || wpn.id === 'lever';
+    // Every weapon with `scope: true` (now or added later) is looked THROUGH in first person: see scope.js.
+    const scoped = !!wpn.scope;
+    const scopeK = fp && scoped ? Math.min(1, Math.max(0, (ads - 0.5) / 0.45)) : 0;
+    if (!this.scope) this.scope = new ScopeView();
+    this.scope.set(scopeK, this.scene, this.camera.aspect, RETICLES[wpn.reticle] || 0);
     const base = Math.max(55, Math.min(105, this.settings.fov || 70));
-    const fovT = base - (base - (fp ? (scoped ? 30 : 52) : 50 * base / 70)) * ads + (p.board ? (p.windK || 0) * 9 : 0); // sprinting on a board widens the view
+    const fovT = this.scope.zoomed ? scopeZoomFov(wpn) : base - (base - (fp ? (scoped ? 40 : 52) : 50 * base / 70)) * ads + (p.board ? (p.windK || 0) * 9 : 0); // sprinting on a board widens the view
     if (Math.abs(this.camera.fov - fovT) > 0.05) { this.camera.fov = fovT; this.camera.updateProjectionMatrix(); }
     if (fp) {
       // First person: eyes in the character's own head, which is hidden from view.
@@ -1948,15 +2262,15 @@ export class Game {
       // Looking through a scope: the weapon model would only block the view.
       const wm = p.model.userData.weapon;
       if (wm) { wm.visible = true; this.ghostSights(wm, wpn.adsHide ? ads : 0); } // sights, red dots and scopes stay solid: you look through them
-      // A scoped weapon: the ocular shows the magnified picture (scope.js) once the eye is nearly behind it.
-      if (wpn.scope && wm) {
-        if (!this.scope) this.scope = new ScopeView(this.renderer, this.scene, this.q);
-        this.scope.attach(wm);
-        this.scope.set(ads > 0.55, eye, new THREE.Vector3(dx, dy, dz), wpn.scopeFov || 10);
-      } else if (this.scope && this.scope.on) this.scope.set(false);
       // Aiming down the sights no longer moves the camera to the gun (it ended up inside the body); the rig brings the
       // gun up to the eye instead (characters.js, st.ads), so this works for every character, present and future.
       cam.lookAt(cam.position.x + dx * 30, cam.position.y + dy * 30, cam.position.z + dz * 30);
+      // Your head goes with a melee swing: the view rolls into the cut and dips with a chop, more for heavier weapons.
+      if (p.meleeT > 0 && wpn.kind === 'melee' && !wpn.cane && this.settings.shake !== false) {
+        const dur = Math.max(0.2, wpn.rate / p.stats.rate), ph = Math.min(1, Math.max(0, 1 - p.meleeT / dur));
+        const ps = samplePose(moveOf(wpn, p.meleeMove), ph), w = Math.sin(ph * Math.PI), kk = Math.min(1.7, Math.max(0.5, wpn.rate / 0.6));
+        cam.rotateZ(-ps.az * 0.045 * w * kk); cam.rotateX(Math.min(0, ps.el) * 0.02 * w * kk);
+      }
       if (cam.near !== 0.04) { cam.near = 0.04; cam.updateProjectionMatrix(); }
       if (this.shakeAmt > 0) { const s = this.shakeAmt * 0.06; cam.position.x += (Math.random() - 0.5) * s; cam.position.y += (Math.random() - 0.5) * s; this.shakeAmt = Math.max(0, this.shakeAmt - dt * 2.5); }
       this.sun.position.set(px + SUN_OFFSET.x, py + SUN_OFFSET.y, pz + SUN_OFFSET.z);
@@ -1965,7 +2279,6 @@ export class Game {
       return;
     }
     if (this.camera.near !== 0.1) { this.camera.near = 0.1; this.camera.updateProjectionMatrix(); }
-    if (this.scope && this.scope.on) this.scope.set(false);
     { const wm = p.model.userData.weapon; if (wm) { wm.visible = true; this.ghostSights(wm, 0); } } // out of the sights the gun is solid again
     // Up in a tree the foliage closes in, so the camera tucks in close.
     const high = p.climb || (p.onGround && p.pos.y - this.world.heightAt(p.pos.x, p.pos.z) > 2.5);
@@ -2220,9 +2533,33 @@ export class Game {
     this.lockPointer();
   }
 
+  // The Visitor's big beam: its blaster glows while it charges, then one red beam burns along the ground after its target, and smokes once it overheats.
+  visitorBeamFx(v) {
+    const m = v.muzzle(this._vm || (this._vm = new THREE.Vector3())), M = [m.x, m.y, m.z];
+    if (v.flag === 1) { if (Math.random() < 0.6) this.fx.smoke.emit({ p: [...M], v: [(Math.random() - 0.5) * 1.5, 3, (Math.random() - 0.5) * 1.5], life: 1.2, s0: 0.8, s1: 2.6, c0: [0.75, 0.75, 0.75, 0.55], c1: [0.5, 0.5, 0.5, 0] }); return; }
+    if (!v.lasering) { this._vc = 0; return; }
+    if (v.laser == null) {
+      // Charging: the glow at the muzzle swells and sparks are pulled in.
+      this._vc = Math.min(1, (this._vc || 0) + 0.02);
+      this.fx.glow.emit({ p: [...M], life: 0.12, s0: 1 + this._vc * 4, s1: 0.6, c0: [0.3, 0.65, 1, 0.9], c1: [0.15, 0.4, 1, 0] });
+      const a = Math.random() * 6.28, r = 3 + Math.random() * 2;
+      this.fx.spark.emit({ p: [M[0] + Math.cos(a) * r, M[1] + (Math.random() - 0.5) * 3, M[2] + Math.sin(a) * r], v: [-Math.cos(a) * r * 3, 0, -Math.sin(a) * r * 3], life: 0.3, s0: 0.25, s1: 0.05, c0: [0.6, 0.85, 1, 1], c1: [0.2, 0.5, 1, 0], g: 0 });
+      return;
+    }
+    // One thick, steady, dead-straight beam from the blaster to the spot it is burning.
+    const yaw = v.laser, D = v.beamD || 20, ex = v.x + Math.sin(yaw) * D, ez = v.z + Math.cos(yaw) * D, end = [ex, this.world.heightAt(ex, ez) + 0.2, ez];
+    this.fx.beam('vb0', M, end, { color: [0.12, 0.42, 1], core: [0.5, 0.78, 1], width: 1.5, life: 0.12, ripple: false });
+    this.fx.beam('vb1', M, end, { color: [0.1, 0.35, 1], core: [0.25, 0.55, 1], width: 3.4, life: 0.12, ripple: false, alpha: 0.16 });
+    this.fx.glow.emit({ p: [...M], life: 0.1, s0: 3.6, s1: 2, c0: [0.6, 0.85, 1, 0.9], c1: [0.2, 0.5, 1, 0] });
+    this.fx.glow.emit({ p: [...end], life: 0.14, s0: 2.5, s1: 4, c0: [0.5, 0.8, 1, 0.6], c1: [0.2, 0.45, 1, 0] });
+    for (let i = 0; i < 3; i++) this.fx.spark.emit({ p: [...end], v: [(Math.random() - 0.5) * 12, 3 + Math.random() * 7, (Math.random() - 0.5) * 12], life: 0.35, s0: 0.3, s1: 0.05, c0: [0.7, 0.9, 1, 1], c1: [0.3, 0.5, 1, 0], g: 10 });
+    if (Math.random() < 0.35) this.fx.dustBurst(end, 0.8);
+  }
+
   // Thermes' eye lasers: twin ice-blue beams from his eyes to the ground, then along it to the end of the sweep, with sparks where they burn.
   bossLaserFx() {
     const v = this.views.boss;
+    if (v && v.def.visitor) return this.visitorBeamFx(v);
     if (!v || v.laser == null || !v.eyes) return;
     const yaw = v.laser, T = THERMES, sx = Math.sin(yaw), cz = Math.cos(yaw);
     const gx = v.x + sx * 9, gz = v.z + cz * 9, gy = this.world.heightAt(gx, gz) + 0.5;
@@ -2289,7 +2626,7 @@ export class Game {
   cycleSpeed() {
     const k = this.party && this.party.kind;
     if (this.mode !== 'game') return;
-    if (k !== 'solo' && k !== 'local') { this.ui.toast('Speed-up is only for solo and couch co-op', 'bad', 'speed'); return; }
+    if (k !== 'solo' && k !== 'local') return; // online: no speed-up, and no message about it (Nutty 2026-11-11)
     if (!speedUnlocked()) { this.ui.toast('Game speed is locked: win 4 runs to earn it (see Unlockables)', 'bad', 'speed'); this.audio.play('deny'); return; }
     SPEED.n = SPEED.n >= 3 ? 1 : SPEED.n + 1;
     this.audio.play('ui');

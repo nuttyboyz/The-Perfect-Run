@@ -6,7 +6,6 @@ export const MUTATORS = [
   { id: 'jackpot', bit: 2, name: 'Jackpot', desc: 'Every 20th kill bursts into a fountain of gold.' },
   { id: 'pinata', bit: 4, name: 'Piñata', desc: 'Enemies pop in confetti and spill candy that heals you.' },
   { id: 'bottomless', bit: 8, name: 'Bottomless Clip', desc: 'Your guns never run dry. No reloading, ever.' },
-  { id: 'necro', bit: 16, name: 'Necromancer', desc: 'The dead rise and fight for you for 10 seconds, then fall for good.' },
   { id: 'bullettime', bit: 64, name: 'Bullet Time', desc: 'Hold aim and the whole world drops into slow motion while you move, shoot and fight at full speed. Hold it in the air to hang there.' },
   { id: 'lowgrav', bit: 32, name: 'Low Gravity', desc: 'Moon jumps, a slower moon-walk, floaty falls, and enemies drift away when they die.' },
 ];

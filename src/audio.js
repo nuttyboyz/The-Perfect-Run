@@ -193,6 +193,7 @@ export class Audio {
       case 'shot_revolver': this.noiseHit({ dur: 0.3, freq: 1800, gain: 0.8 * v, sweep: 0.2 }); this.tone({ freq: 120, to: 40, dur: 0.18, gain: 0.4 * v }); break;
       case 'shot_smg': this.noiseHit({ dur: 0.07, freq: 3000, gain: 0.3 * v, sweep: 0.4 }); break;
       case 'shot_ar': this.noiseHit({ dur: 0.1, freq: 2600, gain: 0.42 * v, sweep: 0.3 }); this.tone({ freq: 140, to: 50, dur: 0.06, gain: 0.2 * v }); break;
+      case 'shot_ak': this.noiseHit({ dur: 0.16, freq: 1900, gain: 0.62 * v, sweep: 0.22 }); this.tone({ freq: 125, to: 42, dur: 0.1, gain: 0.34 * v }); break;
       case 'shot_shotgun': this.noiseHit({ dur: 0.4, freq: 1400, gain: 0.9 * v, sweep: 0.15 }); this.tone({ freq: 90, to: 35, dur: 0.25, gain: 0.5 * v }); break;
       case 'shot_dmr': this.noiseHit({ dur: 0.35, freq: 3200, gain: 0.7 * v, sweep: 0.1 }); this.tone({ freq: 200, to: 50, dur: 0.15, gain: 0.35 * v }); break;
       case 'shot_coach': this.noiseHit({ dur: 0.45, freq: 1200, gain: 1.0 * v, sweep: 0.15 }); this.tone({ freq: 80, to: 30, dur: 0.3, gain: 0.55 * v }); break;

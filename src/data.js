@@ -24,6 +24,10 @@ export const CLASSES = [
     q: { id: 'fireball', name: 'Fireball', cd: 5, desc: 'Hurl a blazing fireball that flies through every enemy on its way (130 m), burning each one, then explodes where it lands.' },
     r: { id: 'inferno', name: 'Inferno', cd: 10, desc: 'Erupt in a wide ring of fire that scorches everything around you for 5s while blasts keep going off inside it.' },
     e: { id: 'firewall', name: 'Wall of Fire', cd: 10, desc: 'Raise a long, tall wall of flame across your crosshair for 6 seconds. Anything caught in it or walking through burns hard.' },
+    more: [
+      { id: 'breath', name: 'Dragon Breath', cd: 10, desc: 'Breathe a stream of fire that is at full length the moment you cast it, no holding needed. For 4s it sweeps wherever you face, burning everything in it.' },
+      { id: 'seekers', name: 'Homing Fireballs', cd: 5, desc: 'Loose 3 flaming skulls that hunt down the nearest enemies by themselves and explode on impact.' },
+    ],
   },
   {
     id: 'bastion', name: 'Bastion', element: 'Earth', color: 0x7a5a3a, accent: 0xd9a25a, css: '#d9a25a',
@@ -31,6 +35,11 @@ export const CLASSES = [
     q: { id: 'boulder', name: 'Boulder Toss', cd: 5, desc: 'Rip a boulder out of the ground and hurl it at your crosshair. It smashes on impact, stunning and scattering everything nearby.' },
     r: { id: 'rockarmor', name: 'Rock Armor', cd: 10, desc: 'Stone slabs clamp on to your body and you take no damage at all until Rock Armor is ready again. Every hit the armor takes shocks the ground, knocking back and stunning enemies around you.' },
     e: { id: 'pillars', name: 'Pillar Burst', cd: 10, desc: 'Stamp the ground: tall, jagged spikes of rock erupt under every enemy within 12 m, launching, stunning and crushing them. No shot gets through the rocks while they stand.' },
+    more: [
+      { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
+      { id: 'meteor', name: 'Meteor Call', cd: 10, desc: 'Mark a spot with your crosshair. Two seconds later a giant flaming rock falls from the sky and crushes everything there.' },
+      { id: 'stomp', name: 'Seismic Stomp', cd: 10, desc: 'Leap up and slam the ground. Everything nearby is staggered and takes heavy damage.' },
+    ],
   },
   {
     id: 'tempest', name: 'Tempest', element: 'Storm', color: 0x2c3f8f, accent: 0x8fb4ff, css: '#b57bff',
@@ -38,13 +47,24 @@ export const CLASSES = [
     q: { id: 'chain', name: 'Chain Lightning', cd: 5, desc: 'A thick braid of lightning strands that snap together on one focal point at the far end, going straight through everything in its path and striking every enemy it touches. The current also reflects to nearby enemies, and the braid stays up for 4s, striking anything that walks into it.' },
     r: { id: 'storm', name: 'Thunderstorm', cd: 10, desc: 'Call a wide storm cell (26 m across) that hammers the whole area with lightning for 4s. Every bolt stays up until the storm ends and hits anything that touches it.' },
     e: { id: 'shockwave', name: 'Thunder Shockwave', cd: 10, desc: 'Slam the ground and send a tight ring of electricity racing 32 m in every direction. Everything it crosses is badly shocked.' },
+    more: [
+      { id: 'fence', name: 'Tesla Fence', cd: 12, desc: 'Place two posts, one per press, anywhere you can aim. An electric fence joins them however far apart they are and does massive damage to whoever walks into it. It stands for 15s, has its own health and wears down as enemies cross. It recharges once the fence is gone.' },
+      { id: 'blink', name: 'Blink', cd: 5, desc: 'Teleport a short way toward your crosshair. The spot you left crackles with a pulse of electricity that shocks every enemy caught in it.' },
+    ],
   },
   {
     id: 'rime', name: 'Rime', element: 'Frost', color: 0x2f7fa8, accent: 0xaee8ff, css: '#3f86ff',
     tagline: 'Everything stops.',
-    q: { id: 'shards', name: 'Ice Shards', cd: 5, desc: 'Tiny ice shards form around you and dart at every enemy nearby, chilling what they hit.' },
+    q: { id: 'shards', name: 'Ice Shards', cd: 5, desc: 'Four large diamond crystals of ice form around you and dart at the nearest enemies, shattering on impact and chilling everything they hit.' },
     r: { id: 'barrier', name: 'Ice Barrier', cd: 10, desc: 'Raise a wall of ice ahead of you for 8s. Anything that touches it is locked inside an ice crystal for 10 seconds, however big.' },
     e: { id: 'tsunami', name: 'Tsunami', cd: 10, desc: 'A towering wave of water surges forward and drowns a wide spread of enemies.' },
+    more: [
+      { id: 'rain', name: 'Healing Rain', cd: 10, desc: 'Call down a small, heavy rain storm for 7s. Its raindrops heal you and every teammate under it, and are toxic to every enemy caught in it.' },
+      { id: 'whirl', name: 'Whirlpool', cd: 10, desc: 'Open a spinning whirlpool at your crosshair for 6s. It drags enemies in, traps and staggers them, and hurts more the longer they stay in it.' },
+      { id: 'jet', name: 'Pressure Jet', cd: 5, desc: 'Fire a thin, high-pressure stream of water along your crosshair. It pierces through every enemy and staggers them until it runs out.' },
+      { id: 'snowball', name: 'Snowball', cd: 10, desc: 'Hop into a snowball for 10s and roll through enemies. It grows as it rolls and hits harder the bigger it gets. Anything it touches is slowed for 3s.' },
+      { id: 'zero', name: 'Absolute Zero', cd: 10, desc: 'Every enemy near you stops dead for 5s, and so does every enemy shot in mid-air.' },
+    ],
   },
   {
     id: 'gale', name: 'Gale', element: 'Wind', color: 0x3f8a6c, accent: 0xbaffea, css: '#dfe4ea',
@@ -52,55 +72,93 @@ export const CLASSES = [
     q: { id: 'veil', name: 'Storm Veil', cd: 5, desc: 'Unleash a thick, howling curtain of wind in a wide cone ahead for 3s. It keeps shoving enemies back, slashes them and slows them while they are inside.' },
     r: { id: 'cyclone', name: 'Cyclone', cd: 10, desc: 'Unleash a tornado that drags enemies in and shreds them.' },
     e: { id: 'eye', name: 'Eye of the Storm', cd: 10, desc: 'Wrap yourself in a huge swirl of wind for 5s. Nothing can hurt you inside it, enemy shots are deflected back at their shooters, and enemies that touch the swirl are flung away. You can still shoot out.' },
+    more: [
+      { id: 'cloud', name: 'Cloud Form', cd: 10, desc: 'Turn into drifting mist until Cloud Form is ready again. You pass straight through enemies and attacks, nothing can see you, and you can keep attacking the whole time.' },
+      { id: 'tornado', name: 'Windmill', cd: 10, desc: 'Summon a tornado you steer with your crosshair like a guided missile for 6s. It drags in everything nearby, lifts enemies and shreds them, swallows enemy shots, and the fall hurts them again when it drops them.' },
+    ],
+  },
+  {
+    id: 'necro', name: 'Necromancer', element: 'Death', color: 0x2c3a2a, accent: 0x9be36a, css: '#9be36a',
+    tagline: 'Nothing stays buried.',
+    q: { id: 'lifedrain', name: 'Life Drain', cd: 5, desc: 'Latch onto the enemy at your crosshair and drain its life into yourself for 3s. It bleeds the whole time, and a long enough drain kills it.' },
+    r: { id: 'acid', name: 'Acid Splash', cd: 10, desc: 'Drop a huge puddle of acid at your feet for 8s. It burns and can kill, slows everything wading through it, and leaves each enemy it touched poisoned for 3s more.' },
+    e: { id: 'raise', name: 'Raise the Dead', cd: 10, desc: 'For 10s every enemy you kill gets back up and fights for you for 10 seconds, then falls for good. In a duel, three of the dead climb out of the ground and hunt your opponent.' },
+    more: [
+      { id: 'vines', name: 'Black Thorn Vines', cd: 10, desc: 'Huge black-rosed vines burst from the ground at your crosshair. Enemies can walk through them but are torn up the whole time they are inside. When the cooldown runs out the thorns fly off into every enemy nearby, and then it recharges again.' },
+      { id: 'scythe', name: "Reaper's Scythe", cd: 5, desc: 'A giant ghostly scythe sweeps a full circle around you, cutting down everything in reach.' },
+      { id: 'ghostwalk', name: 'Ghost Walk', cd: 10, desc: 'Your body stays behind while your spirit runs ahead for 6s, faster and untouchable, free to scout and attack. Then you snap back to your body. Press again to snap back early.' },
+      { id: 'crows', name: 'Crow Swarm', cd: 10, desc: 'A swarm of red-eyed crows dives from the sky onto your crosshair and tears at everything there in all directions for 5s.' },
+      { id: 'supper', name: 'Last Supper', cd: 10, desc: 'For the next 8s you heal a little for every enemy that dies. In a duel you heal a little for every hit you land.' },
+      { id: 'finger', name: 'Finger of Death', cd: 10, desc: 'Every enemy around you except bosses and champions dies instantly, its soul leaving its body. In a duel it takes a fifth of your opponent\'s health instead.' },
+    ],
   },
 ];
 export const CLASS_BY_ID = Object.fromEntries(CLASSES.map((c) => [c.id, c]));
+// Customize (Element page): every cooldown an element owns. Its first three are the ones it starts with; the rest come from the Elemental Vault.
+for (const c of CLASSES) c.pool = [c.q, c.r, c.e, ...(c.more || [])];
+// The element with a player's own three picks ([q, r, e] ids) in its slots. Anything invalid or doubled falls back to the standard three.
+export function classWith(id, abs) {
+  const c = CLASS_BY_ID[id];
+  if (!c || !Array.isArray(abs) || abs.length !== 3 || new Set(abs).size !== 3) return c;
+  const pick = abs.map((a) => c.pool.find((x) => x.id === a));
+  return pick.some((x) => !x) ? c : { ...c, q: pick[0], r: pick[1], e: pick[2] };
+}
+// The preview clip that shows a cooldown: the element's own three are filed by slot, vault ones by their id.
+export function clipName(c, ab) {
+  const base = CLASS_BY_ID[c.id];
+  for (const k of ['q', 'r', 'e']) if (base[k].id === ab.id) return c.id + '-' + k;
+  return 'ab-' + ab.id;
+}
 
+// Every gun handles like its real-world type (Nutty 2026-11-12), and every gun added later must get the same fields:
+//   rec: recoil in degrees: v = muzzle climb per shot, h = sideways wander, b = steady sideways pull (+ = right),
+//        ret = how much of the kick settles back by itself, grow = extra climb per shot of a burst, first = the first
+//        shot's extra kick, cap = where a long burst's climb levels off, bloom = spread added per shot of automatic fire.
+//   fall: [full damage to this many metres, weakest from this many, the weakest share]. hand: how fast it comes up to aim.
+//   scope: true = looked THROUGH in first person (scope.js: clear glass, zoom scopeFov, reticle). Otherwise the eye lines
+//   up on the gun's own sights (weapons.js sightOf: red dot, or the front sight post) and the shot lands on them.
+// Every melee weapon has two attacks that alternate, true to its type (meleemoves.js).
 // kind: melee | gun. Damage per hit/pellet. rate = seconds between attacks. Melee arc = total degrees the swing covers; every melee weapon shares the spear's range (4.8) and trail-sized sweep.
 import { SWORD_SHIELD_DATA } from './shields.js';
 // Sword-and-shield pairs (src/shields.js): one-handed melee that can also block and parry (Player.blockStep).
 export const WEAPONS = [
   ...SWORD_SHIELD_DATA,
-  { id: 'knife', name: 'Combat Knife', kind: 'melee', dmg: 30, rate: 0.32, range: 6.2, arc: 70, desc: 'Fast and vicious up close.' },
-  { id: 'sword', name: 'Longsword', kind: 'melee', dmg: 48, rate: 0.55, range: 6.2, arc: 165, desc: 'Wide sweeping cuts.' },
-  { id: 'katana', name: 'Katana', kind: 'melee', dmg: 42, rate: 0.42, range: 6.2, arc: 120, desc: 'Folded steel. Quick, clean cuts.' },
-  { id: 'spear', name: 'War Spear', kind: 'melee', dmg: 58, rate: 0.7, range: 8.4, arc: 40, desc: 'Long reach, wide sweeping thrusts.' },
-  { id: 'axe', name: 'Battle Axe', kind: 'melee', dmg: 85, rate: 0.95, range: 6.2, arc: 150, desc: 'A one-hand viking bearded axe with brass inlay. Swings alternate overhead chops and wide cuts.' },
-  { id: 'warhammer', name: 'Warhammer', kind: 'melee', dmg: 105, rate: 1.1, range: 6.2, arc: 100, kb: 12, desc: 'Crushing blows that hurl enemies back.' },
-  { id: 'claws', name: 'Wolverine Claws', kind: 'melee', fist: true, dmg: 28, rate: 0.27, range: 6.2, arc: 146, desc: 'Triple blades on both fists. Fast, long raking slashes.' },
-  { id: 'lucille', name: 'Lucille', kind: 'melee', dmg: 118, rate: 0.7, range: 6.2, arc: 135, kb: 12, desc: 'A baseball bat wrapped in barbed wire. Brutal, and it knocks them flying.' },
-  { id: 'machete', name: 'Machete', kind: 'melee', dmg: 78, rate: 0.36, range: 6.2, arc: 125, desc: 'A broad survival blade. Fast, heavy chops.' },
-  { id: 'fireaxe', name: 'Fire Axe', kind: 'melee', dmg: 142, rate: 0.95, range: 6.2, arc: 150, desc: 'Hickory-handled rescue axe, red head with a bright steel edge and a glass-breaker spike. Chops alternate with wide cuts.' },
-  { id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 190, rate: 1.25, range: 6.2, arc: 110, kb: 17, desc: 'A long-handled demolition hammer. Slow, and nothing stands up to it.' },
-  { id: 'chainsaw', name: 'Chainsaw', kind: 'melee', dmg: 24, rate: 0.26, range: 6.2, arc: 90, kb: 3, desc: 'Roaring two-handed saw. Shreds everything in front at a frantic pace.' },
-  { id: 'whip', name: 'Bullwhip', kind: 'melee', dmg: 36, rate: 0.5, range: 9.5, arc: 50, desc: 'A long lash with the longest reach of any melee weapon.' },
-  { id: 'alienblaster', tap: true, name: 'Alien Blaster', kind: 'gun', dmg: 82, rate: 0.14, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [1, 0.12, 0.1], beamLen: 9, kick: 0.35, desc: 'Strange alien pistol. Fires fast semi-auto bursts of short red beams that hit very hard.' },
-  { id: 'pistol', tap: true, name: 'Striker Pistol', kind: 'gun', dmg: 24, rate: 0.22, mag: 17, reload: 1.1, spread: 0.008, auto: false, desc: 'Polymer service pistol. Fast and reliable, 17 in the mag.' },
-  { id: 'revolver', tap: true, name: 'Combat Revolver', kind: 'gun', dmg: 55, rate: 0.55, mag: 6, reload: 1.8, spread: 0.004, auto: false, desc: 'Railed tactical wheelgun. Six heavy rounds.' },
-  { id: 'smg', name: 'Tactical SMG', kind: 'gun', dmg: 12, rate: 0.068, mag: 36, reload: 1.6, spread: 0.035, auto: true, desc: 'Compact and flat-shooting. Sprays fast at close range.' },
-  { id: 'ar', name: 'Carbine', kind: 'gun', dmg: 19, rate: 0.11, mag: 30, reload: 1.8, spread: 0.016, auto: true, desc: 'Short-barrel carbine with a red dot. All-round automatic.' },
-  { id: 'shotgun', name: 'Combat Shotgun', kind: 'gun', dmg: 11, pellets: 9, rate: 0.6, mag: 7, reload: 2.1, spread: 0.085, auto: false, desc: 'Semi-auto 12 gauge. Nine pellets of pure argument.' },
-  { id: 'coach', name: 'Tactical Double', kind: 'gun', dmg: 12, pellets: 8, rate: 0.7, mag: 2, reload: 1.6, spread: 0.09, auto: false, desc: 'Railed side-by-side defender. Two barrels, eight pellets each.' },
-  { id: 'lever', scope: true, scopeFov: 16, name: 'Battle Rifle', kind: 'gun', dmg: 40, rate: 0.36, mag: 20, reload: 2.2, spread: 0.004, auto: false, desc: 'Hard-hitting semi-auto .308 with a low-power scope.' },
-  { id: 'dmr', scope: true, scopeFov: 9, name: 'Marksman Rifle', kind: 'gun', dmg: 78, rate: 0.7, mag: 8, reload: 2.0, spread: 0.001, auto: false, pierce: 3, desc: 'Suppressed precision rifle. Pierces through 3 enemies.' },
-  { id: 'lmg', name: 'Machine Gun', kind: 'gun', dmg: 17, rate: 0.095, mag: 80, reload: 4.2, spread: 0.028, auto: true, adsBack: 1.5, adsUp: 0.1, desc: 'Belt-fed, with a red dot up top. Hold the trigger down.' },
+  { id: 'knife', name: 'Combat Knife', kind: 'melee', dmg: 34, rate: 0.3, range: 6.2, arc: 70, desc: 'Fast and vicious up close.' },
+  { id: 'sword', name: 'Longsword', kind: 'melee', dmg: 70, rate: 0.55, range: 6.2, arc: 165, desc: 'Wide sweeping cuts.' },
+  { id: 'katana', name: 'Katana', kind: 'melee', dmg: 52, rate: 0.42, range: 6.2, arc: 120, desc: 'Folded steel. Quick, clean cuts.' },
+  { id: 'spear', name: 'War Spear', kind: 'melee', dmg: 86, rate: 0.7, range: 8.4, arc: 40, desc: 'Long reach, wide sweeping thrusts.' },
+  { id: 'axe', name: 'Battle Axe', kind: 'melee', dmg: 118, rate: 0.9, range: 6.2, arc: 150, desc: 'A one-hand viking bearded axe with brass inlay. Swings alternate overhead chops and wide cuts.' },
+  { id: 'warhammer', name: 'Warhammer', kind: 'melee', dmg: 140, rate: 1.1, range: 6.2, arc: 100, kb: 12, desc: 'Crushing blows that hurl enemies back.' },
+  { id: 'claws', name: 'Claws', kind: 'melee', fist: true, dmg: 30, rate: 0.26, range: 6.2, arc: 110, desc: 'Triple blades on both fists. Fast raking slashes, right hand then left.' },
+  { id: 'lucille', name: 'Lucille', kind: 'melee', dmg: 100, rate: 0.75, range: 6.2, arc: 135, kb: 12, desc: 'A baseball bat wrapped in barbed wire. Brutal, and it knocks them flying.' },
+  { id: 'machete', name: 'Machete', kind: 'melee', dmg: 54, rate: 0.42, range: 6.2, arc: 125, desc: 'A broad survival blade. Fast, heavy chops.' },
+  { id: 'fireaxe', name: 'Fire Axe', kind: 'melee', dmg: 135, rate: 0.95, range: 6.2, arc: 150, desc: 'Hickory-handled rescue axe, red head with a bright steel edge and a glass-breaker spike. Chops alternate with wide cuts.' },
+  { id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 185, rate: 1.3, range: 6.2, arc: 110, kb: 17, desc: 'A long-handled demolition hammer. Slow, and nothing stands up to it.' },
+  { id: 'chainsaw', name: 'Chainsaw', kind: 'melee', dmg: 30, rate: 0.2, range: 6.2, arc: 90, kb: 3, desc: 'Roaring two-handed saw. Hold the attack to keep the motor running: it drives in, then rips across, over and over.' },
+  { id: 'whip', name: 'Bullwhip', kind: 'melee', dmg: 55, rate: 0.5, range: 9.5, arc: 50, desc: 'A long lash with the longest reach of any melee weapon.' },
+  { id: 'alienblaster', tap: true, name: 'Alien Blaster', kind: 'gun', dmg: 46, rate: 0.16, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [1, 0.12, 0.1], beamLen: 9, kick: 0.35, fall: [40, 90, 0.7], hand: 13, rec: { v: 0.7, h: 0.3, ret: 0.9 }, desc: 'Strange alien pistol. Fires fast semi-auto bursts of short red beams that hit hard.' },
+  { id: 'pistol', tap: true, name: 'Striker Pistol', kind: 'gun', dmg: 27, rate: 0.2, mag: 17, reload: 1.1, spread: 0.008, auto: false, fall: [25, 60, 0.55], hand: 14, rec: { v: 1.3, h: 0.4, ret: 0.85 }, desc: 'Polymer service pistol. Fast and reliable, 17 in the mag.' },
+  { id: 'smg', name: 'Tactical SMG', kind: 'gun', dmg: 13, rate: 0.068, mag: 36, reload: 1.6, spread: 0.035, auto: true, fall: [18, 48, 0.5], hand: 13, rec: { v: 0.22, h: 0.42, ret: 0.6, grow: 0.04, cap: 9, bloom: 0.0022 }, desc: 'Compact and flat-shooting. Sprays fast at close range.' },
+  { id: 'ar', name: 'Carbine', kind: 'gun', dmg: 20, rate: 0.092, mag: 30, reload: 1.8, spread: 0.014, auto: true, fall: [45, 100, 0.75], hand: 11, rec: { v: 0.26, h: 0.28, b: 0.05, ret: 0.6, grow: 0.04, cap: 8, bloom: 0.0015 }, desc: 'Short-barrel carbine with a red dot. All-round automatic.' },
+  { id: 'ak', name: 'AK-47', kind: 'gun', dmg: 26, rate: 0.1, mag: 30, reload: 2.3, spread: 0.02, auto: true, kick: 0.6, adsBack: 0.7, hand: 9.5, fall: [38, 90, 0.7], rec: { v: 0.42, h: 0.5, b: 0.2, ret: 0.5, grow: 0.05, first: 1.6, cap: 11, bloom: 0.003 }, desc: 'Stamped steel and wood. Hits harder than the Carbine and kicks up and to the right; fire it in short bursts. Aimed through its iron sights.' },
+  { id: 'shotgun', name: 'Combat Shotgun', kind: 'gun', dmg: 12, pellets: 9, rate: 0.55, mag: 7, reload: 2.1, spread: 0.085, auto: false, fall: [9, 28, 0.3], hand: 10, rec: { v: 4, h: 1.0, ret: 0.8 }, desc: 'Semi-auto 12 gauge. Nine pellets of pure argument.' },
+  { id: 'coach', name: 'Tactical Double', kind: 'gun', dmg: 17, pellets: 8, rate: 0.35, mag: 2, reload: 1.6, spread: 0.09, auto: false, fall: [8, 24, 0.25], hand: 10.5, rec: { v: 5.5, h: 1.3, ret: 0.8 }, desc: 'Railed side-by-side defender. Two barrels, eight pellets each.' },
+  { id: 'dmr', scope: true, scopeFov: 9, reticle: 'chevron', name: 'Marksman Rifle', kind: 'gun', dmg: 85, rate: 0.6, mag: 10, reload: 2.0, spread: 0.001, auto: false, pierce: 3, hand: 8.5, rec: { v: 2.2, h: 0.45, ret: 0.85 }, desc: 'Suppressed precision rifle. Pierces through 3 enemies.' },
   // More firearms. Optional fields: quiet (no muzzle flash), kick (view kick), tracer (colour),
   // proj ('rocket' | 'grenade': a visible projectile that explodes: radius, falloff, kb, speed),
   // spin (spin-up seconds), spreadMax / moveMul (minigun: spread widening, slower movement).
-  { id: 'sniper', scope: true, scopeFov: 6, name: 'Sniper Rifle', kind: 'gun', dmg: 140, rate: 1.15, mag: 5, reload: 2.8, spread: 0.0005, auto: false, pierce: 2, kick: 1.4, desc: 'Chassis bolt-action. One slow shot that goes through two enemies.' },
-  { id: 'pdw', name: 'Suppressed PDW', kind: 'gun', dmg: 15, rate: 0.085, mag: 40, reload: 1.5, spread: 0.012, auto: true, quiet: true, tracer: [0.75, 0.8, 0.85], kick: 0.2, desc: 'Compact and silenced. Tight, steady automatic fire.' },
-  { id: 'hpistol', tap: true, name: 'Heavy Pistol', kind: 'gun', dmg: 44, rate: 0.3, mag: 8, reload: 1.5, spread: 0.005, auto: false, kick: 0.8, desc: 'Big-bore semi-auto with a compensator. Hits hard, eight rounds.' },
-  { id: 'magnum', tap: true, name: 'Magnum Revolver', kind: 'gun', dmg: 92, rate: 0.8, mag: 6, reload: 2.4, spread: 0.002, auto: false, kick: 1.3, desc: 'Stainless, compensated hand cannon. Slow, heavy rounds.' },
-  { id: 'sawedoff', name: 'Shorty Pump', kind: 'gun', dmg: 11, pellets: 10, rate: 0.55, mag: 5, reload: 2.2, spread: 0.115, auto: false, kick: 1.2, desc: 'Fourteen-inch pump with a bird\'s-head grip. Devastating up close.' },
-  { id: 'crossbow', scope: true, scopeFov: 18, name: 'Crossbow', kind: 'gun', bolt: true, boltSpeed: 95, dmg: 95, rate: 0.9, mag: 1, reload: 1.6, spread: 0.001, auto: false, pierce: 2, quiet: true, tracer: [0.85, 0.7, 0.45], kick: 0.4, desc: 'Silent. One heavy bolt that skewers two enemies.' },
-  { id: 'longbow', name: 'Longbow', kind: 'gun', bow: true, dmg: 110, rate: 0.5, mag: 1, reload: 0, spread: 0, auto: false, proj: 'arrow', speed: 75, minSpeed: 22, draw: 0.9, nock: 0.5, pierce: 2, quiet: true, kick: 0.3, range: 120, tracer: [0.85, 0.75, 0.55], adsBack: 0.55, adsUp: 0.06, desc: 'Hold to draw, let go to loose. A quick tap lobs a weak arrow; a full draw flies flat and fast and skewers two enemies.' },
-  { id: 'grenadel', name: 'Grenade Launcher', kind: 'gun', dmg: 75, rate: 0.65, mag: 6, reload: 3.6, spread: 0, auto: false, proj: 'grenade', radius: 4.8, falloff: 0.45, kb: 9, speed: 29, kick: 0.9, adsBack: 0.9, adsUp: 0.15, desc: 'Six-shot revolving launcher. Lobs grenades that blow up on impact.' },
-  { id: 'rocket', name: 'Rocket Launcher', kind: 'gun', dmg: 200, rate: 0.8, mag: 1, reload: 3.4, spread: 0, auto: false, proj: 'rocket', radius: 7.5, falloff: 0.5, kb: 16, speed: 62, kick: 1.5, adsBack: 1.15, adsUp: 0.19, desc: 'Shoulder-fired. One rocket, huge blast. You are never hurt by it.' },
-  { id: 'minigun', name: 'Minigun', kind: 'gun', dmg: 9, rate: 0.036, mag: 300, reload: 5.5, spread: 0.018, spreadMax: 0.075, auto: true, spin: 0.6, moveMul: 0.55, kick: 0.12, adsBack: 1.0, adsUp: 0.22, desc: 'Barrels spin up for 0.6s, then it never stops. Spread widens; you move slowly.' },
+  { id: 'sniper', scope: true, scopeFov: 6, name: 'Sniper Rifle', kind: 'gun', dmg: 170, rate: 1.15, mag: 5, reload: 2.8, spread: 0.0005, auto: false, pierce: 2, kick: 1.4, hand: 7, rec: { v: 5.5, h: 0.7, ret: 0.9 }, desc: 'Chassis bolt-action. One slow shot that goes through two enemies.' },
+  { id: 'pdw', name: 'Suppressed PDW', kind: 'gun', dmg: 15, rate: 0.085, mag: 40, reload: 1.5, spread: 0.012, auto: true, quiet: true, tracer: [0.75, 0.8, 0.85], kick: 0.2, fall: [22, 55, 0.55], hand: 13, rec: { v: 0.17, h: 0.26, ret: 0.65, grow: 0.03, cap: 7, bloom: 0.0012 }, desc: 'Compact and silenced. Tight, steady automatic fire.' },
+  { id: 'magnum', tap: true, name: 'Magnum Revolver', kind: 'gun', dmg: 95, rate: 0.75, mag: 6, reload: 2.4, spread: 0.002, auto: false, kick: 1.3, fall: [35, 80, 0.65], hand: 12, rec: { v: 5, h: 0.9, ret: 0.8 }, desc: 'Stainless, compensated hand cannon. Slow, heavy rounds.' },
+  { id: 'crossbow', scope: true, scopeFov: 18, reticle: 'ranger', name: 'Crossbow', kind: 'gun', bolt: true, boltSpeed: 95, dmg: 190, rate: 0.9, mag: 1, reload: 1.3, spread: 0.001, auto: false, pierce: 2, quiet: true, tracer: [0.85, 0.7, 0.45], kick: 0.4, hand: 9, rec: { v: 0.8, h: 0.2, ret: 0.9 }, desc: 'Silent. One heavy bolt that skewers two enemies.' },
+  { id: 'longbow', name: 'Longbow', kind: 'gun', bow: true, dmg: 150, rate: 0.5, mag: 1, reload: 0, spread: 0, auto: false, proj: 'arrow', speed: 75, minSpeed: 22, draw: 0.9, nock: 0.5, pierce: 2, quiet: true, kick: 0.3, range: 120, tracer: [0.85, 0.75, 0.55], adsBack: 0.55, adsUp: 0.06, desc: 'Hold to draw, let go to loose. A quick tap lobs a weak arrow; a full draw flies flat and fast and skewers two enemies.' },
+  { id: 'grenadel', name: 'Grenade Launcher', kind: 'gun', dmg: 75, rate: 0.65, mag: 6, reload: 3.6, spread: 0, auto: false, proj: 'grenade', radius: 4.8, falloff: 0.45, kb: 9, speed: 29, kick: 0.9, adsBack: 0.9, adsUp: 0.15, hand: 8, rec: { v: 2.6, h: 0.5, ret: 0.85 }, desc: 'Six-shot revolving launcher. Lobs grenades that blow up on impact.' },
+  { id: 'rocket', name: 'Rocket Launcher', kind: 'gun', dmg: 320, rate: 0.8, mag: 1, reload: 2.8, spread: 0, auto: false, proj: 'rocket', radius: 7.5, falloff: 0.5, kb: 16, speed: 62, kick: 1.5, adsBack: 1.15, adsUp: 0.19, hand: 6.5, rec: { v: 1.8, h: 0.6, ret: 0.8 }, desc: 'Shoulder-fired. One rocket, huge blast. You are never hurt by it.' },
+  { id: 'minigun', name: 'Minigun', kind: 'gun', dmg: 8, rate: 0.036, mag: 300, reload: 5.5, spread: 0.018, spreadMax: 0.075, auto: true, spin: 0.6, moveMul: 0.55, kick: 0.12, adsBack: 1.0, adsUp: 0.22, hand: 6, rec: { v: 0.02, h: 0.2, ret: 0.3 }, desc: 'Barrels spin up for 0.6s, then it never stops. Spread widens; you move slowly.' },
   // range: how far the shot reaches (default 160). rapid: hits and effects are thinned like the minigun's.
   // energy: the magazine is a charge bar shown as a percentage; the reload is the recharge. shoulder: braced on the shoulder.
-  { id: 'pulse', name: 'Pulse Cannon', kind: 'gun', dmg: 20, rate: 0.06, mag: 100, reload: 3.0, spread: 0.02, auto: true, rapid: true, energy: true, shoulder: true, quiet: true, tracer: [0.5, 0.9, 1], kick: 0.1, bar: 'REPULSOR', adsHide: true, desc: 'Shoulder-mounted repulsor cannon. Hold fire for a steady stream until the charge bar runs dry, then wait for it to recharge.' },
-  { id: 'icegun', tap: true, name: 'Ice Gun', kind: 'gun', dmg: 16, rate: 0.3, mag: 14, reload: 1.9, spread: 0.006, auto: false, ice: 5, quiet: true, tracer: [0.55, 0.9, 1], kick: 0.3, adsHide: true, desc: 'Cryo rifle. Anything it hits is sealed in a block of ice for 5 seconds.' },
+  { id: 'pulse', name: 'Pulse Cannon', kind: 'gun', dmg: 13, rate: 0.06, mag: 100, reload: 3.0, spread: 0.02, auto: true, rapid: true, energy: true, shoulder: true, quiet: true, tracer: [0.5, 0.9, 1], kick: 0.1, bar: 'REPULSOR', adsHide: true, rec: { v: 0.02, h: 0.08, ret: 0.5 }, desc: 'Shoulder-mounted repulsor cannon. Hold fire for a steady stream until the charge bar runs dry, then wait for it to recharge.' },
+  { id: 'icegun', tap: true, name: 'Ice Gun', kind: 'gun', dmg: 16, rate: 0.3, mag: 14, reload: 1.9, spread: 0.006, auto: false, ice: 5, quiet: true, tracer: [0.55, 0.9, 1], kick: 0.3, adsHide: true, hand: 10, rec: { v: 0.6, h: 0.2, ret: 0.9 }, desc: 'Cryo rifle. Anything it hits is sealed in a block of ice for 5 seconds.' },
   // Tier 3 actives: used from their slot with the attack button (they replace the fists while selected).
   // Tier 3, gear: one piece goes with your two weapons. A `gear` item is passive (it never takes the weapon slot);
   // Laser Vision is a weapon of its own that key 3 selects. eyes: fired from the eyes, nothing held in the hands.
@@ -111,14 +169,22 @@ export const WEAPONS = [
   { id: 'turret', name: 'Turret Pack', kind: 'gun', tier: 3, deploy: true, how: 'Active · shoot to drop it · 9 s recharge', dmg: 0, rate: 0.5, mag: 1, reload: 9, spread: 0, auto: false, quiet: true, kick: 0.3, desc: 'Shoot to drop one huge sentry turret where you aim. It tears apart everything within 38 m for 10 seconds. 9 second recharge.' },
   { id: 'zombiestaff', name: 'Zombie Staff', kind: 'melee', tier: 3, how: 'Active · attack to slam · 60 s recharge', cane: true, summon: 5, cd: 60, dmg: 0, rate: 1.0, range: 0, arc: 0, desc: 'Hold it upright like a cane, then slam it into the ground: five zombies claw out and hunt everything around you for 25 seconds. 60 second recharge.' },
   // grav: a shot opens a gravity well (see GRAV) where it lands. Harmless to friends; deadly for enemies and the other duelist.
-  { id: 'gravgun', name: 'Gravity Gun', kind: 'gun', tier: 3, grav: true, how: 'Active · pulls enemies into a clump, then detonates', dmg: 0, rate: 1.4, mag: 6, reload: 2.4, spread: 0.002, auto: false, quiet: true, range: 90, tracer: [0.75, 0.45, 1], kick: 0.9, desc: 'Pulls everything into a clump, then detonates. Harmless to friends.' },
+  { id: 'gravgun', name: 'Gravity Gun', kind: 'gun', tier: 3, grav: true, how: 'Active · pulls enemies into a clump, then detonates', dmg: 0, rate: 1.4, mag: 6, reload: 2.4, spread: 0.002, auto: false, quiet: true, range: 90, tracer: [0.75, 0.45, 1], kick: 0.9, hand: 10, rec: { v: 1.6, h: 0.4, ret: 0.85 }, desc: 'Pulls everything into a clump, then detonates. Harmless to friends.' },
   // heal: a use mends every living teammate anywhere on the map for that fraction of their max HP (and you for HEAL.self). cd: seconds of recharge.
   { id: 'healstaff', name: 'Healing Staff', kind: 'melee', tier: 3, how: 'Active · attack to heal every ally · 6 s recharge', cane: true, heal: 0.35, cd: 6, dmg: 0, rate: 1.0, range: 0, arc: 0, desc: 'Hold it upright like a cane and raise it: a bending beam of light curls out to every teammate, wherever they are on the map, and heals them by 35%. You mend a little too. 6 second recharge.' },
   { id: 'laser', name: 'Laser Vision', kind: 'gun', tier: 3, eyes: true, dmg: 14, rate: 0.05, mag: 100, reload: 2.5, spread: 0, auto: true, rapid: true, energy: true, quiet: true, range: 120, tracer: [1, 0.2, 0.15], kick: 0.03, bar: 'LASER', cool: true, pierce: 8, desc: 'Press 3 and hold fire: two thick red beams burn from your eyes and punch through a whole line of enemies until the heat bar is full, then wait for them to cool.' },
 ];
+// Taken off the weapon wall (Nutty 2026-11-12). Kept here only so old references still resolve; never offered.
+export const RETIRED = [
+  { id: 'revolver', tap: true, name: 'Combat Revolver', kind: 'gun', dmg: 55, rate: 0.55, mag: 6, reload: 1.8, spread: 0.004, auto: false, desc: 'Railed tactical wheelgun. Six heavy rounds.' },
+  { id: 'lever', scope: true, scopeFov: 16, name: 'Battle Rifle', kind: 'gun', dmg: 40, rate: 0.36, mag: 20, reload: 2.2, spread: 0.004, auto: false, desc: 'Hard-hitting semi-auto .308 with a low-power scope.' },
+  { id: 'lmg', name: 'Machine Gun', kind: 'gun', dmg: 17, rate: 0.095, mag: 80, reload: 4.2, spread: 0.028, auto: true, adsBack: 1.5, adsUp: 0.1, desc: 'Belt-fed, with a red dot up top. Hold the trigger down.' },
+  { id: 'hpistol', tap: true, name: 'Heavy Pistol', kind: 'gun', dmg: 44, rate: 0.3, mag: 8, reload: 1.5, spread: 0.005, auto: false, kick: 0.8, desc: 'Big-bore semi-auto with a compensator. Hits hard, eight rounds.' },
+  { id: 'sawedoff', name: 'Shorty Pump', kind: 'gun', dmg: 11, pellets: 10, rate: 0.55, mag: 5, reload: 2.2, spread: 0.115, auto: false, kick: 1.2, desc: 'Fourteen-inch pump with a bird\'s-head grip. Devastating up close.' },
+];
 // Bare hands: what you fight with when the loadout is all gear. Not on the weapon wall.
 export const BARE = { id: 'bare', name: 'Bare Hands', kind: 'melee', fist: true, dmg: 24, rate: 0.3, range: 6.2, arc: 146, desc: 'Nothing but your fists.' };
-export const WEAPON_BY_ID = Object.fromEntries([...WEAPONS, BARE].map((w) => [w.id, w]));
+export const WEAPON_BY_ID = Object.fromEntries([...WEAPONS, ...RETIRED, BARE].map((w) => [w.id, w]));
 // The weapon wall has three tiers: 1 melee, 2 guns, 3 gear. A loadout is two picks from tiers 1-2 and one from tier 3,
 // kept in that order ([weapon, weapon, gear]).
 export const TIER = (w) => (!w ? 0 : w.tier === 3 ? 3 : w.kind === 'melee' ? 1 : 2);
@@ -256,7 +322,7 @@ export const MOBS = {
   echo2: { name: 'Echo of Sandreaver', tier: 3, hp: 1200, speed: 5.4, dmg: 32, range: 3.4, rate: 1.3, radius: 1.2, height: 4.2, scale: 1, summoned: true, cost: 3, leap: { min: 6, max: 16, cd: 5, wind: 0.5, t: 0.6, h: 3.4 } },
   echo3: { name: 'Echo of Rimefang', tier: 3, hp: 1300, speed: 5.4, dmg: 32, range: 3.6, rate: 1.4, radius: 1.2, height: 4.4, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 34, cd: 5 } },
   echo4: { name: 'Echo of Magmaw', tier: 3, hp: 1500, speed: 4.0, dmg: 36, range: 3.8, rate: 1.7, radius: 1.3, height: 4.8, scale: 1, summoned: true, cost: 3, burnHit: { n: 3, every: 1, k: 0.4 }, slam: { r: 5.5, d: 1.0, dmg: 38, cd: 5 } },
-  echo5: { name: 'Echo of the Perfect One', tier: 3, hp: 1800, speed: 5.2, dmg: 38, range: 3.8, rate: 1.4, radius: 1.3, height: 5, scale: 1, summoned: true, cost: 3, slam: { r: 5.5, d: 1.0, dmg: 40, cd: 5 } },
+  echo5: { name: 'Echo of Vexaris', tier: 3, hp: 1800, speed: 5.2, dmg: 38, range: 3.8, rate: 1.4, radius: 1.3, height: 5, scale: 1, summoned: true, cost: 3, slam: { r: 5.5, d: 1.0, dmg: 40, cd: 5 } },
 };
 // Every stage has its own tribe: these are the ground types a round draws from (flyers join on top, see HostSim.pickLineup).
 export const STAGE_MOBS = {
@@ -304,6 +370,13 @@ Object.assign(MOBS, {
   wasp: { name: 'Hive Wasp', tier: 2, fly: true, hp: 90, speed: 7.6, dmg: 13, range: 2.6, rate: 1.4, radius: 0.8, height: 2.8, scale: 1, color: 0xffa020 },
   echo7: { name: 'Echo of Mossback', tier: 3, hp: 1300, speed: 4.4, dmg: 32, range: 3.6, rate: 1.5, radius: 1.2, height: 4.4, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 34, cd: 5 } },
   echo8: { name: 'Echo of The Visitor', tier: 3, hp: 1800, speed: 5.6, dmg: 36, range: 3.6, rate: 1.3, radius: 1.1, height: 5.0, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 36, cd: 4.5 } },
+  // Thermes calls back the bosses beaten earlier in the run as his team mates (each with its own health bar).
+  echo9: { name: 'Echo of Dreadknight', tier: 3, hp: 1500, speed: 5.2, dmg: 34, range: 3.6, rate: 1.3, radius: 1.2, height: 4.4, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 36, cd: 5 } },
+  echo10: { name: 'Echo of The Archmage', tier: 3, hp: 1300, speed: 4.6, dmg: 32, range: 3.6, rate: 1.5, radius: 1.2, height: 4.2, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 34, cd: 5 } },
+  echo11: { name: 'Echo of The Flayed', tier: 3, hp: 1500, speed: 5.6, dmg: 30, range: 3.4, rate: 0.9, radius: 1.2, height: 4.4, scale: 1, summoned: true, cost: 3, leap: { min: 6, max: 16, cd: 5, wind: 0.5, t: 0.6, h: 3.4 } },
+  echo12: { name: 'Echo of Rotgut', tier: 3, hp: 1200, speed: 5.4, dmg: 30, range: 3.4, rate: 1.4, radius: 1.2, height: 4.0, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 34, cd: 5 } },
+  echo13: { name: 'Echo of Big Elvis', tier: 3, hp: 1700, speed: 4.2, dmg: 36, range: 3.8, rate: 1.6, radius: 1.3, height: 4.8, scale: 1, summoned: true, cost: 3, slam: { r: 5.5, d: 1.0, dmg: 38, cd: 5 } },
+  echo14: { name: 'Echo of Uncle Gus', tier: 3, hp: 1500, speed: 4.4, dmg: 34, range: 3.6, rate: 1.5, radius: 1.3, height: 4.6, scale: 1, summoned: true, cost: 3, leap: { min: 6, max: 16, cd: 5, wind: 0.5, t: 0.6, h: 3.4 } },
 });
 
 // The rest of the Mixamo bodies as mobs (Nutty 2026-11-05: "all other unlisted characters will be added to the mobs").
@@ -398,19 +471,19 @@ export const BOSSES = [
   { name: 'Sandreaver', hp: 3600, color: 0x9a6a3a, glow: 0xffc04a, scale: 3.2, speed: 5.0, attacks: ['charge', 'barrage', 'slam'] },
   { name: 'Rimefang', hp: 4400, color: 0x8ab0d0, glow: 0x9fe8ff, scale: 3.4, speed: 5.4, attacks: ['charge', 'ring', 'slam', 'barrage'] },
   { name: 'Magmaw', hp: 5400, color: 0x3a1a12, glow: 0xff6a1a, scale: 3.8, speed: 4.0, attacks: ['slam', 'barrage', 'ring', 'summon'] },
-  { name: 'The Perfect One', hp: 7500, color: 0x1a1024, glow: 0xd9a0ff, scale: 4.0, speed: 5.2, attacks: ['slam', 'ring', 'charge', 'barrage', 'summon'] },
+  { name: 'Vexaris', hp: 7500, color: 0x1a1024, glow: 0xd9a0ff, scale: 4.0, speed: 5.2, attacks: ['volley', 'beam', 'ring', 'volley', 'summon'] },
   // Round 6, always: a colossus. Calls minions and the bosses you already beat. dmgAdd is on top of the usual +10 a round.
-  { name: 'Thermes', hp: 10000, color: 0x2a1040, glow: 0x5aa8ff, scale: 9.5, speed: 5.0, reach: 12, rad: 5, dmgAdd: 100, attacks: ['eyelaser', 'quake', 'eyelaser', 'quake'] },
+  { name: 'Thermes', hp: 10000, color: 0x2a1040, glow: 0x5aa8ff, scale: 9.5, speed: 5.0, reach: 12, rad: 5, dmgAdd: 100, attacks: ['eyelaser', 'axespin', 'quake', 'meteor', 'echo', 'eyelaser', 'axespin', 'quake', 'meteor'] },
   // 7: the Hot Springs Valley's boss. 8: The Visitor, the hidden space map's boss: exactly 10,000 health (flatHp) and +400 damage on every attack.
   { name: 'Mossback', hp: 3200, color: 0x4a6a2a, glow: 0x9aff6a, scale: 3.6, speed: 4.4, attacks: ['slam', 'ring', 'summon', 'charge'] },
-  { name: 'The Visitor', hp: 10000, flatHp: true, dmgAdd: 400, color: 0x9aa4b0, glow: 0x7dffb0, scale: 6.5, speed: 5.4, reach: 8, rad: 3.4, attacks: ['barrage', 'ring', 'charge', 'summon', 'slam', 'barrage'] },
+  { name: 'The Visitor', hp: 10000, flatHp: true, dmgAdd: 400, color: 0x9aa4b0, glow: 0x7dffb0, scale: 6.5, speed: 5.4, reach: 8, rad: 3.4, visitor: true, attacks: ['tpnear', 'vbeam', 'tpfar', 'ring', 'vbeam', 'tpnear', 'summon'] },
   // 9-13 (Nutty 2026-11-05): the Mixamo bosses that replace the old rotating stage bosses (0-5 and 7 stay in the table for echoes).
-  { name: 'Dreadknight', hp: 4200, color: 0x2a2a34, glow: 0x9a3aff, scale: 3.6, speed: 5.0, attacks: ['charge', 'slam', 'ring', 'barrage'] },   // 9: #9 black-armoured warlord
-  { name: 'The Archmage', hp: 3800, color: 0x5a2a4a, glow: 0xff5ad0, scale: 3.4, speed: 4.6, attacks: ['barrage', 'ring', 'summon', 'slam'] }, // 10: #24 ornate mage
-  { name: 'The Flayed', hp: 4600, color: 0x8a2a2a, glow: 0xff4a3a, scale: 3.8, speed: 5.4, attacks: ['charge', 'slam', 'charge', 'ring'] },    // 11: #26 skinless horror
-  { name: 'Rotgut', hp: 3400, color: 0x4a7a3a, glow: 0x9aff4a, scale: 3.2, speed: 5.6, attacks: ['summon', 'charge', 'slam', 'barrage'] },     // 12: #28 zombie
-  { name: 'Big Elvis', hp: 5000, color: 0xe8e0d0, glow: 0xffd04a, scale: 4.0, speed: 4.2, attacks: ['slam', 'ring', 'slam', 'charge'] },       // 13: #20 the huge jumpsuit crooner
-  { name: 'Uncle Gus', hp: 4400, color: 0xd0a070, glow: 0xffa040, scale: 3.8, speed: 4.4, attacks: ['slam', 'charge', 'summon', 'ring'] },      // 14: #25 the big man in the shirt
+  { name: 'Dreadknight', hp: 4200, color: 0x2a2a34, glow: 0x9a3aff, scale: 3.6, speed: 5.0, attacks: ['pursuit', 'slam', 'charge', 'pursuit', 'ring'] },   // 9: #9 black-armoured warlord
+  { name: 'The Archmage', hp: 3800, color: 0x5a2a4a, glow: 0xff5ad0, scale: 3.4, speed: 4.6, attacks: ['beam', 'ring', 'summon', 'beam', 'barrage'] }, // 10: #24 ornate mage
+  { name: 'The Flayed', hp: 4600, color: 0x8a2a2a, glow: 0xff4a3a, scale: 3.8, speed: 5.4, attacks: ['flurry', 'charge', 'flurry', 'slam'] },    // 11: #26 skinless horror
+  { name: 'Rotgut', hp: 3400, color: 0x4a7a3a, glow: 0x9aff4a, scale: 3.2, speed: 5.6, attacks: ['summon', 'pools', 'charge', 'pools'] },     // 12: #28 zombie
+  { name: 'Big Elvis', hp: 5000, color: 0xe8e0d0, glow: 0xffd04a, scale: 4.0, speed: 4.2, attacks: ['stomp', 'slam', 'charge', 'stomp', 'ring'] },       // 13: #20 the huge jumpsuit crooner
+  { name: 'Uncle Gus', hp: 4400, color: 0xd0a070, glow: 0xffa040, scale: 3.8, speed: 4.4, attacks: ['leap', 'slam', 'leap', 'summon'] },      // 14: #25 the big man in the shirt
 ];
 
 // Death arrives at the 10 minute mark of every round. She can be killed, but her health bar is 500 times a Ghoul's.
@@ -426,7 +499,7 @@ export const NPCS = {
   medic: { name: 'Ranger-Medic', role: 'Support', cost: 90, hp: 120, dmg: 16, rate: 1.0, range: 20, heal: 8, healRate: 2.0, speed: 7, color: 0x4a8a6a, desc: 'Ranged fighter who also heals.' },
 };
 // Necromancer mutator: a fallen enemy back on its feet for 10 s (its body, health and hits are set from the enemy it was).
-NPCS.thrall = { name: 'Risen', role: 'Summoned', cost: 0, summoned: true, risen: true, life: 10, hp: 100, dmg: 14, rate: 0.85, range: 2.3, speed: 4.4, hunt: 40, color: 0x5aff9a, desc: 'Raised by the Necromancer mutator.' };
+NPCS.thrall = { name: 'Risen', role: 'Summoned', cost: 0, summoned: true, risen: true, life: 10, hp: 100, dmg: 14, rate: 0.85, range: 2.3, speed: 4.4, hunt: 40, color: 0x5aff9a, desc: 'Raised by Raise the Dead.' };
 export const NPC_TYPES = Object.keys(NPCS);
 
 export const BLESSINGS = [
@@ -549,7 +622,8 @@ export const EXTRA_BY_CLASS = {
   bastion: { name: 'Extra Boulder', desc: 'Boulder Toss hurls one more boulder per cast (stacks)' },
   gale: { name: 'Extra Tornado', desc: 'Cyclone unleashes one more tornado per cast (stacks)' },
   tempest: { name: 'Extra Shockwave', desc: 'Thunder Shockwave sends out one more ring, a beat behind the first (stacks)' },
-  rime: { name: 'More Shards', desc: 'Ice Shards summons 4 more shards per cast (stacks)' },
+  necro: { name: 'Wider Drain', desc: 'Life Drain latches onto one more enemy per cast (stacks)' },
+  rime: { name: 'More Crystals', desc: 'Ice Shards summons 2 more crystals per cast (stacks)' },
 };
 export function puInfo(pu, cls) {
   if (pu.kind === 'extra') return EXTRA_BY_CLASS[cls.id] || { name: pu.name, desc: pu.desc };

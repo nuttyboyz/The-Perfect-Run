@@ -114,6 +114,16 @@
   </div>
 </section>
 
+<!-- ============ DUEL STAGE SELECT (versus the CPU) ============ -->
+<section class="screen" id="s-dstage">
+  <div class="panel dstage">
+    <h2>Stage Select</h2>
+    <p class="muted">Pick the arena for this fight.</p>
+    <div class="ds-cards" id="ds-cpu"></div>
+    <button class="btn small ghost" data-back="s-duel">Back</button>
+  </div>
+</section>
+
 <!-- ============ COUCH SETUP ============ -->
 <section class="screen" id="s-couch">
   <div class="panel couch">
@@ -188,10 +198,10 @@
       </label>
       <label class="field check" id="cpu-field"><input type="checkbox" id="cpu-play"><span>CPU Run</span></label>
       <label class="field" id="round-field"><span>Round length</span>
-        <select id="round-len"><option value="10">10 minutes (standard)</option><option value="0">Endless (use the altar to move on)</option></select>
+        <select id="round-len"><option value="10">10 minutes</option><option value="0">Endless</option></select>
       </label>
       <label class="field" id="diff-field"><span>Difficulty</span>
-        <select id="difficulty"><option value="normal">Normal</option><option value="hard">Hard (win it to unlock a secret map)</option></select>
+        <select id="difficulty"><option value="normal">Normal</option><option value="hard">Hard</option></select>
       </label>
       <div class="field mu-field" id="mu-field"><span>Mutators <em>just for fun, nothing counts</em></span><button type="button" class="mu-sum" id="mu-sum">Off</button><div class="mu-pop"><div class="mu-chips" id="mu-chips"></div><p class="mu-desc" id="mu-desc"></p><p class="mu-note">Just for fun: a run with mutators counts toward nothing (no unlocks, challenges, records or PP).</p></div></div>
       <button class="btn primary big" id="btn-ready">Start the run</button>

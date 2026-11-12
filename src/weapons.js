@@ -66,7 +66,16 @@ export function mats() {
     brass: new THREE.MeshStandardMaterial({ color: 0xd9b25c, metalness: 1, roughness: 0.28 }),
     ironRed: new THREE.MeshStandardMaterial({ color: 0xa91616, metalness: 0.78, roughness: 0.26, roughnessMap: rough }), // hot-rod red armour plate
     ironGold: new THREE.MeshStandardMaterial({ color: 0xe2b23c, metalness: 1, roughness: 0.24 }),
-    lens: new THREE.MeshPhysicalMaterial({ color: 0x223344, metalness: 0.2, roughness: 0.05, clearcoat: 1, emissive: 0x112233 }),
+    lens: new THREE.MeshPhysicalMaterial({ color: 0x0b0f14, metalness: 0.6, roughness: 0.06, clearcoat: 1, emissive: 0x04070a }),
+    // Red-dot and holographic sight glass: clear, so you look through it at the target with the dot on top.
+    glass: new THREE.MeshPhysicalMaterial({ color: 0xa8d0e0, metalness: 0, roughness: 0.05, transparent: true, opacity: 0.1, depthWrite: false }),
+    // AK-47 (Nutty 2026-11-12, from a photo): blued-black steel with a worn sheen, a grey gun-metal magazine, glossy
+    // reddish-brown wood with visible grain, and a dark brown-black grip.
+    akSteel: new THREE.MeshStandardMaterial({ color: 0x343a44, metalness: 0.78, roughness: 0.32, roughnessMap: rough }),
+    akWorn: new THREE.MeshStandardMaterial({ color: 0x7a8088, metalness: 1, roughness: 0.26, roughnessMap: rough }), // edges and pins rubbed back to bare steel
+    akMag: new THREE.MeshStandardMaterial({ color: 0x6d737c, metalness: 0.7, roughness: 0.3, roughnessMap: rough }),
+    akWood: new THREE.MeshPhysicalMaterial({ map: grainTexture('#6f2d15', '#1e0703', 150), roughness: 0.3, metalness: 0, clearcoat: 0.75, clearcoatRoughness: 0.18 }),
+    akGrip: new THREE.MeshPhysicalMaterial({ color: 0x1a0f0a, roughness: 0.45, metalness: 0, clearcoat: 0.2, clearcoatRoughness: 0.4 }),
     dot: new THREE.MeshBasicMaterial({ color: 0xff2a2a, toneMapped: false }),
     // Modern firearms (guns.js): hard-anodised aluminium, rubber overmould, nylon webbing, dark recesses, fibre-optic sights, shotshells.
     anod: new THREE.MeshStandardMaterial({ color: 0x4d525a, metalness: 0.7, roughness: 0.48, roughnessMap: rough }),
@@ -672,7 +681,7 @@ function warhammer() {
   return { parts: P, reach: 0.9, support: [0, 0, 0.35], twoHanded: true };
 }
 
-// Wolverine claws: the first fist weapon. One object holds both fists (right at x = -FIST, left at +FIST, weapon
+// Claws: the first fist weapon. One object holds both fists (right at x = -FIST, left at +FIST, weapon
 // space x = the wearer's left), each a vertical knuckle bar with three long blades pointing along +Z, and the
 // character holds it with a punching grip (see CharacterRig). `fist` are the two grip points, `swipe` the
 // blade spans the swing trail follows.
@@ -1001,6 +1010,23 @@ const meleeBuilder = (id) => AXE_PICKS[id] || MELEE[id] || SILVER_VARIANTS[id] |
 // Longbows (longbow.js): 'longbow' is whichever variant is picked; bow1..bow5 are the variants themselves (weapon-wall cards).
 const bowBuilder = (id) => LONGBOW_VARIANTS[id] || (id === 'longbow' ? LONGBOW_VARIANTS[longbowPick()] : null);
 
+// The line of sight of a gun's own sights, in weapon space: the red dot if it has one, else the tip of the front sight
+// post (the brightest fibre dot on the centreline, furthest down the barrel). A builder can also say it outright with
+// `sight: [x, y, z]`. First person aims the eye along this line, so the shot lands where the sights sit. null = no sights
+// (the eye sits a little above the barrel as before).
+function sightOf(d) {
+  if (d.sight) return d.sight;
+  const m = mats(); let best = null;
+  for (const [g, mat] of d.parts) {
+    if (mat !== m.dot && mat !== m.fiber) continue;
+    g.computeBoundingBox(); const b = g.boundingBox, c = [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2];
+    if (Math.abs(c[0]) > 0.003) continue; // on the centreline only (a rear notch's dots sit either side)
+    const rank = (mat === m.dot ? 100 : 0) + c[2];
+    if (!best || rank > best.rank) best = { rank, c };
+  }
+  return best ? best.c : null;
+}
+
 export function makeWeapon(id, { card = false } = {}) {
   let g, kind = 'melee', muzzle = [0, 0, 0.5], support = null, twoHanded = false, pistol = false, flat = false;
   const extra = {};
@@ -1019,6 +1045,7 @@ export function makeWeapon(id, { card = false } = {}) {
     if (d.cardTilt) extra.cardTilt = d.cardTilt;
   } else if (GUNS[id]) {
     const d = (id === 'grenadel' ? grenadelModern : GUNS[id])(); // the modern gunmetal launcher replaces the revolver-style one
+    { const sg = d.shoulder || d.fist ? null : sightOf(d); if (sg) extra.sight = new THREE.Vector3(...sg); }
     g = build(d.parts); kind = 'gun'; muzzle = d.muzzle; support = d.support; twoHanded = !d.pistol; pistol = !!d.pistol;
     // A rotor that spins (minigun) and a round that can be hidden when the gun is empty (rocket, crossbow bolt).
     if (d.spinner) { const sp = build(d.spinner.parts); sp.position.set(...d.spinner.at); g.add(sp); extra.spinner = sp; }
@@ -1032,7 +1059,13 @@ export function makeWeapon(id, { card = false } = {}) {
     if (d.glow) { extra.glow = d.glow; extra.gauge = d.gauge; for (const e of d.extras) g.add(e); }
   } else if (meleeBuilder(id)) {
     const d = meleeBuilder(id)();
-    g = build(d.parts); support = d.support; twoHanded = d.twoHanded; muzzle = [0, 0, d.reach]; flat = !d.fist;
+    if (d.fist && !card) {
+      // A fist weapon is two halves (right hand, left hand) so each hand can strike on its own while the other stays on guard.
+      g = new THREE.Group();
+      const R = build(d.parts.filter(([q]) => { q.computeBoundingBox(); return q.boundingBox.min.x + q.boundingBox.max.x < 0; }));
+      const L = build(d.parts.filter(([q]) => q.boundingBox.min.x + q.boundingBox.max.x >= 0));
+      g.add(R, L); extra.halves = [R, L];
+    } else g = build(d.parts); support = d.support; twoHanded = d.twoHanded; muzzle = [0, 0, d.reach]; flat = !d.fist;
     if (d.shield) {
       // Sword-and-shield: the shield is its own group (not added to g) in shield space: centred at the origin,
       // lying in the Y/Z plane, front face toward +X, up +Y. The character rig mounts it on the off arm.

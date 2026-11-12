@@ -7,12 +7,32 @@ import * as THREE from 'three';
 import * as TX from './textures.js';
 import { mulberry32, makeNoise } from './rng.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { scanReady, scanGeo, scanMat, scanVariants } from './scan.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 let ROCK_GEOS = null, ROCK_MAT = null, ICE_GEO = null, ICE_MAT = null;
 
-function rockGeos() {
+let ROCK_SCAN = null;
+// The scanned boulder (real photo-scan geometry and textures), centred on the origin and about 1 m in radius, turned four ways.
+function scanRocks() {
+  if (ROCK_SCAN) return ROCK_SCAN;
+  if (!scanReady() || !scanVariants('boulder_01').length || !scanMat('boulder_01')) return null;
+  const out = [];
+  for (let k = 0; k < 4; k++) {
+    const g = scanGeo('boulder_01_0', { radius: 1 });
+    if (!g) return null;
+    g.computeBoundingBox(); const c = g.boundingBox.getCenter(new THREE.Vector3()); g.translate(-c.x, -c.y, -c.z);
+    const h = g.boundingBox.max.y - g.boundingBox.min.y;
+    g.scale(1, Math.min(1.6, 1.5 / Math.max(0.5, h)), 1); // scans sit low and wide: round them up a little for throwing
+    g.rotateY(k * 1.7); if (k % 2) g.rotateX(Math.PI);
+    g.computeBoundingSphere(); const r = g.boundingSphere.radius; g.scale(1.05 / r, 1.05 / r, 1.05 / r);
+    out.push(g);
+  }
+  return (ROCK_SCAN = out);
+}
+export function rockGeos() {
+  const sc = scanRocks(); if (sc) return sc;
   if (ROCK_GEOS) return ROCK_GEOS;
   ROCK_GEOS = [];
   for (let k = 0; k < 4; k++) {
@@ -58,7 +78,8 @@ export function rockMaterial(tint) {
   return new THREE.MeshStandardMaterial({ map: m.map, normalMap: m.normalMap, normalScale: new THREE.Vector2(1.4, 1.4), roughness: 0.93, metalness: 0.02 });
 }
 
-function rockMat() {
+export function rockMat() {
+  if (scanRocks()) return scanMat('boulder_01');
   if (!ROCK_MAT) ROCK_MAT = rockMaterial();
   return ROCK_MAT;
 }
@@ -1319,7 +1340,7 @@ export class Elements {
       dur,
       update: (dt, t) => {
         if (face) { const f = face(); dir.lerp(new THREE.Vector3(f[0], 0, f[2]), Math.min(1, dt * 2.5)).normalize(); }
-        pos.addScaledVector(dir, speed * dt);
+        pos.addScaledVector(dir, speed * (face && face.k != null ? face.k : 1) * dt); // a steered tornado (Tornado Life) slows as it reaches its mark
         const y = this.h(pos.x, pos.z);
         group.position.set(pos.x + Math.sin(t * 3) * 0.3, y, pos.z + Math.cos(t * 2.5) * 0.3);
         layers.forEach((m, i) => (m.rotation.y -= dt * (6 + i * 3)));

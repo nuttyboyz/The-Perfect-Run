@@ -1,4 +1,6 @@
-// Melee attack motions. Every melee weapon has its own pair of attacks that alternate (a few, like the chainsaw, have one).
+// Melee attack motions. Every melee weapon has its own pair of attacks that alternate, and so must every melee weapon added later:
+// list it in WEAPON_MOVES with two moves true to how that weapon is really swung (an unlisted one gets forehand, backhand).
+// The first attack after a pause is always the first move of the pair.
 // A move is a path for the weapon's tip around the shoulders, as keyframes [time 0..1, az, el, reach]:
 //   az: sideways angle (negative = the right side, positive = across to the left), el: height angle (up = positive),
 //   reach: how far out the hands go (1 = normal; a thrust drives past it).
@@ -36,6 +38,15 @@ export const MOVES = {
   lash: M('thrust', [[0, 0, 0, 1], [0.3, -0.35, 1.45, 0.8], [0.47, 0, 0.12, 1.3], [0.6, 0, -0.12, 1.35], [1, 0, -0.1, 0.92]], { reachK: 1.05 }),
   // Bullwhip, sidearm lash: a flat swing out to the side that whips round in front, level with the waist.
   sidelash: M('sweep', [[0, 0, -0.1, 1], [0.3, -1.4, 0.0, 0.85], [0.52, 0.55, -0.08, 1.25], [0.72, 0.9, -0.12, 1.2], [1, 0.2, -0.12, 0.92]]),
+  // Fist weapons strike one hand at a time (characters.js pins the other hand at the guard). Right hand first.
+  // Claws: a raking slash from high on the striking side, down and across the body. rakeL is its mirror for the left hand.
+  rake: M('sweep', [[0, -0.15, 0.0, 0.9], [0.26, -0.85, 0.7, 0.8], [0.5, 0.35, -0.3, 1.25], [0.7, 0.7, -0.5, 1.1], [1, -0.1, -0.05, 0.92]]),
+  rakeL: M('sweep', [[0, 0.15, 0.0, 0.9], [0.26, 0.85, 0.7, 0.8], [0.5, -0.35, -0.3, 1.25], [0.7, -0.7, -0.5, 1.1], [1, 0.1, -0.05, 0.92]]),
+  // Bare hands: a straight right, then a left hook.
+  cross: M('thrust', [[0, -0.1, -0.05, 0.9], [0.24, -0.25, 0, 0.6], [0.42, 0.05, 0.04, 1.45], [0.58, 0.05, 0.02, 1.4], [1, -0.05, -0.05, 0.95]]),
+  hookL: M('sweep', [[0, 0.1, -0.05, 0.9], [0.28, 1.05, 0.1, 0.8], [0.52, -0.6, 0.05, 1.1], [0.72, -0.85, 0, 1], [1, -0.1, -0.05, 0.95]]),
+  // Chainsaw, second attack: with the bar buried, rip it across from right to left, motor still biting.
+  sawrip: M('sweep', [[0, 0, -0.12, 1], [0.25, -0.75, -0.02, 0.95], [0.5, 0.55, -0.18, 1.2], [0.78, 0.85, -0.24, 1.1], [1, 0.1, -0.12, 1]], { buck: 1 }),
   // Chainsaw: braced low with both hands and pushed into the target, the motor bucking while it cuts (no second move).
   saw: M('thrust', [[0, 0, -0.12, 1], [0.25, 0, -0.08, 0.72], [0.45, 0.05, -0.15, 1.3], [0.8, 0.1, -0.2, 1.3], [1, 0, -0.12, 1]], { buck: 1, reachK: 1, dmgK: 1, arcK: 1.6 }),
 };
@@ -53,10 +64,10 @@ export const WEAPON_MOVES = {
   warhammer: ['chop', 'fore'], // a crushing overhead blow, then a side swing
   sledge: ['chop', 'fore'], // a demolition slam from overhead, then a heavy side swing
   lucille: ['fore', 'diag'], // a full baseball swing, then a downward clubbing blow
-  claws: ['jab', 'hook'], // punching blades: a straight jab, then a hooking swipe
-  bare: ['jab', 'hook'],
+  claws: ['rake', 'rakeL'], // raking slashes: the right arm only, then the left arm only
+  bare: ['cross', 'hookL'], // a straight right, then a left hook
   whip: ['lash', 'sidelash'], // the overhead crack, then the sidearm lash
-  chainsaw: ['saw'],
+  chainsaw: ['saw', 'sawrip'], // drive the bar in, then rip it across (hold the attack and it keeps going)
 };
 // Sword-and-shield sets (and any new one-handed sword) slash, then stab past the shield's rim.
 export const SHIELD_MOVES = ['fore', 'stab'];
@@ -70,7 +81,7 @@ export function movesFor(wp) {
   if (wp.fist) return WEAPON_MOVES.claws;
   return DEFAULT_MOVES;
 }
-export const moveOf = (wp, i) => { const l = movesFor(wp); return MOVES[l[(i | 0) % l.length]]; };
+export const moveOf = (wp, i) => { const l = movesFor(wp), n = l.length; return MOVES[l[(((i | 0) % n) + n) % n]]; };
 
 const sm = (x) => x * x * (3 - 2 * x);
 // The weapon's place along a move at phase t (0..1): { az, el, r }.

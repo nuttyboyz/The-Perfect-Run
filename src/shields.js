@@ -350,5 +350,5 @@ export const SWORD_SHIELDS = { heater, viking, kite, pavise, buckler, riot, ball
 // Data entries for data.js (spread into WEAPONS). `shield: true` marks the pair for block/parry.
 // Only the silver pair is on the wall (Nutty, 2026-11-04); the other builders stay for later.
 export const SWORD_SHIELD_DATA = [
-  { id: 'viking', name: 'Silver Round Shield & Steel Sword', kind: 'melee', dmg: 56, rate: 0.55, range: 6.2, arc: 140, desc: 'A polished steel disc with a domed boss, and a bright all-steel blade with mirror edges.', shield: true },
+  { id: 'viking', name: 'Silver Round Shield & Steel Sword', kind: 'melee', dmg: 62, rate: 0.55, range: 6.2, arc: 140, desc: 'A polished steel disc with a domed boss, and a bright all-steel blade with mirror edges.', shield: true },
 ];

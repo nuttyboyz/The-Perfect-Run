@@ -72,7 +72,7 @@ export function makeOrbitBlades(n, color = 0xaaccff) {
     const holder = new THREE.Group(); // places the dagger on the circle, point first along the way it flies
     holder.position.set(Math.sin(a) * 2.6, 0, Math.cos(a) * 2.6);
     holder.rotation.y = a + Math.PI / 2;
-    d.rotation.set(0, 0, -Math.PI / 2); // lie the dagger along the direction of travel
+    d.rotation.set(0, 0, Math.PI / 2); // lie the dagger along the direction of travel, point leading (turned 180°, Nutty 2026-11-11)
     holder.add(d);
     holder.userData.spin = d;
     grp.add(holder);

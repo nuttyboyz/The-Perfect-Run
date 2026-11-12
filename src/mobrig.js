@@ -70,7 +70,7 @@ export const MOB_LOOKS = {
   wasp: { file: 'm29.glb', tposeArms: true, h: 2.8, hunch: 0.35, bulk: 0.95, fly: true, wings: { membrane: 0xffb830, bone: 0x2a1a00, span: 1.1, alpha: 0.8 } }, // #29 striped alien
   // The Hot Springs Valley's boss and the hidden space map's boss, The Visitor (boss rigs are boss + BOSSES index).
   boss7: { file: 'gus.glb', tposeArms: true, h: 8.6, hunch: 0.3, bulk: 1.0, slam: true, hands: 0x9aff6a }, // old Mossback body retired (goblin body removed 2026-11-05)
-  boss8: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 2, h: 10.5, hunch: 0.1, bulk: 1.15, slam: true, hands: 0x7dffb0 },
+  boss8: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 2, h: 10.5, hunch: 0.1, bulk: 1.15, aim: true, float: 2.4 }, // floats; views.js puts the weapon wall's own Alien Blaster in its hand (Nutty 2026-11-11)
   // Mixamo bosses (Nutty 2026-11-05): the characters' own textures, scaled up to boss height.
   boss9: { file: 'warlord.glb', tposeArms: true, h: 8.0, hunch: 0.12, bulk: 1.0, slam: true, hands: 0x9a3aff },
   boss10: { file: 'archmage.glb', tposeArms: true, h: 7.6, hunch: 0.1, bulk: 1.0, slam: true, hands: 0xff5ad0 },
@@ -100,6 +100,7 @@ for (const [k, l] of Object.entries(MOB_LOOKS)) {
   l.h *= g; if (l.float) l.float *= MOB_SIZE * MOB_TALL;
 }
 
+for (const [k, l] of Object.entries(MOB_LOOKS)) if (k.startsWith('boss')) delete l.hands; // no balls of light on the bosses' hands (Nutty 2026-11-11)
 // Fear's echoes: the beaten bosses, back at roughly twice a mob's height.
 for (const i of [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14]) { const b = MOB_LOOKS['boss' + i]; if (b) MOB_LOOKS['echo' + i] = { ...b, h: (b.h || 8) * 0.5 }; }
 // Thermes: the shirtless demonic viking deity (src/thermes.js), purple pulsing skin, blue aura, laser eyes.
@@ -110,7 +111,7 @@ for (const [k, l] of Object.entries(MOB_LOOKS)) {
   l.h = MOB_MIN_H; if (l.float) l.float *= f;
   const m = MOBS[k]; if (m) { m.scale *= f; m.height *= f; m.radius *= Math.min(f, 1.35); }
 }
-MOB_LOOKS.boss6 = { file: 'veteran.glb', tposeArms: true, build: 'thermes', h: 22, hunch: 0.1, bulk: 1.3, slam: true };
+MOB_LOOKS.boss6 = { file: 'veteran.glb', tposeArms: true, build: 'thermes', h: 22, hunch: 0.1, bulk: 1.3, slam: true }; // his giant axe is held in his fist: makeVikingAxe below, placed by BossView
 
 const V = (...a) => new THREE.Vector3(...a);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _r = new THREE.Quaternion();
@@ -530,6 +531,12 @@ const GEAR_MATS = {
   glowO: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff7a1a).multiplyScalar(2.2), toneMapped: false }),
   glowG: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x8aff30).multiplyScalar(2.0), toneMapped: false }),
   glowC: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7dffb0).multiplyScalar(2.2), toneMapped: false }),
+  alien: () => new THREE.MeshStandardMaterial({ color: 0x1a2c30, roughness: 0.22, metalness: 0.65 }),
+  alienLight: () => new THREE.MeshStandardMaterial({ color: 0x4a6a70, roughness: 0.3, metalness: 0.5 }),
+  glowR: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a3a).multiplyScalar(2.4), toneMapped: false }),
+  glowB: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4aa0ff).multiplyScalar(2.2), toneMapped: false }),
+  axeSteel: () => new THREE.MeshStandardMaterial({ color: 0x9aa2b0, roughness: 0.3, metalness: 0.9 }),
+  axeHaft: () => new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.75 }),
 };
 // Weapons a mob carries from MOB_ARMS: on armed types the template leaves its old weapon out and each mob gets its own.
 const WEAPON_GEAR = new Set(['blade', 'dagger', 'sword', 'greatsword', 'club', 'rifle', ...Object.values(MOB_ARMS).map((a) => a.gear)]);
@@ -699,6 +706,14 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       put('RightHand', 'wood', merge([new THREE.BoxGeometry(0.05, 0.62, 0.06).translate(0, -0.22, 0.04), new THREE.BoxGeometry(0.045, 0.22, 0.08).translate(0, 0.16, 0.0)]), [0, 0, 0.04], fr);
       put('RightHand', 'iron', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.016, 6), new THREE.BoxGeometry(0.72, 0.006, 0.006).translate(0, -0.33, 0.06), new THREE.BoxGeometry(0.012, 0.36, 0.012).translate(0, -0.3, 0.08)]), [0, 0, 0.04], fr);
     },
+    // The Visitor's Alien Blaster, boss sized: a glossy organic pistol with a red emitter crystal between two prongs. Points along -u like the guns.
+    ablaster() {
+      const fr = limb('RightHand', 'RightForeArm');
+      put('RightHand', 'alien', merge([ball(0.075).scale(0.75, 2.7, 1.05).translate(0, -0.2, 0.07), cone(0.016, 0.2, 5).rotateX(Math.PI).translate(0.05, -0.47, 0.07), cone(0.016, 0.2, 5).rotateX(Math.PI).translate(-0.05, -0.47, 0.07)]), [0, 0.02, 0.0], fr);
+      put('RightHand', 'alienLight', merge([new THREE.BoxGeometry(0.02, 0.3, 0.06).translate(0, -0.2, 0.16), new THREE.BoxGeometry(0.05, 0.08, 0.18).rotateX(-0.25).translate(0, 0.0, -0.01)]), [0, 0.02, 0.0], fr);
+      put('RightHand', 'glowB', merge([new THREE.OctahedronGeometry(0.036, 0).scale(0.8, 2.0, 0.8).translate(0, -0.44, 0.07), cyl(0.008, 0.008, 0.3, 6).translate(0.058, -0.2, 0.07), cyl(0.008, 0.008, 0.3, 6).translate(-0.058, -0.2, 0.07)]), [0, 0.02, 0.0], fr);
+    },
+    // Thermes' axe, seen nowhere else: a long dark haft, one huge bearded blade with glowing runes, a back spike and gold bands.
     axe() {
       const fr = limb('RightHand', 'RightForeArm');
       put('RightHand', 'wood', cyl(0.024, 0.028, 0.95, 8).translate(0, 0.33, 0), [0, 0, 0.05], fr);
@@ -1026,14 +1041,14 @@ export class MobRig {
 
     // ---- attack timeline: anticipation, fast strike with overshoot, recovery (own clock, not the noisy network value) ----
     const a = Math.min(1, st.attack || 0);
-    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; } else if (a < 0.3) this.atkArm = true;
+    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; this.atkKind = st.kind | 0; } else if (a < 0.3) this.atkArm = true;
     let u = -1;
     if (this.atkT >= 0) { this.atkT += dt; if (this.atkT >= this.atkDur) this.atkT = -1; else u = this.atkT / this.atkDur; }
     let sp1 = 0, sp2 = 0, spY = 0, headP = 0, lunge = 0, armRaise = 0, armSweep = 0, foreBend = 0, castLift = 0, pulse = 0, atkE = 0;
     let down = 0, up2 = 0, rec = 0;
     if (u >= 0) {
       atkE = Math.sin(Math.PI * Math.min(1, u * 1.2));
-      if (L.slam) {
+      if (L.slam && !(this.atkKind >= 2)) {
         // Both fists rise slowly, hang, then a heavy smash with a rebound.
         up2 = ss(u, 0, 0.5); down = ss(u, 0.6, 0.7); rec = ss(u, 0.78, 1);
         const reb = Math.sin(Math.PI * ss(u, 0.7, 0.88)) * 0.1;
@@ -1087,7 +1102,9 @@ export class MobRig {
     chain(N.sp2, N.neck, N.head, N.lsh, N.rsh);
     // Arms.
     if (u >= 0) {
-      if (L.slam) {
+      if (L.slam && this.atkKind === 1) {
+        rv(N.rua, armRaise * 1.1, 0, 0); rv(N.rfa, foreBend, 0, 0); rv(N.lua, armRaise * 0.15, 0, 0); // one-handed overhead cleave
+      } else if (L.slam && !this.atkKind) {
         rv(N.lua, armRaise, 0, 0); rv(N.rua, armRaise, 0, 0); rv(N.lfa, foreBend, 0, 0); rv(N.rfa, foreBend, 0, 0);
       } else if (L.cast) {
         const lift = castLift, ang = -1.35 * lift - 0.35 * pulse, yw = 0.35 * lift;
@@ -1176,6 +1193,20 @@ export class MobRig {
     }
     return t < 2.2;
   }
+}
+
+// Thermes' giant Viking axe, seen nowhere else. Its origin is the grip (where his fist closes), +Y runs up the haft to the head, +Z is the blade edge.
+export function makeVikingAxe() {
+  const g = new THREE.Group(), GY = -0.1;
+  const add = (geo, k) => { const m = new THREE.Mesh(geo.translate(0, GY, 0), GEAR_MATS[k]()); m.castShadow = true; g.add(m); };
+  const cyl = (r0, r1, h, seg = 10) => new THREE.CylinderGeometry(r1, r0, h, seg), cone = (r, h, seg = 8) => new THREE.ConeGeometry(r, h, seg);
+  add(cyl(0.03, 0.036, 1.75, 10).translate(0, 0.5, 0), 'axeHaft');
+  const sh = new THREE.Shape(); sh.moveTo(0, -0.08); sh.lineTo(0.1, -0.1); sh.quadraticCurveTo(0.36, -0.2, 0.47, -0.46); sh.quadraticCurveTo(0.58, -0.06, 0.48, 0.32); sh.quadraticCurveTo(0.34, 0.17, 0.1, 0.09); sh.lineTo(0, 0.08); sh.closePath();
+  const head = new THREE.ExtrudeGeometry(sh, { depth: 0.04, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.012, bevelSegments: 1 }).translate(0, 0, -0.02).rotateY(-Math.PI / 2);
+  add(mergeGeometries([head.translate(0, 1.15, 0.02), cone(0.06, 0.34, 4).rotateX(-Math.PI / 2).translate(0, 1.15, -0.2), cone(0.045, 0.3, 4).translate(0, 1.52, 0), cone(0.04, 0.16, 4).rotateX(Math.PI).translate(0, -0.45, 0)].map((q) => (q.index ? q.toNonIndexed() : q))), 'axeSteel');
+  add(mergeGeometries([cyl(0.05, 0.05, 0.07, 10).translate(0, 0.98, 0), cyl(0.05, 0.05, 0.07, 10).translate(0, 1.32, 0), cyl(0.045, 0.045, 0.05, 10).translate(0, -0.34, 0), cyl(0.042, 0.042, 0.04, 10).translate(0, 0.25, 0)]), 'gold');
+  add(mergeGeometries([new THREE.BoxGeometry(0.07, 0.035, 0.2).translate(0, 1.15, 0.22), new THREE.BoxGeometry(0.07, 0.16, 0.03).translate(0, 1.1, 0.34), new THREE.BoxGeometry(0.07, 0.03, 0.1).rotateX(0.6).translate(0, 1.0, 0.3)]), 'glowB');
+  return g;
 }
 
 export function makeMobRig(kind) {

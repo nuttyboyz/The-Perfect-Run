@@ -97,8 +97,9 @@ export class HostSim {
   // Enemies start tough and get much tougher every round (health far faster than damage, so fights get longer before they get deadlier).
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
-  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.15, this.round) * (this.hard() ? 1.5 : 1); } // +15% health every round
-  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // +20% damage every round
+  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.2, this.round) * (this.hard() ? 1.5 : 1); } // 1.2x health every round (Nutty 2026-11-11)
+  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // 1.2x damage every round (Nutty 2026-11-11)
+  bossDmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn(); } // bosses keep their own curve: +20% a round
   // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
   easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
 
@@ -111,7 +112,7 @@ export class HostSim {
 
   // Duel Arena: one 10 minute match in one of the three arenas (see DUEL_BIOMES). Phases: dcount (3, 2, 1) -> duel <-> dpick (every 30 s the
   // game stops until everyone has chosen a power-up) -> dend (winner announced).
-  startDuel() {
+  startDuel(pick = -1) {
     this.duel = true; this.mu = 0;
     this.roundLen = DUEL.len;
     this.round = 0;
@@ -119,7 +120,8 @@ export class HostSim {
     this.seed = (Math.random() * 2 ** 31) | 0;
     // A random arena for every match, never the one just played (a rematch always moves on). It travels in the snapshot ('ar').
     const na = DUEL_BIOMES.length;
-    this.arena = this.arena < 0 ? (Math.random() * na) | 0 : (this.arena + 1 + ((Math.random() * (na - 1)) | 0)) % na;
+    // The players choose the arena on the Stage Select screen (pick); without a pick it is a random one, never the one just played.
+    this.arena = pick >= 0 && pick < na ? pick | 0 : this.arena < 0 ? (Math.random() * na) | 0 : (this.arena + 1 + ((Math.random() * (na - 1)) | 0)) % na;
     this.phase = 'dcount';
     this.tl = DUEL.len; this.cd = DUEL.count; this.lastCd = -1;
     this.puT = DUEL.pickEvery; this.pickN = 0; this.pickWait = 0;
@@ -203,7 +205,7 @@ export class HostSim {
     for (const pr of peers) {
       const p = pr.p;
       if (!p || !p.ig || !Array.isArray(p.p)) continue;
-      out.push({ id: pr.id, x: p.p[0] / 10, y: p.p[1] / 10, z: p.p[2] / 10, ry: (p.ry || 0) / 100, alive: !!p.al, out: !!p.out, hp: p.hp || 0, mh: p.mh || 100, v: p.v, raw: p });
+      out.push({ id: pr.id, x: p.p[0] / 10, y: p.p[1] / 10, z: p.p[2] / 10, ry: (p.ry || 0) / 100, alive: !!p.al, out: !!p.out, hp: p.hp || 0, mh: p.mh || 100, v: p.v, hid: !!p.hd, raw: p }); // hid: in Cloud Form, nothing can see them
     }
     return out;
   }
@@ -322,6 +324,23 @@ export class HostSim {
         const n = this.newNpc(arg, from, k > 1 ? (owner ? owner.x : x) + Math.cos(a) * 2.6 : x, k > 1 ? (owner ? owner.z : z) + Math.sin(a) * 2.6 : z);
         this.npcs.set(n.id, n);
         this.ev('ns', n.id, arg);
+      }
+    } else if (kind === 'raise') {
+      // Necromancer's Raise the Dead: for 10 s this runner's kills get back up and fight for them.
+      (this.raiseBy || (this.raiseBy = {}))[from] = this.time + 10;
+      // Duel Arena: nothing dies there, so three of the dead climb out of the ground and hunt the other duelist.
+      if (this.duel && this.phase === 'duel') {
+        const owner = players.find((p) => p.id === from);
+        for (const n of [...this.npcs.values()]) if (n.owner === from && n.mt != null) { this.npcs.delete(n.id); this.ev('nd', n.id, q10(n.x), q10(n.z)); }
+        const ti = Math.max(0, MOB_TYPES.indexOf('shambler') >= 0 ? MOB_TYPES.indexOf('shambler') : MOB_TYPES.indexOf('grunt'));
+        for (let i = 0; i < 3 && owner; i++) {
+          const a = (i / 3) * Math.PI * 2 + Math.random();
+          const n = this.newNpc('thrall', from, owner.x + Math.cos(a) * 3, owner.z + Math.sin(a) * 3);
+          n.mt = ti; n.wi = 0; n.maxHp = n.hp = 160; n.dmg = 230; n.spd = 4.8;
+          n.wake = THRALL_RISE; n.life = THRALL_LIFE + THRALL_RISE;
+          this.npcs.set(n.id, n);
+          this.ev('ns', n.id, 'thrall');
+        }
       }
     } else if (kind === 'rematch' && this.duel && this.phase === 'dend') {
       this.startDuel();
@@ -615,7 +634,7 @@ export class HostSim {
 
   killMob(m, killer) {
     this.mobs.delete(m.id);
-    const rise = this.canRise(m);
+    const rise = this.canRise(m, killer);
     this.ev('d', m.id, killer, q10(m.x), q10(m.z), m.ti, rise ? 1 : 0);
     if (rise) this.raiseThrall(m, killer);
     if (m.base.bomb && !(m.fuse > 0)) this.primeBomb(m, 0.45); // shot before it reached anyone: it still goes off, a beat later
@@ -633,8 +652,9 @@ export class HostSim {
   }
 
   // Necromancer mutator: the fallen get back up and fight for whoever killed them, then fall for good.
-  canRise(m) {
-    if (!(this.mu & NECRO) || this.duel) return false;
+  canRise(m, killer) {
+    const on = (this.mu & NECRO) || (this.raiseBy && this.raiseBy[killer] > this.time); // the old mutator bit, or the killer's Raise the Dead is running
+    if (!on || this.duel) return false;
     const B = m.base;
     if (B.fly || B.bomb || B.summoned || B.swarm) return false;
     let n = 0; for (const x of this.npcs.values()) if (x.mt != null) n++;
@@ -820,7 +840,7 @@ export class HostSim {
   targetsFor(x, z, players) {
     let best = null, bd = 1e9;
     for (const p of players) {
-      if (!p.alive) continue;
+      if (!p.alive || p.hid) continue;
       const d = Math.hypot(p.x - x, p.z - z);
       if (d < bd) { bd = d; best = { kind: 'p', id: p.id, x: p.x, z: p.z, y: p.y }; }
     }
@@ -1069,11 +1089,95 @@ export class HostSim {
     }
   }
 
+  // The Visitor never walks: it drifts like a ghost, blinks across the map or onto its target, and its Alien Blaster never stops.
+  // Plasma bolts burst where they land; now and then it charges one big beam that follows its target until the blaster overheats.
+  updateVisitor(b, dt, players, t, dx, dz, d, yb, enr, bd, ds) {
+    const w = this.world, reach = b.def.reach || 8, A = w.arena;
+    const blink = (x, z) => {
+      const ox = b.x, oz = b.z, ex = x - A.x, ez = z - A.z, L = Math.hypot(ex, ez);
+      if (L > 75) { x = A.x + ex / L * 75; z = A.z + ez / L * 75; }
+      [b.x, b.z] = w.collide(x, z, b.def.rad || 2.2);
+      this.ev('vt', q10(ox), q10(oz), q10(b.x), q10(b.z));
+    };
+    b.vf = (b.vf ?? 1.5) - dt; b.vs = (b.vs || 0) - dt;
+    b.vnear = d < reach + 2 ? (b.vnear || 0) + dt : 0;
+    if (b.mode === 'vcharge') {
+      b.yaw = Math.atan2(dx, dz);
+      if (b.modeT <= 0) { b.mode = 'vbeam'; b.modeT = enr ? 6 : 5; b.lt = 0; b.ly = b.yaw; b.ld = Math.max(12, Math.min(70, d)); }
+      return;
+    }
+    if (b.mode === 'vbeam') {
+      // The beam turns after its target, but slowly: keep running sideways and it trails behind you.
+      const want = Math.atan2(dx, dz), da = Math.atan2(Math.sin(want - b.ly), Math.cos(want - b.ly)), mx = (enr ? 0.55 : 0.42) * dt;
+      b.ly += Math.max(-mx, Math.min(mx, da)); b.yaw = b.ly;
+      { const wd = Math.max(12, Math.min(70, d)), md = 9 * dt; b.ld += Math.max(-md, Math.min(md, wd - b.ld)); } // the aim point slides in and out after its target too
+      b.lt -= dt;
+      if (b.lt <= 0) {
+        b.lt = THERMES.laserTick;
+        const sx = Math.sin(b.ly), cz = Math.cos(b.ly);
+        for (const p of players) {
+          if (!p.alive) continue;
+          const rx = p.x - b.x, rz = p.z - b.z, along = rx * sx + rz * cz;
+          // One straight beam from the blaster down to the ground: it burns whoever stands in its last stretch or where it lands.
+          if (along < b.ld * 0.55 || along > b.ld + 3.5) continue;
+          if (Math.abs(rx * cz - rz * sx) < 2.6 && (p.y || 0) - w.heightAt(p.x, p.z) < 6) this.ev('a', p.id, Math.round((THERMES.laserDmg + 0.4 * BOSS_DMG_ROUND * this.round + 0.25 * (b.def.dmgAdd || 0)) * ds), 'B');
+        }
+      }
+      if (b.modeT <= 0) { b.mode = 'overheat'; b.modeT = 3.2; b.ly = null; this.ev('bw', 'The blaster overheated! Hit The Visitor now'); }
+      return;
+    }
+    if (b.mode === 'overheat') { if (b.modeT <= 0) { b.mode = 'walk'; b.vf = 0.8; } return; }
+    b.yaw = Math.atan2(dx, dz);
+    if (b.mode === 'hold') { if (b.modeT <= 0) b.mode = 'walk'; return; }
+    // Drift: it keeps a ring around its target and slides sideways round it.
+    if (b.vs <= 0) { b.vs = 2 + Math.random() * 3; b.vdir = Math.random() < 0.5 ? 1 : -1; }
+    const sp = b.def.speed * (b.slow > 0 ? 0.7 : 1) * (enr ? 1.25 : 1), ux = dx / d, uz = dz / d, rad = d > 24 ? 1 : d < 13 ? -0.8 : 0;
+    b.x += (ux * rad * 0.8 - uz * (b.vdir || 1) * 0.7) * sp * dt; b.z += (uz * rad * 0.8 + ux * (b.vdir || 1) * 0.7) * sp * dt;
+    // The blaster never rests: one bursting plasma bolt after another.
+    if (b.vf <= 0) {
+      b.vf = enr ? 0.42 : 0.6; b.anim = 1;
+      const ox = b.x + Math.sin(b.yaw) * 3.4, oz = b.z + Math.cos(b.yaw) * 3.4, oy = yb + 7.4;
+      const tx = t.x + (Math.random() - 0.5) * 2.2, tz = t.z + (Math.random() - 0.5) * 2.2;
+      const ex = tx - ox, ez = tz - oz, ey = ((t.y ?? w.heightAt(t.x, t.z)) + 0.9) - oy, L = Math.hypot(ex, ey, ez) || 1;
+      this.ev('p', q10(ox), q10(oy), q10(oz), q10(ex / L * 30), q10(ey / L * 30), q10(ez / L * 30), Math.round(16 * ds + 2 * this.round), 4);
+    }
+    // Up close: it claws whoever is in reach, and blasts them off if they stay.
+    if (d <= reach && b.melee <= 0) { b.melee = 1.2; this.hitTarget(t, bd(24), 'B'); }
+    if (b.vnear > 2.2) { b.vnear = 0; this.ev('s', q10(b.x), q10(b.z), 95, 80, bd(30)); }
+    if (d > 80) { const a = Math.random() * 6.28; blink(t.x + Math.cos(a) * 12, t.z + Math.sin(a) * 12); }
+    b.cd -= dt;
+    if (b.cd > 0) return;
+    const atks = b.def.attacks, atk = atks[b.atkIdx++ % atks.length];
+    b.cd = (enr ? 2.4 : 3.4) - this.round * 0.1;
+    if (atk === 'tpnear') {
+      // Blink onto its target, then a close-range blast around itself.
+      const a = Math.random() * 6.28; blink(t.x + Math.cos(a) * 6.5, t.z + Math.sin(a) * 6.5);
+      b.mode = 'hold'; b.modeT = 1.0; b.melee = 1.0; b.vnear = 0; b.vf = 1.4;
+      this.ev('s', q10(b.x), q10(b.z), 100, 95, bd(30));
+    } else if (atk === 'tpfar') {
+      const a = Math.random() * 6.28, r = 40 + Math.random() * 16; blink(t.x + Math.cos(a) * r, t.z + Math.sin(a) * r);
+      b.vf = 0.5; b.cd = Math.min(b.cd, 1.6);
+    } else if (atk === 'vbeam') {
+      b.mode = 'vcharge'; b.modeT = 1.8; b.ly = null;
+      this.ev('bw', 'The Visitor is charging its blaster');
+    } else if (atk === 'ring') {
+      const n = enr ? 24 : 16, off = Math.random() * 6;
+      for (let i = 0; i < n; i++) { const a = off + (i / n) * Math.PI * 2; this.ev('p', q10(b.x), q10(yb + 2.5), q10(b.z), q10(Math.sin(a) * 13), 0, q10(Math.cos(a) * 13), bd(13), 1); }
+    } else if (atk === 'summon') {
+      const ring = b.def.rad * 2.2 + 6, light = Object.keys(this.lineup || {}).filter((k) => MOBS[k].tier < 3);
+      for (let i = 0; i < 5; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const m = this.newMob(light.length ? light[Math.floor(Math.random() * light.length)] : 'grunt', b.x + Math.cos(a) * ring, b.z + Math.sin(a) * ring);
+        this.mobs.set(m.id, m); this.ev('sm', q10(m.x), q10(m.z));
+      }
+    }
+  }
+
   updateBoss(dt, players) {
     const b = this.boss;
     if (!b) return;
     const w = this.world;
-    const ds = this.dmgScale();
+    const ds = this.bossDmgScale();
     // Every attack hits +10 harder per round (Thermes: +100 on top).
     const bd = (x) => Math.round(x * ds + BOSS_DMG_ROUND * this.round + (b.def.dmgAdd || 0));
     b.anim = Math.max(0, b.anim - dt * 1.5);
@@ -1088,6 +1192,10 @@ export class HostSim {
     b.modeT -= dt;
     b.melee -= dt;
     const yb = w.heightAt(b.x, b.z);
+    const enr = b.hp < b.maxHp * 0.4, reach = b.def.reach || 4.5;
+    const Q = b.qp || { range: THERMES.quakeRange, speed: THERMES.quakeSpeed, dmg: THERMES.quakeDmg, knock: THERMES.quakeKnock, n: enr ? 2 : 1 };
+    if (b.ak) { b.akT -= dt; if (b.akT <= 0) b.ak = 0; }
+    if (b.def.visitor) { this.updateVisitor(b, dt, players, t, dx, dz, d, yb, enr, bd, ds); [b.x, b.z] = w.collide(b.x, b.z, b.def.rad || 2.2); return; }
     if (b.mode === 'laser-wind') {
       // Thermes gathers light in his eyes, then sweeps twin beams across the arena.
       b.yaw = b.lz;
@@ -1112,22 +1220,88 @@ export class HostSim {
     } else if (b.mode === 'quake-wind') {
       if (b.modeT <= 0) {
         // The fists come down: one shockwave ring races out over the ground (two when he is enraged), jump it.
-        b.mode = 'quake'; b.modeT = THERMES.quakeRange / THERMES.quakeSpeed + 0.1; b.qr = 0; b.qr2 = b.hp < b.maxHp * 0.4 ? -THERMES.quakeSpeed * 0.7 : null; b.hitSet = new Set();
-        this.ev('qk', q10(b.x), q10(b.z), b.qr2 == null ? 1 : 2);
+        b.mode = 'quake'; b.modeT = Q.range / Q.speed + (Q.n > 1 ? 0.8 : 0.1); b.qr = 0; b.qr2 = Q.n > 1 ? -Q.speed * 0.7 : null; b.hitSet = new Set();
+        this.ev('qk', q10(b.x), q10(b.z), b.qr2 == null ? 1 : 2, Math.round(Q.range), Math.round(Q.speed), b.qp ? 1 : 0);
       }
     } else if (b.mode === 'quake') {
-      const prev = b.qr; b.qr += THERMES.quakeSpeed * dt;
-      const prev2 = b.qr2; if (b.qr2 != null) b.qr2 += THERMES.quakeSpeed * dt;
+      const prev = b.qr; b.qr += Q.speed * dt;
+      const prev2 = b.qr2; if (b.qr2 != null) b.qr2 += Q.speed * dt;
       for (const p of players) {
-        if (!p.alive || b.hitSet.has(p.id)) continue;
+        if (!p.alive) continue;
         const d = Math.hypot(p.x - b.x, p.z - b.z);
-        const crossed = (d > prev && d <= b.qr) || (prev2 != null && prev2 > 0 && d > prev2 && d <= b.qr2);
-        if (!crossed || (p.y || 0) - w.heightAt(p.x, p.z) > THERMES.quakeJump) continue;
-        b.hitSet.add(p.id);
+        const first = d > prev && d <= b.qr && d <= Q.range, second = prev2 != null && prev2 > 0 && d > prev2 && d <= b.qr2 && d <= Q.range;
+        const crossed = (first && !b.hitSet.has(p.id + ':1')) || (second && !b.hitSet.has(p.id + ':2'));
+        if (!crossed) continue;
+        b.hitSet.add(p.id + (first ? ':1' : ':2')); // each ring can catch you once
+        if ((p.y || 0) - w.heightAt(p.x, p.z) > THERMES.quakeJump) continue;
         const kx = (p.x - b.x) / (d || 1), kz = (p.z - b.z) / (d || 1);
-        this.ev('a', p.id, bd(THERMES.quakeDmg), 'B', 0, 0, 0, q10(kx * THERMES.quakeKnock), q10(kz * THERMES.quakeKnock));
+        this.ev('a', p.id, bd(Q.dmg), 'B', 0, 0, 0, q10(kx * Q.knock), q10(kz * Q.knock));
       }
-      if (b.modeT <= 0) { b.mode = 'walk'; b.hitSet = null; }
+      if (b.modeT <= 0) { b.mode = 'walk'; b.hitSet = null; b.qp = null; }
+    } else if (b.mode === 'hold') {
+      if (b.modeT <= 0) b.mode = 'walk';
+    } else if (b.mode === 'axesweep') {
+      // The axe comes round in a wide low arc: everyone in front of him is hit and thrown back. Jump it.
+      b.yaw = b.sy;
+      if (b.modeT <= 0) {
+        for (const p of players) {
+          if (!p.alive) continue;
+          const px = p.x - b.x, pz = p.z - b.z, pd = Math.hypot(px, pz) || 1;
+          if (pd > reach + 6 || (p.y || 0) - w.heightAt(p.x, p.z) > 2.4) continue;
+          const off = Math.atan2(px, pz) - b.sy;
+          if (Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) > 1.75) continue;
+          this.ev('a', p.id, bd(30), 'B', 0, 0, 0, q10(px / pd * 14), q10(pz / pd * 14));
+        }
+        b.mode = 'hold'; b.modeT = 0.6;
+      }
+    } else if (b.mode === 'axespin') {
+      // Whirlwind: he spins with the axe out and walks his target down.
+      b.yaw = Math.atan2(dx, dz);
+      if (d > 3) { const st = speed * 1.45 * dt; b.x += (dx / d) * st; b.z += (dz / d) * st; }
+      b.st -= dt;
+      if (b.st <= 0) {
+        b.st = 0.5;
+        for (const p of players) {
+          if (!p.alive) continue;
+          const px = p.x - b.x, pz = p.z - b.z, pd = Math.hypot(px, pz) || 1;
+          if (pd > reach + 4 || (p.y || 0) - w.heightAt(p.x, p.z) > 6) continue;
+          this.ev('a', p.id, Math.round(bd(24) * 0.6), 'B', 0, 0, 0, q10(px / pd * 9), q10(pz / pd * 9));
+        }
+      }
+      if (b.modeT <= 0) { b.mode = 'hold'; b.modeT = 0.8; }
+    } else if (b.mode === 'pursuit') {
+      // The hunter: sprints after its target, swinging every half second, until the chase runs out.
+      b.yaw = Math.atan2(dx, dz);
+      if (d > reach * 0.7) { const st = Math.min(d - reach * 0.6, speed * 2.2 * dt); b.x += (dx / d) * st; b.z += (dz / d) * st; }
+      if (d <= reach + 0.6 && b.melee <= 0) { b.melee = 0.55; b.anim = 1; this.hitTarget(t, Math.round(bd(24) * 0.5), 'B'); }
+      if (b.modeT <= 0) b.mode = 'walk';
+    } else if (b.mode === 'flurry-wind') {
+      b.yaw = Math.atan2(dx, dz);
+      if (b.modeT <= 0) { b.mode = 'flurry'; b.modeT = enr ? 2.2 : 1.7; b.ft = 0; }
+    } else if (b.mode === 'flurry') {
+      // A fast barrage: it darts in and rakes its target five times a second.
+      b.yaw = Math.atan2(dx, dz);
+      if (d > reach * 0.6) { const st = Math.min(d - reach * 0.5, 17 * dt); b.x += (dx / d) * st; b.z += (dz / d) * st; }
+      b.ft -= dt;
+      if (b.ft <= 0 && d <= reach + 1) { b.ft = 0.2; b.anim = 1; this.hitTarget(t, Math.round(bd(40) / 8), 'B'); }
+      if (b.modeT <= 0) b.mode = 'walk';
+    } else if (b.mode === 'leap') {
+      // Airborne: it comes down on the marked spot as the warning circle closes.
+      const k = 1 - Math.max(0, b.modeT) / b.lT;
+      b.x = b.lx0 + (b.lx - b.lx0) * k; b.z = b.lz0 + (b.lz - b.lz0) * k;
+      b.yaw = Math.atan2(b.lx - b.lx0, b.lz - b.lz0);
+      if (b.modeT <= 0) { b.mode = 'walk'; b.anim = 1; }
+    } else if (b.mode === 'volley') {
+      // A stream of bolts, one after another, tracking the target while it fires.
+      b.yaw = Math.atan2(dx, dz);
+      b.vt -= dt;
+      if (b.vt <= 0 && b.vn > 0) {
+        b.vt = 0.14; b.vn--; b.anim = 1;
+        const tx = t.x + (Math.random() - 0.5) * 2.4, tz = t.z + (Math.random() - 0.5) * 2.4;
+        const ex = tx - b.x, ez = tz - b.z, ey = ((t.y || 0) + 1.2) - (yb + 4), L = Math.hypot(ex, ey, ez) || 1;
+        this.ev('p', q10(b.x), q10(yb + 4), q10(b.z), q10(ex / L * 27), q10(ey / L * 27), q10(ez / L * 27), Math.round(bd(40) / 5), 1);
+      }
+      if (b.vn <= 0) b.mode = 'walk';
     } else if (b.mode === 'charge-wind') {
       if (b.modeT <= 0) { b.mode = 'charge'; b.modeT = 1.1; }
     } else if (b.mode === 'charge') {
@@ -1143,7 +1317,20 @@ export class HostSim {
     } else {
       b.yaw = Math.atan2(dx, dz);
       if (d > (b.def.reach || 4.5)) { b.x += (dx / d) * speed * dt; b.z += (dz / d) * speed * dt; }
-      else if (b.melee <= 0) { b.melee = 1.4; b.anim = 1; this.hitTarget(t, bd(24), 'B'); }
+      else if (b.melee <= 0) {
+        b.anim = 1;
+        if (b.idx === 6 && t.kind === 'p') {
+          // Thermes fights up close with his axe: an overhead cleave on the spot you stand on, then wide sweeps.
+          if ((b.axN = (b.axN || 0) + 1) % 3 === 1) {
+            b.ak = 1; b.akT = 1.3; b.melee = 2.1; b.mode = 'hold'; b.modeT = 1.25;
+            this.ev('s', q10(t.x), q10(t.z), 65, 115, bd(38));
+            this.ev('ax', 1, q10(t.x), q10(t.z), 115);
+          } else {
+            b.ak = 2; b.akT = 1.2; b.melee = 1.9; b.mode = 'axesweep'; b.modeT = 0.6; b.sy = Math.atan2(dx, dz);
+            this.ev('ax', 2, q10(b.x), q10(b.z), 60, Math.round(b.sy * 100), Math.round(reach + 6));
+          }
+        } else { b.melee = 1.4; this.hitTarget(t, bd(24), 'B'); }
+      }
       b.cd -= dt;
       if (b.cd <= 0) {
         const atks = b.def.attacks;
@@ -1161,6 +1348,7 @@ export class HostSim {
           b.cd += b.lsd + THERMES.laserWind;
           this.ev('lw', q10(b.x), q10(b.z), q10(b.lz), q10(b.lsw), Math.round(THERMES.laserWind * 10));
         } else if (atk === 'quake') {
+          b.qp = null;
           b.mode = 'quake-wind'; b.modeT = THERMES.quakeWind;
           b.cd += THERMES.quakeWind + 1.2;
           this.ev('qw', q10(b.x), q10(b.z), Math.round(THERMES.quakeWind * 10));
@@ -1184,6 +1372,47 @@ export class HostSim {
               this.ev('p', q10(b.x), q10(yb + 4), q10(b.z), q10(ex / L * 22), q10(ey / L * 22), q10(ez / L * 22), bd(12), 1);
             }
           }
+        } else if (atk === 'axespin') {
+          b.mode = 'axespin'; b.modeT = enraged ? 3.2 : 2.6; b.st = 0.5; b.cd += b.modeT + 0.8;
+          this.ev('ax', 3, q10(b.x), q10(b.z), Math.round(b.modeT * 100));
+        } else if (atk === 'pursuit') {
+          b.mode = 'pursuit'; b.modeT = enraged ? 5 : 4; b.cd += b.modeT;
+          this.ev('cw', q10(b.x), q10(b.z), q10(dx / d * 26), q10(dz / d * 26));
+        } else if (atk === 'flurry') {
+          b.mode = 'flurry-wind'; b.modeT = 0.5; b.cd += 2.4;
+          this.ev('cw', q10(b.x), q10(b.z), q10(dx / d * 26), q10(dz / d * 26));
+        } else if (atk === 'leap') {
+          b.lx0 = b.x; b.lz0 = b.z; b.lx = t.x; b.lz = t.z;
+          b.mode = 'leap'; b.modeT = b.lT = 1.15; b.cd += 1.4;
+          this.ev('s', q10(t.x), q10(t.z), 75, 115, bd(34));
+        } else if (atk === 'volley') {
+          b.mode = 'volley'; b.vn = enraged ? 14 : 10; b.vt = 0.35; b.cd += b.vn * 0.14 + 0.6;
+        } else if (atk === 'beam') {
+          // Aura beam: a line of blasts races from the boss through each player, far past them.
+          for (const p of players.filter((p) => p.alive)) {
+            const ex = p.x - b.x, ez = p.z - b.z, L = Math.hypot(ex, ez) || 1;
+            for (let i = 0; i < 11; i++) { const dd = 5 + i * 4.4; this.ev('s', q10(b.x + (ex / L) * dd), q10(b.z + (ez / L) * dd), 27, 90 + i * 5, bd(22)); }
+          }
+          b.mode = 'hold'; b.modeT = 1.4; b.cd += 1.2;
+        } else if (atk === 'stomp') {
+          // Ground stomp: two shockwave rings roll out over the floor. Jump them.
+          b.qp = { range: 38, speed: 20, dmg: 26, knock: 10, n: 2 };
+          b.mode = 'quake-wind'; b.modeT = 0.8; b.cd += 2.4;
+          this.ev('qw', q10(b.x), q10(b.z), 8, 1);
+        } else if (atk === 'pools') {
+          // Rot pools: a spread of blasts goes off around every player, one after another.
+          for (const p of players.filter((p) => p.alive)) for (let k = 0; k < 6; k++) {
+            const a = Math.random() * 6.28, rr = k ? 3 + Math.random() * 7 : 0;
+            this.ev('s', q10(p.x + Math.cos(a) * rr), q10(p.z + Math.sin(a) * rr), 45, 100 + k * 28, bd(20));
+          }
+        } else if (atk === 'meteor') {
+          // Thermes pulls meteors out of the sky: each lands where a player stood, four seconds after the warning.
+          this.ev('bw', 'Meteors incoming! Get out of the circles');
+          for (const p of players.filter((p) => p.alive)) {
+            this.ev('mt', q10(p.x), q10(p.z), 90, 400, bd(55));
+            for (let k = 0; k < (enraged ? 3 : 1); k++) { const a = Math.random() * 6.28, rr = 14 + Math.random() * 14; this.ev('mt', q10(p.x + Math.cos(a) * rr), q10(p.z + Math.sin(a) * rr), 90, 400 + 30 * (k + 1), bd(55)); }
+          }
+          b.cd += 1;
         } else if (atk === 'charge') {
           b.mode = 'charge-wind';
           b.modeT = 0.7;
@@ -1205,7 +1434,10 @@ export class HostSim {
           for (const x of this.mobs.values()) if (x.type.startsWith('echo')) standing++;
           const past = [];
           for (let r = 0; r < this.round; r++) past.push(bossIdx(this.runSeed, r));
-          for (let i = 0; i < 2 && standing < 4 && past.length; i++, standing++) {
+          const pastOk = past.filter((x, i2) => MOBS['echo' + x] && past.indexOf(x) === i2);
+          past.length = 0; past.push(...pastOk);
+          if (past.length) this.ev('bw', 'Thermes calls the fallen bosses to his side');
+          for (let i = 0; i < 2 && standing < (enraged ? 3 : 2) && past.length; i++, standing++) {
             const a = Math.random() * Math.PI * 2, ring = b.def.rad * 2.4 + 6;
             const m = this.newMob('echo' + past[Math.floor(Math.random() * past.length)], b.x + Math.cos(a) * ring, b.z + Math.sin(a) * ring);
             this.mobs.set(m.id, m);
@@ -1380,7 +1612,7 @@ export class HostSim {
       mu: this.mu | 0, bt: Math.round((this.btK ?? 1) * 100),
       ph: this.phase, rd: this.round, sd: this.seed, rs: this.runSeed, tl: this.roundLen === 0 && this.phase === 'play' ? 0 : Math.round(this.tl * 10) / 10, rl: this.roundLen,
       m, n,
-      b: b ? [b.idx, q10(b.x), q10(b.z), Math.max(1, Math.round((b.hp / b.maxHp) * 1000)), Math.round(b.anim * 9), Math.round(b.yaw * 10), b.mode === 'charge' ? 1 : 0, b.mode === 'laser' ? Math.round(b.ly * 100) : b.mode === 'laser-wind' ? 9999 : null] : 0,
+      b: b ? [b.idx, q10(b.x), q10(b.z), Math.max(1, Math.round((b.hp / b.maxHp) * 1000)), Math.round(b.anim * 9), Math.round(b.yaw * 10), b.mode === 'charge' || b.mode === 'pursuit' || b.mode === 'flurry' ? 1 : b.mode === 'leap' ? 2 : 0, b.mode === 'laser' || b.mode === 'vbeam' ? Math.round(b.ly * 100) : b.mode === 'laser-wind' || b.mode === 'vcharge' ? 9999 : null, b.mode === 'overheat' ? 1 : b.mode === 'axespin' ? 3 : b.ak || 0, b.mode === 'vbeam' ? Math.round(b.ld) : 0] : 0,
       dm: dm ? [q10(dm.x), q10(dm.z), Math.round(dm.yaw * 10), Math.round(dm.anim * 9), Math.max(1, Math.round((dm.hp / dm.maxHp) * 1000))] : 0,
       e: this.events.map((e) => [...e]),
       oc: [...this.opened],

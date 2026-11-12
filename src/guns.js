@@ -46,14 +46,29 @@ export function modernGuns(H) {
     P.push([BX(0.02, 0.012, 0.02, 0, y - 0.046, z0 - 0.17), m.gunmetal]); // release latch
     P.push([at(new THREE.TorusGeometry(0.006, 0.0018, 6, 12), 0.022, y - 0.02, z0 - 0.2), m.steel]); // QD sling loop
   };
-  // Red-dot sight: short tube on a riser with a lens front and back and the dot inside.
+  // An open tube you can look through: outer wall, inner wall and a rim at each end. Every sight tube is built from
+  // this, never from a solid cylinder, so the eye can always see down it.
+  const tube = (P, mat, rOut, rIn, len, y, z, seg = 20) => {
+    const wall = (r, inside) => {
+      const g = new THREE.CylinderGeometry(r, r, len, seg, 1, true).rotateX(Math.PI / 2);
+      if (inside) {
+        const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i]; ix[i] = ix[i + 1]; ix[i + 1] = t; }
+        const n = g.attributes.normal.array; for (let i = 0; i < n.length; i++) n[i] = -n[i];
+      }
+      return at(g, 0, y, z);
+    };
+    P.push([wall(rOut, false), mat]); P.push([wall(rIn, true), mat]);
+    P.push([at(new THREE.RingGeometry(rIn, rOut, seg), 0, y, z + len / 2), mat]);
+    P.push([at(new THREE.RingGeometry(rIn, rOut, seg).rotateY(Math.PI), 0, y, z - len / 2), mat]);
+  };
+  // Red-dot sight: short open tube on a riser with clear glass front and back and the dot inside.
   const reddot = (P, m, z, y, r = 0.0135, len = 0.05) => {
     P.push([BX(0.026, 0.016, len - 0.004, 0, y + 0.008, z), m.gunmetal]); // riser
-    P.push([CY(r, len, 0, y + 0.016 + r, z, 18), m.gunmetal]);
-    P.push([CY(r + 0.0018, 0.006, 0, y + 0.016 + r, z + len / 2 - 0.003, 18), m.anod]);
-    P.push([at(new THREE.CircleGeometry(r - 0.002, 18), 0, y + 0.016 + r, z + len / 2 + 0.0005), m.lens]);
-    P.push([at(new THREE.CircleGeometry(r - 0.002, 18).rotateY(Math.PI), 0, y + 0.016 + r, z - len / 2 - 0.0005), m.lens]);
-    P.push([at(new THREE.SphereGeometry(0.0022, 6, 4), 0, y + 0.016 + r, z - len / 2 + 0.012), m.dot]);
+    tube(P, m.gunmetal, r, r - 0.0022, len, y + 0.016 + r, z, 20);
+    tube(P, m.anod, r + 0.0018, r - 0.0022, 0.006, y + 0.016 + r, z + len / 2 - 0.003, 20);
+    P.push([at(new THREE.CircleGeometry(r - 0.002, 18), 0, y + 0.016 + r, z + len / 2 + 0.0005), m.glass]);
+    P.push([at(new THREE.CircleGeometry(r - 0.002, 18).rotateY(Math.PI), 0, y + 0.016 + r, z - len / 2 - 0.0005), m.glass]);
+    P.push([at(new THREE.SphereGeometry(0.0011, 8, 6), 0, y + 0.016 + r, z + len / 2 - 0.004), m.dot]);
     P.push([BX(0.012, 0.01, 0.012, 0.016, y + 0.018 + r, z), m.gunmetal]); // brightness turret
   };
   // Holographic sight: open square hood with a glass pane and the dot.
@@ -61,8 +76,8 @@ export function modernGuns(H) {
     P.push([BX(0.032, 0.012, 0.062, 0, y + 0.006, z), m.gunmetal]);
     P.push([BX(0.004, 0.034, 0.05, 0.015, y + 0.028, z), m.gunmetal]); P.push([BX(0.004, 0.034, 0.05, -0.015, y + 0.028, z), m.gunmetal]);
     P.push([BX(0.032, 0.004, 0.05, 0, y + 0.046, z), m.gunmetal]);
-    P.push([BX(0.026, 0.028, 0.002, 0, y + 0.028, z + 0.026), m.lens]);
-    P.push([at(new THREE.SphereGeometry(0.0022, 6, 4), 0, y + 0.028, z + 0.01), m.dot]);
+    P.push([BX(0.026, 0.028, 0.002, 0, y + 0.028, z + 0.026), m.glass]);
+    P.push([at(new THREE.SphereGeometry(0.0012, 8, 6), 0, y + 0.028, z + 0.024), m.dot]);
   };
   // Rifle scope: tube, objective and ocular bells, turrets, two rings on a one-piece mount.
   const scope = (P, m, z, y, len = 0.3, r = 0.016, obj = 0.026) => {
@@ -206,6 +221,49 @@ export function modernGuns(H) {
       P.push([BX(0.012, 0.02, 0.02, 0.025, 0.028, 0.0), m.steel]); // bolt release
       return { parts: P, muzzle: [0, 0.038, 0.645], support: [0, 0.005, 0.3] };
     },
+    // AK-47: stamped steel receiver with a ribbed dust cover, wooden handguards, grip and stock, the gas tube riding
+    // over the barrel, a hooded front sight post, a tangent rear sight, a slant muzzle brake and the long curved magazine.
+    // Open iron sights: `sight` is the line the eye sits on (rear notch to the tip of the front post).
+    ak() {
+      const m = mats(), P = [];
+      P.push([slab([[-0.13, 0.0], [0.16, 0.0], [0.16, 0.05], [-0.13, 0.05]], 0.036, 0.004), m.akSteel]); // stamped receiver
+      P.push([slab([[-0.125, 0.05], [0.14, 0.05], [0.14, 0.064], [0.12, 0.071], [-0.1, 0.071], [-0.125, 0.062]], 0.034, 0.006), m.akSteel]); // dust cover
+      for (let i = 0; i < 5; i++) P.push([BX(0.0348, 0.011, 0.004, 0, 0.0625, -0.07 + i * 0.04), m.slot]); // cover ribs
+      eject(P, m, -0.0184, 0.05, 0.055, 0.013, 0.08);
+      P.push([BX(0.022, 0.008, 0.012, -0.027, 0.05, 0.09), m.akWorn]); // charging handle
+      P.push([BX(0.0016, 0.011, 0.105, -0.0188, 0.027, -0.035), m.akWorn]); P.push([BX(0.006, 0.006, 0.014, -0.021, 0.022, 0.012), m.akWorn]); // selector lever
+      // Rivets and pins down both sides of the receiver, rubbed bright.
+      for (const sx of [-1, 1]) for (const [y, z] of [[0.012, -0.105], [0.038, -0.105], [0.012, -0.02], [0.012, 0.035], [0.036, 0.06], [0.012, 0.1], [0.04, 0.135], [0.014, 0.145]])
+        P.push([at(new THREE.SphereGeometry(0.0034, 10, 6).scale(0.45, 1, 1), sx * 0.0182, y, z), m.akWorn]);
+      P.push([BX(0.0372, 0.004, 0.2, 0, 0.047, 0.0), m.akSteel]); // the rail the dust cover sits on
+      P.push([BX(0.0015, 0.016, 0.05, 0.0187, 0.02, 0.07), m.akWorn]); // magazine dimple plate
+      P.push([BX(0.03, 0.03, 0.05, 0, 0.066, 0.165), m.akSteel]); // rear sight block
+      P.push([BX(0.011, 0.005, 0.078, 0, 0.0865, 0.166), m.akSteel]); // tangent leaf
+      for (const sx of [-1, 1]) P.push([BX(0.0065, 0.008, 0.005, sx * 0.0062, 0.093, 0.13), m.akSteel]); // rear notch
+      P.push([slab([[0.16, 0.012], [0.335, 0.017], [0.335, 0.05], [0.16, 0.05]], 0.042, 0.009), m.akWood]); // lower handguard
+      P.push([CY(0.0168, 0.128, 0, 0.068, 0.266, 14), m.akWood]); // upper handguard over the gas tube
+      P.push([CY(0.0178, 0.011, 0, 0.068, 0.197, 14), m.akSteel]); P.push([BX(0.046, 0.05, 0.011, 0, 0.04, 0.338), m.akSteel]); // retainers
+      P.push([CY(0.0086, 0.1, 0, 0.068, 0.385, 12), m.akSteel]); // gas tube
+      P.push([slab([[0.418, 0.03], [0.456, 0.03], [0.456, 0.06], [0.44, 0.08], [0.418, 0.08]], 0.024, 0.003), m.akSteel]); // gas block
+      P.push([CY(0.0088, 0.47, 0, 0.04, 0.395, 12), m.akSteel]); // barrel
+      P.push([rod([0, 0.0265, 0.345], [0, 0.0265, 0.6], 0.0028, 8), m.akSteel]); // cleaning rod
+      P.push([slab([[0.555, 0.04], [0.592, 0.04], [0.586, 0.09], [0.564, 0.09]], 0.012, 0.002), m.akSteel]); // front sight tower
+      P.push([BX(0.003, 0.014, 0.003, 0, 0.0945, 0.575), m.akWorn]); // the post
+      P.push([at(new THREE.TorusGeometry(0.0115, 0.0017, 8, 24, Math.PI * 1.72).rotateZ(2.03), 0, 0.099, 0.575), m.akSteel]); // the hood, open at the top
+      P.push([at(cyl(0.0105, 0.0125, 0.034, 12), 0, 0.04, 0.643), m.akSteel]); // slant brake
+      P.push([at(new THREE.CircleGeometry(0.0045, 10), 0, 0.04, 0.6605), m.slot]);
+      P.push([slab([[0.032, 0.002], [0.09, 0.002], [0.114, -0.062], [0.154, -0.122], [0.202, -0.168], [0.168, -0.2], [0.114, -0.15], [0.07, -0.082], [0.046, -0.03]], 0.026, 0.003), m.akMag]); // curved 30-round magazine
+      P.push([slab([[0.044, 0.0], [0.054, 0.0], [0.08, -0.064], [0.12, -0.126], [0.172, -0.178], [0.164, -0.186], [0.111, -0.133], [0.07, -0.07]], 0.0282, 0.001), m.akMag]); // rear rib
+      P.push([slab([[0.062, 0.0], [0.072, 0.0], [0.098, -0.062], [0.138, -0.122], [0.188, -0.17], [0.18, -0.178], [0.129, -0.129], [0.088, -0.068]], 0.0282, 0.001), m.akMag]); // front rib
+      P.push([slab([[0.158, -0.194], [0.204, -0.158], [0.21, -0.166], [0.166, -0.206]], 0.03, 0.002), m.akWorn]); // floor plate
+      P.push([slab([[-0.03, 0.0], [0.0, 0.0], [-0.018, -0.105], [-0.054, -0.111], [-0.065, -0.085]], 0.03, 0.008), m.akGrip]); // grip, dark brown-black
+      P.push([guard(0.0, 0.078, 0.0, 0.036), m.akSteel]);
+      trig(P, m, 0.02, -0.014);
+      P.push([slab([[-0.13, 0.05], [-0.19, 0.048], [-0.41, 0.012], [-0.42, -0.085], [-0.395, -0.09], [-0.2, -0.012], [-0.13, 0.004]], 0.038, 0.01), m.akWood]); // stock
+      P.push([slab([[-0.412, 0.014], [-0.426, 0.012], [-0.436, -0.088], [-0.42, -0.09]], 0.04, 0.002), m.akSteel]); // steel butt plate
+      P.push([at(new THREE.TorusGeometry(0.007, 0.0018, 6, 12), 0.021, 0.03, -0.14), m.steel]); // sling loop
+      return { parts: P, muzzle: [0, 0.04, 0.662], support: [0, 0.008, 0.25], sight: [0, 0.1018, 0.13] };
+    },
     // Semi-auto combat shotgun: pistol-grip polymer stock, ghost ring sights on a rail, heat shield, extended tube.
     shotgun() {
       const m = mats(), P = [];
@@ -239,15 +297,15 @@ export function modernGuns(H) {
       P.push([slab([[-0.14, 0.0], [0.15, 0.0], [0.15, 0.03], [-0.14, 0.03]], 0.05, 0.005), m.anod]);
       eject(P, m, -0.0244, 0.05, 0.05, 0.022, 0.07);
       P.push([BX(0.05, 0.008, 0.06, 0, 0.068, -0.14), m.gunmetal]);
-      handguard(P, m, 0.16, 0.56, 0.012, 0.062, 0.042, m.tan);
+      handguard(P, m, 0.16, 0.56, 0.012, 0.062, 0.042, m.gunmetal);
       P.push([CY(0.0105, 0.2, 0, 0.038, 0.66, 12), m.gunmetal]);
       can(P, m, 0.84, 0.038, 0.02, 0.2);
       pgrip(P, m, -0.03);
       boxmag(P, m, 0.035, 0.12, 0.032, 0.07);
       P.push([guard(0.0, 0.07, 0.0, 0.038), m.anod]);
       trig(P, m, 0.016, -0.014);
-      P.push([slab([[-0.14, 0.066], [-0.24, 0.07], [-0.42, 0.07], [-0.45, 0.06], [-0.456, -0.06], [-0.43, -0.082], [-0.3, -0.05], [-0.22, -0.03], [-0.14, 0.0]], 0.044, 0.007), m.tan]); // precision stock
-      P.push([BX(0.036, 0.016, 0.12, 0, 0.084, -0.3), m.tan]); // cheek riser
+      P.push([slab([[-0.14, 0.066], [-0.24, 0.07], [-0.42, 0.07], [-0.45, 0.06], [-0.456, -0.06], [-0.43, -0.082], [-0.3, -0.05], [-0.22, -0.03], [-0.14, 0.0]], 0.044, 0.007), m.gunmetal]); // precision stock, gun metal
+      P.push([BX(0.036, 0.016, 0.12, 0, 0.084, -0.3), m.anod]); // cheek riser, grey steel
       P.push([slab([[-0.448, 0.06], [-0.466, 0.058], [-0.47, -0.062], [-0.44, -0.084], [-0.428, -0.078]], 0.046, 0.002), m.rubber]);
       for (const g of railTeeth(-0.12, 0.15, 0.073, 0.036)) P.push([g, m.anod]);
       scope(P, m, 0.0, 0.076, 0.3, 0.017, 0.027);

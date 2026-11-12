@@ -2,12 +2,12 @@
 // demon and NPCs. They interpolate toward the latest snapshot.
 import { PERF } from './perf.js';
 import { makeRiderBoard, RiderAnim, unpackBoard } from './skate.js';
-import { animateWeapon } from './weapons.js';
+import { animateWeapon, makeWeapon } from './weapons.js';
 import * as THREE from 'three';
 import { MOBS, MOB_TYPES, MOB_ARM_IDS, armedBase, BOSSES, NPCS, NPC_TYPES, CLASS_BY_ID, WEAPON_BY_ID, MINI, ELITE } from './data.js';
 import { makeHumanoid, makeMob, makeBoss, makeDemon, makeNameplate } from './models.js';
 import { makeCharacterModel, flushSwipes, setCharacterScale, STEP_KIND, stepAccum } from './characters.js';
-import { makeMobRig, MOB_LOOKS } from './mobrig.js';
+import { makeMobRig, MOB_LOOKS, makeVikingAxe } from './mobrig.js';
 import { muOn, LOWGRAV, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 import { makeOrbitBlades, makeFireRing, auraRadius } from './duelfx.js';
 import { makeJetpack, jetFx } from './jetpack.js';
@@ -22,6 +22,7 @@ const barGeo = new THREE.PlaneGeometry(1, 0.1);
 const barBg = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6, depthTest: false });
 const barFg = new THREE.MeshBasicMaterial({ color: 0xff3a3a, depthTest: false });
 const barFgMini = new THREE.MeshBasicMaterial({ color: 0xffc233, depthTest: false });
+const barFgEcho = new THREE.MeshBasicMaterial({ color: 0xc070ff, depthTest: false });
 const barFgNpc = new THREE.MeshBasicMaterial({ color: 0x5aff7a, depthTest: false });
 
 function hpBar(width, fgMat = barFg) {
@@ -86,6 +87,7 @@ export class RemotePlayerView {
     if (this.pos.distanceTo(this.target) > 12) this.pos.copy(this.target);
     else this.pos.lerp(this.target, Math.min(1, dt * 14));
     this.yaw = lerpA(this.yaw, (p.ry || 0) / 100, Math.min(1, dt * 14));
+    this.pitch = (p.pt || 0) / 100;
     this.model.position.copy(this.pos);
     this.model.rotation.y = this.yaw;
     setCharacterScale(this.model, this.size || 1); // duel fighters are drawn larger (game sets size)
@@ -148,7 +150,7 @@ export class RemotePlayerView {
     this.specials(p, dt);
     this.alive = !!p.al && !p.out;
     this.hp = p.hp || 0; this.mh = p.mh || 1; this.name = String(p.n || 'Player');
-    this.model.visible = !p.out || !!p.al;
+    this.model.visible = (!p.out || !!p.al) && !this.mist && !this.ball && !this.spirit; // Cloud Form: only the mist shows. Snowball: the runner is inside it
   }
   // Orbiting blades and the fire ring of a power-up the other fighter holds.
   specials(p, dt) {
@@ -195,7 +197,9 @@ export class MobView {
     this.elite = ELITE.kinds[row[10] | 0] || null; // elite modifier: a coloured aura, a little bigger
     if (this.elite && !this.mini) { this.model.scale.multiplyScalar(1.18); this.vh *= 1.18; }
     const s = this.model.scale.x;
-    this.bar = hpBar(this.base.radius * 1.8 * (this.mini ? MINI.size : 1), this.mini ? barFgMini : barFg);
+    this.echo = this.type.startsWith('echo'); // a boss team mate: its health bar always shows
+    this.bar = hpBar(this.base.radius * 1.8 * (this.mini ? MINI.size : this.echo ? 1.7 : 1), this.mini ? barFgMini : this.echo ? barFgEcho : barFg);
+    if (this.echo) this.bar.scale.y = 1.8;
     this.bar.position.y = (this.vh + 0.35) / s;
     this.model.add(this.bar);
     this.bar.scale.setScalar(1 / s);
@@ -273,7 +277,7 @@ export class MobView {
       for (const o of this.shMeshes) o.castShadow = shad;
     }
     this.bar.position.y = (this.vh * (muOn(BIG_HEAD) && this.rig ? 1.22 : 1) + 0.35) / this.model.scale.x; // clear of a Big Head
-    setBar(this.bar, this.hp, camera, this.mini || bd < 30 || (this.hp < 0.999 && bd < 55));
+    setBar(this.bar, this.hp, camera, this.mini || this.echo || bd < 30 || (this.hp < 0.999 && bd < 55));
     if (this.mini) {
       if (Math.random() < 0.18) fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 2, this.y + 0.1, this.z + (Math.random() - 0.5) * 2], v: [0, 1.4, 0], life: 0.8, s0: 0.9, s1: 0.2, c0: [1, 0.8, 0.3, 0.5], c1: [1, 0.55, 0.1, 0] });
     }
@@ -334,6 +338,21 @@ export class MobView {
   dispose() { this.scene.remove(this.model); if (this.drone) this.drone.dispose(); if (this.turret) this.turret.dispose(); }
 }
 
+// Turn a bone so the line from it to its child points along a world direction (used to aim the Visitor's gun arm).
+const AIM_V = new THREE.Vector3(), AIM_A = new THREE.Vector3(), AIM_C = new THREE.Vector3(), AIM_Q = new THREE.Quaternion(), AIM_W = new THREE.Quaternion(), AIM_P = new THREE.Quaternion();
+const AXE_CURL = [0.7, 2.0, 3.2], AXE_THUMB = [[0.3, 0.9, 0.3], [0, 0.8, -0.6], [-0.5, 0.3, -0.8]], AXE_A = new THREE.Vector3(), AXE_B = new THREE.Vector3(), AXE_C = new THREE.Vector3();
+const GUN_S = 7, GRIP_FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'], GRIP_CURL = [0.9, 1.5, 1.2];
+const GRIP_U = new THREE.Vector3(), GRIP_L = new THREE.Vector3(), GRIP_W = new THREE.Vector3(), GRIP_1 = new THREE.Vector3(), GRIP_2 = new THREE.Vector3(), GRIP_3 = new THREE.Vector3(), GRIP_D = new THREE.Vector3(), GRIP_MA = new THREE.Matrix4(), GRIP_MB = new THREE.Matrix4();
+function aimBone(bone, child, dir) {
+  bone.updateWorldMatrix(true, true);
+  bone.getWorldPosition(AIM_A); child.getWorldPosition(AIM_C).sub(AIM_A).normalize();
+  AIM_Q.setFromUnitVectors(AIM_C, dir);
+  bone.getWorldQuaternion(AIM_W).premultiply(AIM_Q);
+  bone.parent.getWorldQuaternion(AIM_P).invert();
+  bone.quaternion.copy(AIM_P.multiply(AIM_W));
+  bone.updateWorldMatrix(false, true);
+}
+
 export class BossView {
   constructor(scene, row) {
     this.scene = scene;
@@ -342,6 +361,8 @@ export class BossView {
     this.rig = makeMobRig('boss' + this.idx);
     this.model = this.rig ? this.rig.root : makeBoss(this.idx, this.def);
     scene.add(this.model);
+    if (this.idx === 6) { this.axe = makeVikingAxe(); this.axeW = -0.7; scene.add(this.axe); } // Thermes' axe, held in his right fist
+    if (this.def.visitor) { this.gun = makeWeapon('alienblaster'); this.gun.scale.setScalar(GUN_S); this.gun.traverse((o) => { if (o.isMesh) o.castShadow = true; }); scene.add(this.gun); } // the very same Alien Blaster as on the weapon wall, boss sized
     this.x = row[1] / 10; this.z = row[2] / 10; this.y = 0;
     this.tx = this.x; this.tz = this.z;
     this.yaw = 0; this.t = 0; this.hp = 1; this.anim = 0; this.spawnT = 0;
@@ -355,10 +376,13 @@ export class BossView {
     // Thermes: row[7] is the current eye-laser yaw (x100), 9999 while he charges them, null otherwise.
     this.laser = row[7] == null || row[7] === 9999 ? null : row[7] / 100;
     this.lasering = row[7] != null;
+    this.beamD = row[9] | 0; // The Visitor: how far out its beam lands
+    this.flag = row[8] | 0; // Thermes: 1 cleave, 2 sweep, 3 whirlwind. The Visitor: 1 = blaster overheated
   }
   update(dt, world, camera, fx) {
     this.t += dt;
     this.spawnT += dt;
+    if (this.snap || Math.hypot(this.tx - this.x, this.tz - this.z) > 20) { this.x = this.tx; this.z = this.tz; this.snap = false; } // a blink: no slide
     const ox = this.x, oz = this.z;
     const k = Math.min(1, dt * (this.charging ? 18 : 8));
     this.x += (this.tx - this.x) * k;
@@ -368,12 +392,81 @@ export class BossView {
     this.yaw = lerpA(this.yaw, this.tyaw ?? 0, Math.min(1, dt * 6));
     const rise = Math.min(1, this.spawnT / 2.5);
     const fl = this.rig ? (MOB_LOOKS['boss' + this.idx].float || 0) : 0;
-    this.model.position.set(this.x, this.y + fl + (fl ? Math.sin(this.t * 1.3) * 0.3 : 0) - (1 - rise) * 8, this.z);
-    this.model.rotation.y = this.yaw;
+    // A leaping boss (charging === 2) arcs through the air on its way to the landing spot.
+    if (this.charging === 2) this.leapT = (this.leapT || 0) + dt; else this.leapT = 0;
+    const hop = this.leapT ? Math.sin(Math.min(1, this.leapT / 1.15) * Math.PI) * 11 : 0;
+    this.model.position.set(this.x, this.y + hop + fl + (fl ? Math.sin(this.t * 1.3) * 0.3 : 0) - (1 - rise) * 8, this.z);
+    this.spin = this.idx === 6 && this.flag === 3 ? (this.spin || 0) + dt * 7.5 : 0; // Thermes' whirlwind
+    this.model.rotation.y = this.yaw + this.spin;
     this.anim = Math.max(0, this.anim - dt * 1.5);
     const hit = this.hp < (this.lastHp ?? this.hp) - 0.02; this.lastHp = this.hp;
-    if (this.rig) this.rig.update({ speed, attack: this.anim, hit }, dt, false);
+    if (this.rig) this.rig.update({ speed: this.def.visitor ? 0 : speed, attack: this.spin ? 1 : this.anim, hit, kind: this.idx === 6 ? this.flag : 0 }, dt, false); // The Visitor glides: no walk cycle
     else this.model.userData.anim({ speed, attack: this.anim }, dt, this.t);
+    if (this.def.visitor && this.rig && this.rig.b) {
+      // The Visitor holds its blaster out like any gunman: upper arm forward and down, forearm straight at its target, recoil on each shot.
+      const B = this.rig.b, ua = B.get('RightArm'), fa = B.get('RightForeArm'), hd = B.get('RightHand');
+      if (ua && fa && hd) {
+        const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw), kick = this.anim * 0.18;
+        aimBone(ua, fa, AIM_V.set(sy * 0.75 - cy * 0.22, -0.62, cy * 0.75 + sy * 0.22).normalize());
+        aimBone(fa, hd, (this.aimDir || (this.aimDir = new THREE.Vector3())).set(sy, -0.2 + kick, cy).normalize());
+        // The blaster is held like a real pistol: the hand turns so the knuckle row stands upright with the palm inward, the fingers
+        // close round the grip and the thumb lies along the far side. Hand, fingers and gun all hang off the aimed forearm, so the
+        // whole grip rides the recoil together. (Fitted against close-up renders, 2026-11-11.)
+        const F = this.aimDir, U = GRIP_U.set(0, 1, 0).addScaledVector(F, -F.y).normalize(), L = GRIP_L.crossVectors(U, F).normalize();
+        hd.updateWorldMatrix(true, true);
+        const wr = hd.getWorldPosition(GRIP_W), a1 = B.get('RightHandMiddle1').getWorldPosition(GRIP_1).sub(wr).normalize();
+        const a2 = B.get('RightHandPinky1').getWorldPosition(GRIP_2).sub(B.get('RightHandIndex1').getWorldPosition(GRIP_3)); a2.addScaledVector(a1, -a2.dot(a1)).normalize();
+        GRIP_MA.makeBasis(a1, a2, GRIP_3.crossVectors(a1, a2)).transpose();
+        GRIP_2.copy(U).negate(); GRIP_MB.makeBasis(F, GRIP_2, GRIP_3.crossVectors(F, GRIP_2)).multiply(GRIP_MA);
+        AIM_Q.setFromRotationMatrix(GRIP_MB);
+        hd.getWorldQuaternion(AIM_W).premultiply(AIM_Q); hd.parent.getWorldQuaternion(AIM_P).invert(); hd.quaternion.copy(AIM_P.multiply(AIM_W)); hd.updateWorldMatrix(false, true);
+        for (const f of GRIP_FINGERS) { let t = 0; for (let k = 1; k <= 3; k++) { t += GRIP_CURL[k - 1]; aimBone(B.get('RightHand' + f + k), B.get('RightHand' + f + (k + 1)), GRIP_D.copy(F).multiplyScalar(Math.cos(t)).addScaledVector(L, Math.sin(t))); } }
+        aimBone(B.get('RightHandThumb1'), B.get('RightHandThumb2'), GRIP_D.copy(F).multiplyScalar(0.55).addScaledVector(L, 0.75).addScaledVector(U, 0.25).normalize());
+        aimBone(B.get('RightHandThumb2'), B.get('RightHandThumb3'), GRIP_D.copy(F).addScaledVector(L, 0.25).normalize());
+        aimBone(B.get('RightHandThumb3'), B.get('RightHandThumb4'), GRIP_D.copy(F).addScaledVector(L, -0.1).normalize());
+        const gp = this.gun.position;
+        hd.getWorldPosition(gp).lerp(B.get('RightHandMiddle1').getWorldPosition(GRIP_1), 0.5).addScaledVector(L, 0.2);
+        gp.addScaledVector(U, B.get('RightHandIndex1').getWorldPosition(GRIP_1).sub(gp).dot(U) + 0.03).addScaledVector(F, 0.02 * GUN_S);
+        this.gun.quaternion.setFromRotationMatrix(GRIP_MB.makeBasis(GRIP_1.crossVectors(U, F), U, F));
+      }
+    }
+    if (this.axe && this.rig && this.rig.b) {
+      // Thermes holds his axe in a hammer grip: the haft lies across his palm along the knuckle row, the fingers close round it and the
+      // thumb locks over them, the blade edge leads where his knuckles point. His wrist cocks the head up while he carries it and snaps
+      // it down on a cleave. In the whirlwind his elbow bends so the haft sticks straight out and the edge leads the spin.
+      // (Fitted against close-up renders, 2026-11-12.)
+      const B = this.rig.b, R = this.rig, hd = B.get('RightHand'), m1 = B.get('RightHandMiddle1'), i1 = B.get('RightHandIndex1'), p1 = B.get('RightHandPinky1');
+      if (hd && m1 && i1 && p1) {
+        const D = GRIP_D, U = GRIP_U, N = GRIP_L;
+        const frame = () => { hd.updateWorldMatrix(true, true); hd.getWorldPosition(GRIP_W); m1.getWorldPosition(GRIP_1); D.copy(GRIP_1).sub(GRIP_W).normalize(); U.copy(i1.getWorldPosition(GRIP_2)).sub(p1.getWorldPosition(GRIP_3)); U.addScaledVector(D, -U.dot(D)).normalize(); N.crossVectors(U, D); };
+        const turnHand = (q) => { hd.getWorldQuaternion(AIM_W).premultiply(q); hd.parent.getWorldQuaternion(AIM_P).invert(); hd.quaternion.copy(AIM_P.multiply(AIM_W)); };
+        const u = R.atkT >= 0 ? R.atkT / R.atkDur : -1, k = R.atkKind | 0;
+        let w = -0.7;
+        if (this.spin) {
+          const ry = this.model.rotation.y, fx = Math.sin(ry), fz = Math.cos(ry), rx = -fz, rz = fx; // his forward and his right
+          const ua = B.get('RightArm'), fa = B.get('RightForeArm');
+          aimBone(ua, fa, AIM_V.set(rx * 0.9 + fx * 0.1, -0.45, rz * 0.9 + fz * 0.1).normalize());
+          aimBone(fa, hd, AIM_V.set(fx * 0.9 + rx * 0.35, 0.05, fz * 0.9 + rz * 0.35).normalize());
+          frame();
+          const td = AXE_A.copy(AIM_V), tu = AXE_B.set(rx, 0.12, rz); tu.addScaledVector(td, -tu.dot(td)).normalize();
+          GRIP_MA.makeBasis(D, U, AXE_C.crossVectors(D, U)).transpose();
+          GRIP_MB.makeBasis(td, tu, AXE_C.crossVectors(td, tu)).multiply(GRIP_MA);
+          turnHand(AIM_Q.setFromRotationMatrix(GRIP_MB));
+          w = 0;
+        } else if (u >= 0 && k === 1) { const t = Math.max(0, Math.min(1, (u - 0.55) / 0.17)); w = -0.5 + 1.2 * t * t * (3 - 2 * t); }
+        else if (u >= 0 && k === 2) w = 0.1;
+        this.axeW += (w - this.axeW) * Math.min(1, dt * (this.spin ? 30 : 10));
+        frame();
+        if (this.axeW) { turnHand(AIM_Q.setFromAxisAngle(N, this.axeW)); frame(); }
+        const d0 = AXE_A.copy(D), n0 = AXE_B.copy(N), u0 = AXE_C.copy(U);
+        for (const f of GRIP_FINGERS) for (let j = 1; j <= 3; j++) { const t = AXE_CURL[j - 1]; aimBone(B.get('RightHand' + f + j), B.get('RightHand' + f + (j + 1)), AIM_V.copy(d0).multiplyScalar(Math.cos(t)).addScaledVector(n0, Math.sin(t))); }
+        for (let j = 1; j <= 3; j++) { const t = AXE_THUMB[j - 1]; aimBone(B.get('RightHandThumb' + j), B.get('RightHandThumb' + (j + 1)), AIM_V.copy(d0).multiplyScalar(t[0]).addScaledVector(n0, t[1]).addScaledVector(u0, t[2]).normalize()); }
+        const S = hd.getWorldPosition(GRIP_W).distanceTo(m1.getWorldPosition(GRIP_1)) * 8; // sized to his hand
+        this.axe.scale.setScalar(S);
+        this.axe.position.copy(GRIP_1).addScaledVector(n0, S * 0.042);
+        this.axe.quaternion.setFromRotationMatrix(GRIP_MB.makeBasis(n0, u0, d0));
+      }
+    }
     if (this.idx === 6) {
       // Thermes: pulsing skin and breathing aura, eyes tracked for the laser beams (brighter while they charge).
       thermes.tickThermes(this.model, dt, this.t);
@@ -385,8 +478,14 @@ export class BossView {
       fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 3, this.y + Math.random() * this.def.scale * 2.5, this.z + (Math.random() - 0.5) * 3], v: [0, 1, 0], life: 1, s0: 0.6, s1: 0.1, c0: [c.r, c.g, c.b, 0.8], c1: [c.r, c.g, c.b, 0] });
     }
   }
+  // Where the Visitor's blaster points from: just ahead of its gun hand.
+  muzzle(out) {
+    const h = this.rig && this.rig.b && this.rig.b.get('RightHand');
+    if (h && this.aimDir && this.gun) { out.copy(this.gun.position).addScaledVector(this.aimDir, 0.31 * GUN_S); out.y += 0.03 * GUN_S; return out; }
+    return out.set(this.x + Math.sin(this.yaw) * 3, this.y + 7, this.z + Math.cos(this.yaw) * 3);
+  }
   target() { const s = this.def.scale; return { id: 'B', kind: 'boss', x: this.x, y: this.y, z: this.z, r: 0.9 * s, h: 2.9 * s, view: this }; }
-  dispose() { this.scene.remove(this.model); }
+  dispose() { this.scene.remove(this.model); if (this.gun) this.scene.remove(this.gun); if (this.axe) this.scene.remove(this.axe); }
 }
 
 const DEATH_SCALE = 1.7;

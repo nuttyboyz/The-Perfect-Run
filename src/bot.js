@@ -5,6 +5,8 @@
 import { CONFIG, WEAPON_BY_ID, NPCS } from './data.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
+// Duel CPU Level (Easy, Medium, Hard, Insane): how fast it reacts, how well it aims and leads, how often it dodges, dashes and casts.
+export const CPU_SKILL = [0.25, 0.6, 0.85, 1];
 const TAU = Math.PI * 2;
 const angDiff = (a, b) => ((b - a + Math.PI * 3) % TAU) - Math.PI;
 const KEY = { q: 'KeyQ', e: 'KeyG', r: 'KeyF' };
@@ -55,7 +57,7 @@ export class Bot {
     // How well the CPU plays a run: 1 = the old sharp shooter, lower = a more human player (slower turns, a beat of
     // reaction before tracking a new target, shaky aim that really misses, standing still to shoot, looking where it walks).
     // Duels keep the sharp CPU. Tests can set window.__cpuSkill.
-    this.skill = mode === 'duel' ? 1 : (typeof window !== 'undefined' && window.__cpuSkill != null ? window.__cpuSkill : 0.45);
+    this.skill = mode === 'duel' ? CPU_SKILL[typeof window !== 'undefined' && window.__cpuLevel != null ? window.__cpuLevel : 1] ?? 0.6 : (typeof window !== 'undefined' && window.__cpuSkill != null ? window.__cpuSkill : 0.45);
     this.aimId = null; this.react = 0; this.stopT = 0; this.lookT = 0;
   }
 
@@ -329,7 +331,7 @@ export class Bot {
   duelStep(dt, I) {
     const g = this.g;
     const foes = [];
-    for (const [id, v] of g.views.players) if (v.alive) foes.push({ id, x: v.pos.x, y: v.pos.y, z: v.pos.z, r: 0.55, h: 1.85 });
+    for (const [id, v] of g.views.players) if (v.alive && !v.mist) foes.push({ id, x: v.pos.x, y: v.pos.y, z: v.pos.z, r: 0.55, h: 1.85 }); // a fighter in Cloud Form cannot be seen
     this.trackVel(foes, dt);
     const foe = foes[0];
     if (!foe || g.phase !== 'duel') return;
