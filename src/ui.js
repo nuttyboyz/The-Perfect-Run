@@ -263,6 +263,12 @@ export class UI {
     menu.addEventListener('focusin', (e) => place(btnOf(e)));
     this.root.addEventListener('padfocus', (e) => place(btnOf(e)));
     this.ringPlace = () => place(menu.querySelector('.menu > .btn.pad-focus') || menu.querySelector('.menu > .btn:hover') || this.$('#btn-solo'));
+    // Window fit: when the game is not full screen every menu, pop-up and the HUD shrink together so nothing overlaps.
+    if (!window.__fitBound) {
+      window.__fitBound = true;
+      const fit = () => { const k = Math.max(0.42, Math.min(1, innerWidth / 1500, innerHeight / 860)); document.documentElement.style.setProperty('--fit', k.toFixed(4)); document.documentElement.classList.toggle('fit-small', k < 0.999); };
+      fit(); window.addEventListener('resize', fit); document.addEventListener('fullscreenchange', fit);
+    }
     window.addEventListener('resize', () => { if (this.root.dataset.screen === 's-title') this.ringPlace(); });
     requestAnimationFrame(this.ringPlace);
   }
@@ -1296,6 +1302,7 @@ export class UI {
     const S = this.game.settings, sc = Math.min(1.3, Math.max(0.8, +S.uiScale || 1)), xs = Math.min(2.2, Math.max(0.6, +S.xhSize || 1)), xh = S.xh || 'cross';
     if (this.game.seat === 1) {
       document.documentElement.style.setProperty('--ui', sc);
+      document.documentElement.style.setProperty('--uis', sc);
       document.documentElement.style.fontSize = (16 * sc) + 'px';
       const cb = S.cb && S.cb !== 'off' ? S.cb : '';
       if (cb) document.documentElement.dataset.cb = cb; else delete document.documentElement.dataset.cb;
@@ -1651,7 +1658,7 @@ export class UI {
     this.$('#elem h2').textContent = duel ? 'Choose an Attack Power-Up' : 'Choose a Power-Up';
     this.$('#elem-sub').textContent = duel
       ? 'The match is frozen until you both choose. Click, press 1-5, or use ◀ ▶ and Space. Picks stack.'
-      : live ? 'Press 1-5, or ◀ ▶ then Space · D-pad ◀ ▶ then ' + 'X (A on Xbox)' + ' on a controller · the run keeps going' : 'The game is paused. Click, press 1-5, or use ◀ ▶ and Space. Everything stacks.';
+      : live ? 'Press 1-9 or 0, or ◀ ▶ then Space · D-pad ◀ ▶ then ' + 'X (A on Xbox)' + ' on a controller · the run keeps going' : 'The game is paused. Click, press 1-9 or 0, or use ◀ ▶ and Space. Everything stacks.';
     el.classList.toggle('ten', !duel && opts.length > 5);
     this.$('#elem-cards').innerHTML = opts.map((e, i) => {
       const info = puInfo(e, p.cls);
@@ -1661,7 +1668,7 @@ export class UI {
     this.$$('.elem-card').forEach((b) => (b.onclick = () => this.game.pickElem(+b.dataset.i)));
     // The tumbling die under the cards says a reroll is available; click it (or R) for a whole new set.
     const dc = this.$('#elem-dice'), rr = p.rerolls || 0;
-    dc.classList.toggle('on', !duel && rr > 0);
+    dc.classList.toggle('on', !duel); dc.classList.toggle('empty', !(rr > 0)); // always under the cards; dim when no reroll is banked
     dc.querySelector('.die-text').textContent = 'REROLL (' + rr + ')';
     dc.onclick = () => this.game.rerollElem();
     dc.querySelector('.die-text').onclick = (e) => { e.stopPropagation(); this.game.rerollElem(); };

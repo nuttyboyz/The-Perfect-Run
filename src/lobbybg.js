@@ -225,8 +225,8 @@ const OPTIONS = {
   // 3. Pine forest clearing, late afternoon sun slanting through the trunks.
   3: {
     name: 'Forest clearing',
-    sky: { zen: [0.2, 0.42, 0.78], hor: [0.95, 0.82, 0.6], sun: [0.4, 0.12, -1], sunCol: [1.0, 0.75, 0.4], clouds: 0.3, cloudCol: [1, 0.95, 0.88] },
-    fog: [0xa8b0a0, 0.0075], sunL: [0xffd29a, 3.4, [16, 26, -36]], hemi: [0xa0b8d0, 0x3a3020, 0.8],
+    sky: { zen: [0.2, 0.42, 0.78], hor: [0.78, 0.7, 0.54], sun: [0.4, 0.12, -1], sunCol: [1.0, 0.75, 0.4], sunSize: 0.0005, glow: 0.4, clouds: 0.3, cloudCol: [0.9, 0.86, 0.8] },
+    fog: [0x98a090, 0.0075], sunL: [0xffd29a, 3.4, [16, 26, -36]], hemi: [0xa0b8d0, 0x3a3020, 0.8],
     land: {
       flat: 16, ramp: 40,
       h: (x, z) => N.fbm(x * 0.012, z * 0.012, 4) * 46 - 22 + N2.fbm(x * 0.06, z * 0.06, 3) * 3,

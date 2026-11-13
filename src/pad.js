@@ -89,6 +89,24 @@ export class PadInput {
         if (next) setFocus(root, next);
       }
     }
+    // Right stick scrolls the list under the focus (or the first open list) and the focus follows it.
+    const ry = dz(p.axes[3] || 0);
+    if (ry) {
+      const sc = (cur && scrollerOf(cur)) || [...root.querySelectorAll('.screen.on .wall, .overlay.on .set-panes, .overlay.on .cz-list')].find(visible);
+      if (sc && sc.scrollHeight > sc.clientHeight + 2) {
+        glides.delete(sc);
+        sc.scrollTop += ry * dt * sc.clientHeight * 2.2;
+        if (cur && sc.contains(cur)) {
+          const s = sc.getBoundingClientRect(), r = cur.getBoundingClientRect(), cx = r.left + r.width / 2;
+          if (r.top < s.top - 2 || r.bottom > s.bottom + 2) {
+            let best = null, bs = Infinity;
+            for (const e of items) { if (!sc.contains(e)) continue; const q = e.getBoundingClientRect(); if (q.top < s.top - 2 || q.bottom > s.bottom + 2) continue;
+              const sco = Math.abs(q.left + q.width / 2 - cx) * 3 + (ry > 0 ? q.top - s.top : s.bottom - q.bottom); if (sco < bs) { bs = sco; best = e; } }
+            if (best) { root.querySelectorAll('.pad-focus').forEach((e) => e.classList.remove('pad-focus')); best.classList.add('pad-focus'); best.dispatchEvent(new CustomEvent('padfocus', { bubbles: true })); }
+          }
+        }
+      }
+    }
     if (down(0) && cur) press(cur);
     if (down(9)) { const r = root.querySelector('.overlay.on #pause-resume'); if (r && visible(r)) r.click(); }
     if (down(1)) {
@@ -115,10 +133,48 @@ function focusables(root) {
 export function setFocus(root, el) {
   root.querySelectorAll('.pad-focus').forEach((e) => e.classList.remove('pad-focus'));
   el.classList.add('pad-focus');
-  el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const sc = scrollerOf(el);
+  if (sc) {
+    // Inside a scrolling list: glide so the focused item sits comfortably in view, with the next row already showing.
+    const r = el.getBoundingClientRect(), s = sc.getBoundingClientRect(), pad = Math.min(r.height * 0.9, s.height * 0.25);
+    let dy = 0;
+    if (r.top < s.top + pad) dy = r.top - s.top - pad; else if (r.bottom > s.bottom - pad) dy = r.bottom - s.bottom + pad;
+    const to = Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, sc.scrollTop + dy));
+    if (Math.abs(to - sc.scrollTop) > 1) glide(sc, to);
+  } else el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   el.dispatchEvent(new CustomEvent('padfocus', { bubbles: true }));
 }
-function spatial(cur, items, [dx, dy]) {
+// The nearest scrolling list an element sits in (weapon wall, settings panes, ...).
+function scrollerOf(el) {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    if (p.scrollHeight > p.clientHeight + 2) { const o = getComputedStyle(p).overflowY; if (o === 'auto' || o === 'scroll') return p; }
+  }
+  return null;
+}
+const glides = new WeakMap();
+function glide(sc, to) {
+  const from = sc.scrollTop, t0 = performance.now(), id = {};
+  glides.set(sc, id); sc._glideTo = to;
+  const step = (t) => {
+    if (glides.get(sc) !== id) return;
+    const k = Math.min(1, (t - t0) / 140), e = 1 - (1 - k) * (1 - k);
+    sc.scrollTop = from + (to - from) * e;
+    if (k < 1) requestAnimationFrame(step); else sc._glideTo = null;
+  };
+  requestAnimationFrame(step);
+}
+function spatial(cur, items, dir) {
+  // Inside a scrolling list, stay in the list while it still has something that way, even if it is scrolled out of sight.
+  const sc = scrollerOf(cur);
+  if (sc) {
+    const own = items.filter((e) => sc.contains(e));
+    const inside = spatial1(cur, own, dir, true); if (inside) return inside;
+    // End of a row: carry on to the next (or previous) item, so left and right alone can walk the whole list.
+    if (dir[0]) { const i = own.indexOf(cur) + dir[0]; if (own[i]) return own[i]; }
+  }
+  return spatial1(cur, items, dir, false);
+}
+function spatial1(cur, items, [dx, dy], grid) {
   const a = cur.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
   let best = null, bs = Infinity;
   for (const e of items) {
@@ -128,6 +184,7 @@ function spatial(cur, items, [dx, dy]) {
     const along = vx * dx + vy * dy;
     if (along <= 4) continue;
     const across = Math.abs(vx * dy - vy * dx);
+    if (grid && dx && across > a.height * 0.5) continue; // left and right stay on the same row
     const score = along + across * 2.2;
     if (score < bs) { bs = score; best = e; }
   }

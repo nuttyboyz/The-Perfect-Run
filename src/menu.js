@@ -330,7 +330,6 @@ export class MenuScene {
       if (Math.random() < 0.025 * k) {
         const a = [p.x + R() * 0.4, 1.3 + Math.random() * 0.6, p.z + R() * 0.4];
         fx.bolt(a, [a[0] + R() * 2, a[1] + R() * 1.6, a[2] + R() * 2], { width: 0.1, dur: 0.15, branches: 1 });
-        fx.flash(a, 0x9fbaff, 6, 0.15, 5);
       }
       if (Math.random() < 0.5 * k) fx.glow.emit({ p: [p.x + R() * 1.2, 0.4 + Math.random() * 1.8, p.z + R() * 1.2], v: [0, 0.3, 0], life: 0.6, s0: 0.15, s1: 0.05, c0: [0.7, 0.8, 1, 1], c1: [0.4, 0.5, 1, 0] });
     } else if (c === 'rime') {
@@ -363,7 +362,7 @@ export class MenuScene {
       const want = this.focusIdx === i ? Math.atan2(this.camPos.x - h.mesh.position.x, this.camPos.z - h.mesh.position.z) : h.baseRy;
       h.mesh.rotation.y += (want - h.mesh.rotation.y) * Math.min(1, dt * 3);
       this.aura(h, i, dt);
-      if (h.light) h.light.intensity = (this.focusIdx === i ? 3.2 : this.focusIdx === -1 ? 2.2 : 0.6) * (0.85 + Math.sin(this.t * 9 + i) * 0.15);
+      if (h.light) h.light.intensity = this.focusIdx === i ? 1.3 : this.focusIdx === -1 ? 1.1 : 0.4; // steady, soft rim light: no flicker, no white glare
     });
     // Embers drifting over the cliff.
     if (!this.day && Math.random() < 0.4) this.fx.spark.emit({ p: [(Math.random() - 0.5) * 20, -2, (Math.random() - 0.5) * 10], v: [1, 1.5 + Math.random(), 0], life: 6, s0: 0.06, s1: 0.03, c0: [1, 0.6, 0.3, 1], c1: [1, 0.3, 0.1, 0], turb: 1.5 });

@@ -757,14 +757,14 @@ export const POWERUP_BY_ID = Object.fromEntries([...POWERUPS, ...ELEMENTS, ...DU
 const PHYSICAL = ['orbit', 'aura', 'burst', 'rate', 'leech', 'crit', 'execute', 'bigmag', 'fastreload', 'heavy'];
 const UTILITY = ['hp', 'cd', 'armor', 'learn'];
 const MASTERY = POWERUPS.filter((p) => p.kind === 'ability').map((p) => p.id);
-// Nutty 2026-11-12 14:42: the cards are random every level (five of them, no repeats), and one or two are always elemental
+// Nutty 2026-11-12 14:42: the cards are random every level (ten of them again, Nutty 2026-11-12 21:59; no repeats), and one or two are always elemental
 // power-ups for the cooldowns of your own element that you carry (AB_PUS).
 export function levelOffer(cls) {
   const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const mine = cls ? shuffle(['q', 'r', 'e'].map((k) => cls[k] && AB_PU_BY_AB[cls[k].id]).filter(Boolean)) : [];
   const el = mine.slice(0, mine.length ? 1 + (Math.random() < 0.5 ? 1 : 0) : 0);
   const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', 'extra', 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS]);
-  return shuffle([...el, ...pool.slice(0, 5 - el.length)]);
+  return shuffle([...el, ...pool.slice(0, 10 - el.length)]);
 }
 
 // A reroll: ten different picks drawn from the 30 reroll power-ups, never any that are on screen now.
@@ -772,7 +772,7 @@ export function rerollOffer(current) {
   const cur = new Set((current || []).map((o) => o.id));
   const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  return pool.slice(0, 5);
+  return pool.slice(0, 10);
 }
 
 // XP: each kill feeds the bar, each full bar grants a random level-up power-up.
