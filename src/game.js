@@ -1919,10 +1919,10 @@ export class Game {
       case 'wt': {
         const x = a[0] / 10, z = a[1] / 10;
         if (a[2] || !v._tw || v._tw.until < this.now) {
-          const w = v._tw = { x, z, r: 8, until: this.now + 6.2 }, cc = [x, z];
+          const w = v._tw = { x, z, r: Vault.TWISTER.r + 1, until: this.now + 6.2 }, cc = [x, z];
           this.windZones = (this.windZones || []).filter((q) => q.until > this.now); this.windZones.push(w);
           const steer = () => { const dx = w.x - cc[0], dz = w.z - cc[1], d = Math.hypot(dx, dz); steer.k = Math.min(1.3, d / 3); return d > 0.3 ? [dx / d, 0, dz / d] : [0, 0, 1]; };
-          this.el.cyclone([x, this.world.heightAt(x, z), z - 3], steer, 6, 17, (c) => { cc[0] = c[0]; cc[1] = c[2]; });
+          Vault.darkTornado(this, [x, this.world.heightAt(x, z), z - 3], steer, 6, 17, (c) => { cc[0] = c[0]; cc[1] = c[2]; });
           this.audio.play('cyclone', vol);
         } else { v._tw.x = x; v._tw.z = z; }
         break;

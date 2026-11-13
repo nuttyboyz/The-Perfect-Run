@@ -77,12 +77,12 @@ export const CLASSES = [
     id: 'gale', name: 'Gale', element: 'Wind', color: 0x3f8a6c, accent: 0xbaffea, css: '#dfe4ea',
     tagline: 'Never where they aim.',
     q: { id: 'veil', name: 'Storm Veil', cd: 5, desc: 'Unleash a thick, howling curtain of wind in a wide cone ahead for 3s. It keeps shoving enemies back, slashes them and slows them while they are inside.' },
-    r: { id: 'cyclone', name: 'Cyclone', cd: 10, desc: 'Unleash a tornado that drags enemies in and shreds them.' },
+    r: { id: 'cyclone', name: 'Tornado', cd: 10, desc: 'Unleash a tornado that drags enemies in and shreds them.' },
     e: { id: 'eye', name: 'Eye of the Storm', cd: 10, desc: 'Wrap yourself in a huge swirl of wind for 5s. Nothing can hurt you inside it, enemy shots are deflected back at their shooters, and enemies that touch the swirl are flung away. You can still shoot out.' },
     more: [
       { id: 'cloud', name: 'Cloud Form', cd: 10, desc: 'Turn into drifting mist until Cloud Form is ready again. You pass straight through enemies and attacks, nothing can see you, and you can keep attacking the whole time.' },
       { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It tears through every enemy in its path for high damage. Every impact scatters the crowd: whoever it hits, and everyone standing near them, is sent flying.' },
-      { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a tornado you steer with your crosshair like a guided missile for 6s. It drags in everything nearby, lifts enemies and shreds them, swallows enemy shots, and the fall hurts them again when it drops them.' },
+      { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a wide, dark tornado you steer with your crosshair for 6s. It drags in everything nearby and tears at it hard. Whoever falls into it is sent to the top of the funnel and held there, then dropped. It also swallows enemy shots.' },
     ],
   },
   {
@@ -639,7 +639,7 @@ export const CRATE_POOL = [...POWERUPS.filter((p) => p.kind === 'special'), ...E
 export const EXTRA_BY_CLASS = {
   pyre: { name: 'Extra Fireball', desc: 'Fireball throws one more fireball per cast (stacks)' },
   bastion: { name: 'Extra Boulder', desc: 'Boulder Toss hurls one more boulder per cast (stacks)' },
-  gale: { name: 'Extra Tornado', desc: 'Cyclone unleashes one more tornado per cast (stacks)' },
+  gale: { name: 'Extra Tornado', desc: 'Tornado unleashes one more tornado per cast (stacks)' },
   tempest: { name: 'Extra Shockwave', desc: 'Thunder Shockwave sends out one more ring, a beat behind the first (stacks)' },
   necro: { name: 'Wider Drain', desc: 'Life Drain latches onto one more enemy per cast (stacks)' },
   rime: { name: 'More Crystals', desc: 'Ice Shards summons 2 more crystals per cast (stacks)' },

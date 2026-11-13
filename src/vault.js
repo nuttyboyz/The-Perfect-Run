@@ -473,6 +473,68 @@ export function breath(g, follow, dur = 4, len = 18, onTick) {
 
 // ---- Rime: Whirlpool. A disc of spinning water at `c` (radius r) for `dur` seconds, foam spiralling into its middle. onTick() four times a second.
 // steer() (the caster) returns the point it should glide toward; for everyone else the returned handle's `to` is set as it moves.
+// Whirlwind (Nutty 2026-11-13): a wide, dark storm funnel reaching up to a turning cloud. `d` is the steering callback (as Elements.cyclone):
+// it returns the heading and may carry .k, how fast to go. onTick([x, y, z]) every quarter second.
+export const TWISTER = { h: 22, top: 17, r: 9 }; // how tall the funnel is, how high it holds what it catches, how wide it catches
+export function darkTornado(g, o, d, dur = 6, speed = 17, onTick) {
+  const fx = g.fx, scene = g.scene, H = TWISTER.h;
+  const face = typeof d === 'function' ? d : null, d0 = face ? face() : d;
+  const dir = new THREE.Vector3(d0[0], 0, d0[2]).normalize(), pos = new THREE.Vector3(o[0] + dir.x * 3, 0, o[2] + dir.z * 3);
+  const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 }, uK: { value: 1 } },
+    vertexShader: `uniform float uT; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ vUv = uv; vec3 p = position; float k = p.y / ${H.toFixed(1)};
+        p.x += sin(p.y * 0.21 + uT * 1.7) * 1.5 * k * (1.0 - k * 0.5); p.z += cos(p.y * 0.17 + uT * 1.3) * 1.5 * k * (1.0 - k * 0.5); // the funnel snakes
+        vec4 w = modelMatrix * vec4(p, 1.); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform float uT; uniform float uA; uniform float uK; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+      void main(){
+        vec2 uv = vec2(vUv.x * 5. + uT * 1.6 * uK + vUv.y * 3.0, vUv.y * 4. - uT * 1.1);
+        float n = noise(uv * vec2(3., 5.)) * 0.55 + noise(uv * vec2(8., 13.)) * 0.3 + noise(uv * vec2(19., 31.)) * 0.15;
+        float band = smoothstep(0.3, 0.75, n);
+        float rim = pow(max(0.0, 1.0 - abs(dot(normalize(vN), vV))), 1.6);
+        float fade = smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.86, vUv.y);
+        vec3 col = mix(vec3(0.035, 0.038, 0.046), vec3(0.2, 0.21, 0.235), band * 0.8 + rim * 0.35); // storm-dark, with paler torn bands
+        col += vec3(0.12, 0.1, 0.07) * smoothstep(0.25, 0.0, vUv.y);                                   // the dust it drags up at the foot
+        float a = clamp(0.5 + band * 0.4 + rim * 0.2, 0.0, 0.96) * fade * uA;
+        gl_FragColor = vec4(col, a); }` });
+  const group = new THREE.Group(), layers = [], mats = [];
+  [[9.5, 2.4], [7.6, 1.7], [5.6, 1.0]].forEach(([rt, rb], i) => { const m2 = mat.clone(); m2.uniforms.uK.value = 1 + i * 0.5; mats.push(m2);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, H, 44, 22, true).translate(0, H / 2, 0), m2); m.renderOrder = 2 + i; m.frustumCulled = false; layers.push(m); group.add(m); });
+  // the turning cloud it hangs from
+  const cm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uT: { value: 0 }, uA: { value: 0 } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vP;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+      void main(){ float r = length(vP) / 20.0, a = atan(vP.y, vP.x) + uT * 0.9 + r * 3.0; vec2 q = vec2(cos(a), sin(a)) * r * 6.0;
+        float n = noise(q * 1.3 + 3.) * 0.6 + noise(q * 3.1) * 0.4; float al = smoothstep(1.0, 0.45, r) * (0.55 + 0.45 * n) * uA;
+        gl_FragColor = vec4(mix(vec3(0.03, 0.033, 0.04), vec3(0.17, 0.18, 0.2), n * n), al * 0.92); }` });
+  const cloud = new THREE.Mesh(new THREE.CircleGeometry(20, 40).rotateX(-Math.PI / 2), cm); cloud.position.y = H - 0.6; cloud.renderOrder = 1; cloud.frustumCulled = false; group.add(cloud);
+  scene.add(group);
+  let tick = 0, bolt = 0.6;
+  fx.add({ dur,
+    update: (dt, t) => {
+      if (face) { const f = face(); dir.lerp(new THREE.Vector3(f[0], 0, f[2]), Math.min(1, dt * 2.5)).normalize(); }
+      pos.addScaledVector(dir, speed * (face && face.k != null ? face.k : 1) * dt);
+      const y = g.world.heightAt(pos.x, pos.z), A = Math.min(1, t * 2.5) * Math.min(1, (dur - t) * 2);
+      group.position.set(pos.x, y, pos.z);
+      layers.forEach((m, i) => { m.rotation.y -= dt * (3.2 + i * 1.6); });
+      for (const m2 of mats) { m2.uniforms.uT.value = t; m2.uniforms.uA.value = A; }
+      cm.uniforms.uT.value = t; cm.uniforms.uA.value = A;
+      // dust and wreckage thrown round the foot, dark rags of cloud torn up the funnel
+      for (let i = 0; i < fx.n(7); i++) { const a = Math.random() * 6.28, r = rnd(2, 8);
+        fx.smoke.emit({ p: [pos.x + Math.cos(a) * r, y + 0.4, pos.z + Math.sin(a) * r], v: [-Math.sin(a) * 11 - Math.cos(a) * 3, rnd(1, 5), Math.cos(a) * 11 - Math.sin(a) * 3], life: rnd(0.7, 1.3), s0: 1.6, s1: 4.6, c0: [0.2, 0.18, 0.16, 0.6], c1: [0.1, 0.1, 0.11, 0], drag: 0.6 }); }
+      for (let i = 0; i < fx.n(4); i++) { const a = Math.random() * 6.28, h = rnd(0, H * 0.85), r = 1.6 + h * 0.36;
+        fx.debris.emit({ p: [pos.x + Math.cos(a) * r, y + h, pos.z + Math.sin(a) * r], v: [-Math.sin(a) * 15, rnd(3, 9), Math.cos(a) * 15], life: rnd(0.4, 0.8), s0: rnd(0.18, 0.5), s1: 0.12, c0: [0.3, 0.27, 0.23, 1], c1: [0.2, 0.18, 0.16, 0], rotV: 10 });
+        fx.smoke.emit({ p: [pos.x + Math.cos(a) * r, y + h, pos.z + Math.sin(a) * r], v: [-Math.sin(a) * 9, rnd(2, 6), Math.cos(a) * 9], life: rnd(0.5, 0.9), s0: 1.4, s1: 3.6, c0: [0.07, 0.075, 0.09, 0.5], c1: [0.05, 0.05, 0.06, 0], drag: 0.4 }); }
+      bolt -= dt; if (bolt <= 0) { bolt = rnd(0.5, 1.3); const a = Math.random() * 6.28, hh = rnd(8, H - 3), r = 1.6 + hh * 0.3, p = [pos.x + Math.cos(a) * r, y + hh, pos.z + Math.sin(a) * r]; // a flicker of lightning inside the funnel
+        fx.flash(p, 0xbcd4ff, 26, 0.14, 26); for (let i = 0; i < fx.n(5); i++) fx.streak.emit({ p: [...p], v: [rnd(-8, 8), rnd(-26, -8), rnd(-8, 8)], life: rnd(0.08, 0.18), s0: rnd(1.6, 3), s1: 0.3, c0: [0.8, 0.88, 1, 1], c1: [0.6, 0.75, 1, 0] }); }
+      if (onTick) { tick += dt; if (tick >= 0.25) { tick = 0; onTick([pos.x, y, pos.z]); } }
+    },
+    dispose: () => { scene.remove(group); layers.forEach((m) => m.geometry.dispose()); mats.forEach((m) => m.dispose()); mat.dispose(); cloud.geometry.dispose(); cm.dispose(); } });
+}
 export function whirlpool(g, c, dur = 6, r = 7, onTick, steer) {
   const fx = g.fx, scene = g.scene, h = { to: null, c }; let gy = g.world.heightAt(c[0], c[2]);
   const mat = new THREE.ShaderMaterial({

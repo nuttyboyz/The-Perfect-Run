@@ -2289,20 +2289,21 @@ export class LocalPlayer {
     g.emitFx(['wc', Math.round(dur * 10)]);
   }
 
-  // Windmill: a tornado that chases your crosshair for 6 s. It drags in what is near, lifts and carries what it catches, shreds them,
-  // swallows enemy shots that reach it (Game.handleEvent 'p'), and whatever it drops is hurt again by the fall.
+  // Whirlwind (Nutty 2026-11-13): a wide, dark tornado that chases your crosshair for 6 s. It drags in what is near, and whatever falls
+  // into it is torn at hard and sent up to the top of the funnel, where it is held, spinning, until the storm lets go. It swallows
+  // enemy shots that reach it (Game.handleEvent 'p'), and the long fall hurts again.
   ab_tornado() {
-    const g = this.game, dur = 6, dmg = 10 * this.stats.dmg * this.mm('tornado'), f0 = this.forward();
-    const zone = { x: this.pos.x + f0[0] * 3, z: this.pos.z + f0[2] * 3, r: 8, until: g.now + dur + 0.3 };
+    const g = this.game, dur = 6, dmg = 26 * this.stats.dmg * this.mm('tornado'), f0 = this.forward(), T = Vault.TWISTER;
+    const zone = { x: this.pos.x + f0[0] * 3, z: this.pos.z + f0[2] * 3, r: T.r + 1, until: g.now + dur + 0.3 };
     g.windZones = (g.windZones || []).filter((w) => w.until > g.now); g.windZones.push(zone);
     let n = 0;
     const held = new Map(); // id -> the tick it was last carried on
-    const drop = (id) => { // let go: it falls, and the landing hurts
+    const drop = (id) => { // let go: it falls from the top, and the landing hurts
       held.delete(id);
-      g.fx.add({ dur: 1, update: (dt, t) => {
-        if (t < 0.6) return;
+      g.fx.add({ dur: 1.6, update: (dt, t) => {
+        if (t < 1.1) return;
         const q = g.targets().find((x) => x.id === id);
-        if (q) { g.damage(q, 60 * this.stats.dmg * this.mm('tornado'), { freeze: 0.7, at: [q.x, q.y + q.h * 0.5, q.z] }); g.fx.dustBurst([q.x, q.y, q.z], 1.1); }
+        if (q) { g.damage(q, 120 * this.stats.dmg * this.mm('tornado'), { freeze: 0.7, at: [q.x, q.y + q.h * 0.5, q.z] }); g.fx.dustBurst([q.x, q.y, q.z], 1.3); }
         return false;
       } });
     };
@@ -2312,19 +2313,23 @@ export class LocalPlayer {
       steer.k = Math.min(1, d / 4);
       return d > 0.3 ? [dx / d, 0, dz / d] : [f0[0], 0, f0[2]];
     };
-    g.el.cyclone([this.pos.x, this.pos.y, this.pos.z], steer, dur, 17, (c) => {
+    Vault.darkTornado(g, [this.pos.x, this.pos.y, this.pos.z], steer, dur, 17, (c) => {
       zone.x = c[0]; zone.z = c[2];
       for (const t of g.targets()) {
         if (t.kind === 'demon') continue;
         const dx = c[0] - t.x, dz = c[2] - t.z, dd = Math.hypot(dx, dz) || 1;
-        if (dd < 7 + t.r) { held.set(t.id, n); g.damage(t, dmg, { kx: dx / dd * 8, kz: dz / dd * 8, launch: 9, silentNum: n % 4 !== 0, at: [t.x, t.y + t.h * 0.6, t.z] }); }
-        else if (dd < 15 + t.r) g.damage(t, 1, { kx: dx / dd * 15, kz: dz / dd * 15, silent: true });
+        if (dd < T.r + t.r) {
+          // inside: up it goes. Thrown hard enough to reach the top, then nudged to stay there while it spins round the funnel.
+          const up = Math.max(0, t.y - g.world.heightAt(t.x, t.z)), launch = up < T.top - 1 ? Math.min(30, Math.sqrt(52 * (T.top - up))) : 6.5;
+          held.set(t.id, n);
+          g.damage(t, dmg, { kx: dx / dd * 7 - dz / dd * 6, kz: dz / dd * 7 + dx / dd * 6, launch, silentNum: n % 4 !== 0, at: [t.x, t.y + t.h * 0.6, t.z] });
+        } else if (dd < T.r + 11 + t.r) g.damage(t, 1, { kx: dx / dd * 16, kz: dz / dd * 16, silent: true });
       }
       for (const [id, at] of held) if (at !== n) drop(id); // it slipped out of the funnel
       if (n % 2 === 0) g.emitFx(['wt', q10(c[0]), q10(c[2]), n === 0 ? 1 : 0]);
       n++;
     });
-    g.audio.play('cyclone');
+    g.audio.play('cyclone'); g.audio.play('thunder', 0.5);
   }
 
   // ---------- taking damage ----------

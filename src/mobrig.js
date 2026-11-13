@@ -772,7 +772,20 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     },
   };
   // Hand weapons from mobarms.js: gripped in the fist and tipped forward, the edge leading, so a swing of the arm is a swing of the weapon.
-  for (const id in MOB_ARM_GEO) G['w_' + id] = () => { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); };
+  // The grip sits in the palm, lying along the knuckles, where the closed fingers (MobRig.gripHand) wrap it: worked out from the hand's
+  // own finger bones, so it fits every body. Bodies without finger bones fall back to a guess from the forearm.
+  for (const id in MOB_ARM_GEO) G['w_' + id] = () => {
+    const has = (n) => bones.get(n);
+    if (has('RightHandMiddle1') && has('RightHandIndex1') && has('RightHandPinky1')) {
+      const H = bp('RightHand'), M = bp('RightHandMiddle1'), d = M.clone().sub(H).normalize();               // d: along the fingers
+      const k = bp('RightHandIndex1').sub(bp('RightHandPinky1')); k.addScaledVector(d, -k.dot(d)).normalize(); // k: along the knuckles, little finger to index
+      const pn = V().crossVectors(k, d).normalize();                                                           // out of the palm
+      const w = k.clone().multiplyScalar(0.86).addScaledVector(d, 0.5).normalize(), e = d.clone().addScaledVector(w, -d.dot(w)).normalize(); // weapon axis, and where its edge faces
+      const x = V().crossVectors(w, e).normalize(), palm = H.clone().lerp(M, 0.82).addScaledVector(pn, 0.034 * s).sub(H);
+      const o = [palm.dot(x) / s, palm.dot(w) / s, palm.dot(e) / s];
+      for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, o, { u: w, f: e });
+    } else { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); }
+  };
   for (const n of names) if (G[n]) G[n]();
 }
 
@@ -824,6 +837,23 @@ function wingGeometry(boneCol, memCol) {
 let _wingGeo = {};
 
 export class MobRig {
+  // Close the right hand into a fist round a grip: each finger joint is turned toward the palm about the knuckle line, the thumb
+  // folds over. The axes come from the hand's own bones in the rest pose, so it works on every rig. Held every frame in update().
+  gripHand() {
+    const B = bonesOf(this.model), H = B.get('RightHand'), g = (n) => B.get('RightHand' + n);
+    if (!H || !g('Middle1') || !g('Index1') || !g('Pinky1')) return;
+    this.model.updateMatrixWorld(true);
+    const wp = (b) => b.getWorldPosition(new THREE.Vector3());
+    const d = wp(g('Middle1')).sub(wp(H)).normalize(), k = wp(g('Index1')).sub(wp(g('Pinky1'))); k.addScaledVector(d, -k.dot(d)).normalize();
+    const pn = new THREE.Vector3().crossVectors(k, d).normalize(), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
+    this.grip = [];
+    const turn = (b, ax, ang) => { if (!b) return; const la = ax.clone().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+      this.grip.push([b, b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(la, ang))]); };
+    for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) [1.2, 1.35, 0.9].forEach((ang, j) => turn(g(f + (j + 1)), axis, ang));
+    const t1 = g('Thumb1'), t2 = g('Thumb2');
+    if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang)); }
+    for (const [b, q] of this.grip) b.quaternion.copy(q);
+  }
   constructor(kind) {
     this.kind = kind;
     // 'type@weapon': an armed mob (MOB_ARMS). Same body template; the weapon is glued to this mob's own hand bone.
@@ -838,6 +868,7 @@ export class MobRig {
     this.ok = !!tpl;
     if (!tpl) return;
     this.model = SkeletonUtils.clone(tpl.scene);
+    if (A || this.look.oneHand) this.gripHand(); // the weapon hand closes round what it holds (worked out before the weapon is hung on it)
     if (A) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, [A.gear], SHARED_MATS);
     this.model.rotation.y = tpl.yaw;
     const bulk = this.look.bulk || 1;
@@ -1037,6 +1068,7 @@ export class MobRig {
     if (frozen || !dt) rewritePose(this.mixer);
     this.mixer.update(frozen ? 0 : dt);
     for (const [b, sc] of this.keepScale) b.scale.copy(sc);
+    if (this.grip) for (const [b, q] of this.grip) b.quaternion.copy(q);
     this.headSize();
     root.updateMatrixWorld(true);
     // Axes of the body's own frame (+Z forward, +X its left, so a tilted flyer pitches about its own side).
