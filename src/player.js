@@ -5,6 +5,7 @@ import * as Vault from './vault.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { updateWeaponFlames } from './flameweapon.js';
 import { spawnDragon } from './dragon.js';
+import { spawnGolem, GOLEM } from './golem.js';
 import { CONFIG, DUEL, GRAV, HEAL, FLAME, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
@@ -1704,6 +1705,22 @@ export class LocalPlayer {
     });
     g.audio.play('fire_cast'); g.audio.play('inferno', 0.8);
     g.emitFx(['sl', ...c.map(q10)]);
+  }
+
+  // Golem: a rock golem breaks out of the ground 5 m ahead, rises, then walks with you for 25 s and throws a boulder at the nearest enemy
+  // within 40 m every 2.6 s. Each boulder hits everything within 5.5 m of where it lands. He has 800 health; enemies at his feet wear it down.
+  ab_golem() {
+    const g = this.game;
+    if (this.golem && this.golem.fx && !this.golem.fx.done && this.golem.until > g.now) return false; // one at a time
+    const dmg = GOLEM.dmg * this.stats.dmg * this.mm('golem');
+    const d = spawnGolem(g, {
+      dur: GOLEM.dur, yaw: this.yaw,
+      owner: () => (this.alive ? this.pos : null),
+      targets: () => g.targets(),
+      hit: (p) => { g.areaDamage(p, GOLEM.radius, dmg, { kb: 12, freeze: 0.8, falloff: 0.3 }); },
+    });
+    this.golem = { fx: d.fx, until: g.now + GOLEM.dur, root: d.root, state: d.state, parts: d.parts };
+    g.emitFx(['gg', Math.round(GOLEM.dur * 10), Math.round(this.yaw * 100)]);
   }
 
   // Dragon: a giant red dragon rises out of a ring of fire beside you, takes off and flies with you for 18 s. It dives on the nearest

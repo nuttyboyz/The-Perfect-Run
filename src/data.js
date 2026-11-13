@@ -43,6 +43,7 @@ export const CLASSES = [
     more: [
       { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
       { id: 'meteor', name: 'Meteor Call', cd: 10, desc: 'Mark a spot with your crosshair. Two seconds later a giant flaming rock falls from the sky and crushes everything there.' },
+      { id: 'golem', name: 'Golem', cd: 30, desc: 'A towering rock golem breaks out of the ground in front of you and rises to his full height. For 25s he walks with you and hurls huge boulders at every enemy within 40 m. He crumbles to rubble when his time or his health runs out.' },
       { id: 'stomp', name: 'Seismic Stomp', cd: 10, desc: 'Leap up and slam the ground. Everything nearby is staggered and takes heavy damage.' },
     ],
   },
@@ -713,7 +714,7 @@ const AB_PERKS = {
   breath: ['Second Wind', { echo: 0.3 }], flameweap: ['Forge Heart', { heal: 0.1, nova: 1 }], minisun: ['Solar Flare', { dmg: 1.4 }],
   sunlance: ['High Noon', { cd: 0.75, dmg: 1.2 }], dragon: ['Dragon Rider', { haste: 6, ward: 4 }], seekers: ['Skull Storm', { echo: 0.35 }],
   boulder: ['Avalanche', { dmg: 1.4 }], rockarmor: ['Living Mountain', { heal: 0.15, nova: 1 }], pillars: ['Aftershock', { nova: 2 }],
-  orbit: ['Moonlets', { dmg: 1.5 }], meteor: ['Meteor Shower', { echo: 0.3 }], stomp: ["Giant's Step", { cd: 0.75, ward: 3 }],
+  orbit: ['Moonlets', { dmg: 1.5 }], meteor: ['Meteor Shower', { echo: 0.3 }], stomp: ["Giant's Step", { cd: 0.75, ward: 3 }], golem: ['Stoneheart', { dmg: 1.3, ward: 4 }],
   chain: ['Overload', { dmg: 1.35, nova: 1 }], storm: ['Thunderhead', { cd: 0.8, haste: 4 }], shockwave: ['Thunderclap', { echo: 0.3 }],
   fence: ['Live Wire', { nova: 2, ward: 3 }], blink: ['Flicker', { echo: 0.4, heal: 0.05 }],
   shards: ['Glacier Lance', { dmg: 1.4 }], barrier: ['Permafrost', { heal: 0.12, nova: 1 }], tsunami: ['Riptide', { cd: 0.75, haste: 4 }],

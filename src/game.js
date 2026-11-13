@@ -15,6 +15,7 @@ import { RemotePlayerView, MobView, BossView, DemonView, NpcView } from './views
 import * as Vault from './vault.js';
 import { assetsReady, whenAssets } from './assets.js';
 import { spawnDragon } from './dragon.js';
+import { spawnGolem } from './golem.js';
 import { classWith, FLAME } from './data.js';
 import { igniteFx } from './flameweapon.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
@@ -1863,6 +1864,12 @@ export class Game {
       case 'dg': { // another runner's dragon: the same animal with the same habits; in a duel it hunts you
         const me = this.player;
         spawnDragon(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+          targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
+        break;
+      }
+      case 'gg': { // another runner's Golem: the same giant with the same habits; in a duel he throws at you
+        const me = this.player;
+        spawnGolem(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
