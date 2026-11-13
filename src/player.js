@@ -33,7 +33,7 @@ const tmp = v3(), tmp2 = v3();
 export const rangeK = (wp, d) => { const f = wp.fall; return !f || d <= f[0] ? 1 : d >= f[1] ? f[2] : 1 - (1 - f[2]) * (d - f[0]) / (f[1] - f[0]); };
 export const flashSize = (id) => ({ ak: 0.38, pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
 
-const BLINK = { range: 32, back: 8 }; // how far the circle reaches (m), and how long the way back stays open (s)
+const BLINK = { range: 150, back: 8 }; // how far the circle reaches (m): as far as the crosshair itself can (Nutty 2026-11-13); and how long the way back stays open (s)
 const ORBIT_BLOCKS = 3; // blows one Boulder Orbit rock can take before it crumbles
 
 export class LocalPlayer {
@@ -805,23 +805,20 @@ export class LocalPlayer {
       this.orbitT -= dt;
       if (this.orbitT <= 0) {
         this.orbitT = 0.12;
-        const R = 2.6, n = s.orbit, dmg = 16 * s.dmg;
+        // Fixed 2026-11-13 (Nutty: the blades did no damage): the old test compared each enemy's bearing with the ring's ever-growing
+        // spin angle and broke a few seconds after the blades appeared. Now anything standing in the ring's path is cut each time a
+        // blade comes round: the more blades, the more often.
+        const R = 2.6, n = s.orbit, dmg = 16 * s.dmg, every = Math.max(0.2, (Math.PI / n) / 3.4);
         for (const t of g.targets()) {
-          if (t.kind === 'demon' || t.mini) continue;
+          if (t.kind === 'demon') continue;
           const dist = Math.hypot(t.x - this.pos.x, t.z - this.pos.z);
-          if (Math.abs(dist - R) > t.r + 0.9) continue;
-          const ang = Math.atan2(t.x - this.pos.x, t.z - this.pos.z);
-          let hit = false;
-          for (let i = 0; i < n; i++) {
-            const ba = og.rotation.y + (i / n) * Math.PI * 2;
-            let d = Math.abs(((ang - ba + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-            if (d * R < t.r + 1.0) { hit = true; break; }
-          }
-          if (!hit) continue;
+          if (dist > R + t.r + 0.9 || dist < R - t.r - 1.4) continue;
+          if (Math.abs((t.y + t.h * 0.5) - (this.pos.y + 1.0)) > t.h * 0.5 + 1.2) continue; // well above or below the ring
           const last = this.orbitHit.get(t.id) || 0;
-          if (g.now - last < 0.45) continue;
+          if (g.now - last < every) continue;
           this.orbitHit.set(t.id, g.now);
-          g.damage(t, dmg, { silentNum: true, kx: (t.x - this.pos.x) / dist * 5, kz: (t.z - this.pos.z) / dist * 5 });
+          const k = t.mini || t.kind === 'boss' ? 0 : 5 / Math.max(dist, 0.1);
+          g.damage(t, dmg, { kx: (t.x - this.pos.x) * k, kz: (t.z - this.pos.z) * k, at: [t.x, t.y + t.h * 0.6, t.z] });
         }
         if (this.orbitHit.size > 80) this.orbitHit.clear();
       }
@@ -1648,7 +1645,7 @@ export class LocalPlayer {
         const o = [this.pos.x, this.pos.y, this.pos.z];
         A.mark.end(); this.blinkAim = null;
         this.blinkGo(A.at, true);
-        this.blinkBack = { o, until: g.now + BLINK.back, key: A.key, mark: Vault.blinkMark(g, 1.1, true) };
+        this.blinkBack = { o, until: g.now + BLINK.back, dur: BLINK.back, key: A.key, mark: Vault.blinkMark(g, 1.1, true) };
         this.blinkBack.mark.set([o[0], g.world.heightAt(o[0], o[2]), o[2]]);
         if (g.player === this) g.ui.toast('Press ' + g.ui.key({ q: 'Q', e: 'G', r: 'F' }[A.key] || 'Q') + ' again to return', 'good', 'blink');
       }
@@ -1930,7 +1927,7 @@ export class LocalPlayer {
 
   // Tesla Fence: the first press plants a post at the crosshair, the second plants the other and strings the fence between
   // them, however far apart. Whoever walks into the line takes massive damage and is thrown back; each of those hits wears the
-  // fence down (20 crossings by ordinary enemies; bigger ones count 2 or 3, a boss 5). It is gone after 15 s regardless, and the cooldown starts then.
+  // fence down (50 hits). It is gone after 15 s regardless, and the cooldown starts then.
   ab_fence() {
     const g = this.game;
     const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'fence') || 'q';
@@ -1939,7 +1936,7 @@ export class LocalPlayer {
     if (F && F.h.strung) return false; // it stands until it is destroyed
     const a = g.aim.point, p = [a.x, g.world.heightAt(a.x, a.z), a.z];
     if (!F) {
-      F = this.fence = { h: null, hp: 20, max: 20, hit: new Map() };
+      F = this.fence = { h: null, hp: 50, max: 50, hit: new Map() };
       F.h = Vault.fence(g, () => {
         if (g.player !== this || this.fence !== F) { F.h.end(false); return; }
         const A = F.h.a, B = F.h.b, ex = B[0] - A[0], ez = B[2] - A[2], L2 = ex * ex + ez * ez || 1, L = Math.sqrt(L2);
@@ -1955,7 +1952,7 @@ export class LocalPlayer {
           const s = side >= 0 ? 1 : -1;
           g.damage(t, dmg, { freeze: 0.9, kx: ez / L * s * 10, kz: -ex / L * s * 10, at: [t.x, t.y + t.h * 0.6, t.z] });
           F.h.zap(u); g.audio.play('zap', 0.8);
-          F.hp -= t.kind === 'boss' ? 5 : t.kind === 'player' ? 2 : t.h >= 4 || t.r >= 1.3 ? 3 : t.h >= 3 || t.r >= 0.9 ? 2 : 1; // big, tough enemies wear it down faster
+          F.hp -= 1; // it takes 50 hits, whoever walks into it (Nutty 2026-11-13)
           F.h.hp(F.hp / F.max);
           g.emitFx(['tf', 3, Math.round(Math.max(0, F.hp) / F.max * 100), Math.round(u * 100)]);
           if (F.hp <= 0) break;

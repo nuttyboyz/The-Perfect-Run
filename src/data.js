@@ -54,8 +54,8 @@ export const CLASSES = [
     r: { id: 'storm', name: 'Thunderstorm', cd: 10, desc: 'Call a wide storm cell (26 m across) that hammers the whole area with lightning for 4s. Every bolt stays up until the storm ends and hits anything that touches it.' },
     e: { id: 'shockwave', name: 'Thunder Shockwave', cd: 10, desc: 'Slam the ground and send a tight ring of electricity racing 32 m in every direction. Everything it crosses is badly shocked.' },
     more: [
-      { id: 'fence', name: 'Tesla Fence', cd: 12, desc: 'Place two posts, one per press, anywhere you can aim. An electric fence joins them however far apart they are and does massive damage to whoever walks into it. It stands for 15s, has its own health and wears down as enemies cross. It recharges once the fence is gone.' },
-      { id: 'blink', name: 'Blink', cd: 5, desc: 'Hold the button and a blue circle appears on the ground: move it where you want to go, up to 32 m away. Let go and you are there at once, and the spot you left shocks every enemy near it. Press again within 8s to snap back to where you started.' },
+      { id: 'fence', name: 'Tesla Fence', cd: 12, desc: 'Place two posts, one per press, anywhere you can aim. An electric fence joins them however far apart they are and does massive damage to whoever walks into it. It stands for 15s and takes 50 hits before it breaks. It recharges once the fence is gone.' },
+      { id: 'blink', name: 'Blink', cd: 5, desc: 'Hold the button and a blue circle appears on the ground: move it anywhere your crosshair can reach, however far. Let go and you are there at once, and the spot you left shocks every enemy near it. Press again within 8s to snap back to where you started; the icon counts the seconds down.' },
     ],
   },
   {
@@ -425,28 +425,34 @@ export const MOB_ARMS = {
   smg: { cls: 'soldier', gear: 'smg', ranged: true, range: 28, rate: 0.75, dmgK: 0.45, hold: [9, 17], pspd: 66, pstyle: 3 },
   pistol: { cls: 'soldier', gear: 'pistol', ranged: true, range: 30, rate: 1.25, dmgK: 0.65, hold: [10, 18], pspd: 62, pstyle: 3 },
   shotgun: { cls: 'soldier', gear: 'shotgun', ranged: true, range: 16, rate: 1.9, dmgK: 1.4, hold: [6, 12], pspd: 58, pstyle: 3 },
-  // humans: combat weapons, close and far reach
-  sword: { cls: 'human', gear: 'sword', reach: 0.5, rate: 1.0, dmgK: 1.1 },
-  axe: { cls: 'human', gear: 'axe', reach: 0.4, rate: 1.15, dmgK: 1.25 },
-  mace: { cls: 'human', gear: 'mace', reach: 0.3, rate: 1.2, dmgK: 1.3 },
-  spear: { cls: 'human', gear: 'spear', reach: 1.4, rate: 1.0, dmgK: 1.05 },
-  greatsword: { cls: 'human', gear: 'greatsword', reach: 0.9, rate: 1.35, dmgK: 1.45 },
   crossbow: { cls: 'human', gear: 'crossbow', ranged: true, range: 40, rate: 2.4, dmgK: 1.3, hold: [14, 24], pspd: 46, pstyle: 2 },
-  // zombies: crude scavenged weapons
-  pipe: { cls: 'zombie', gear: 'pipe', reach: 0.35, rate: 1.05, dmgK: 1.1 },
-  cleaver: { cls: 'zombie', gear: 'cleaver', reach: 0.15, rate: 0.9, dmgK: 1.15 },
-  plank: { cls: 'zombie', gear: 'plank', reach: 0.45, rate: 1.15, dmgK: 1.25 },
-  machete: { cls: 'zombie', gear: 'machete', reach: 0.3, rate: 0.95, dmgK: 1.15 },
-  shovel: { cls: 'zombie', gear: 'shovel', reach: 0.6, rate: 1.2, dmgK: 1.2 },
+  // Hand weapons, each modelled for the bodies that carry it (mobarms.js; Nutty 2026-11-13: realistic, made for the enemy, none from the Weapon Wall).
+  // swords for the smaller enemies
+  arming: { gear: 'w_arming', reach: 0.5, rate: 1.0, dmgK: 1.1 }, falchion: { gear: 'w_falchion', reach: 0.45, rate: 1.05, dmgK: 1.15 },
+  shortsword: { gear: 'w_shortsword', reach: 0.3, rate: 0.85, dmgK: 1.0 }, sabre: { gear: 'w_sabre', reach: 0.55, rate: 0.95, dmgK: 1.1 },
+  cutlass: { gear: 'w_cutlass', reach: 0.4, rate: 0.95, dmgK: 1.1 }, katana: { gear: 'w_katana', reach: 0.55, rate: 0.9, dmgK: 1.15 },
+  ninjato: { gear: 'w_ninjato', reach: 0.35, rate: 0.8, dmgK: 1.0 }, scimitar: { gear: 'w_scimitar', reach: 0.4, rate: 0.9, dmgK: 1.05 },
+  waraxe: { gear: 'w_waraxe', reach: 0.4, rate: 1.15, dmgK: 1.25 }, mace: { gear: 'w_mace', reach: 0.3, rate: 1.2, dmgK: 1.3 }, spear: { gear: 'w_spear', reach: 1.4, rate: 1.0, dmgK: 1.05 },
+  // long swords and axes for the brutes
+  longsword: { gear: 'w_longsword', reach: 0.8, rate: 1.2, dmgK: 1.3 }, greatsword: { gear: 'w_greatsword', reach: 1.0, rate: 1.35, dmgK: 1.45 },
+  battleaxe: { gear: 'w_battleaxe', reach: 0.7, rate: 1.3, dmgK: 1.4 }, greataxe: { gear: 'w_greataxe', reach: 0.9, rate: 1.4, dmgK: 1.5 }, warhammer: { gear: 'w_warhammer', reach: 0.7, rate: 1.35, dmgK: 1.45 },
+  // the dead carry whatever was lying around
+  machete: { gear: 'w_machete', reach: 0.3, rate: 0.95, dmgK: 1.15 }, cleaver: { gear: 'w_cleaver', reach: 0.15, rate: 0.9, dmgK: 1.15 }, fireaxe: { gear: 'w_fireaxe', reach: 0.45, rate: 1.15, dmgK: 1.25 },
+  hatchet: { gear: 'w_hatchet', reach: 0.2, rate: 0.9, dmgK: 1.1 }, crowbar: { gear: 'w_crowbar', reach: 0.4, rate: 1.0, dmgK: 1.1 }, wrench: { gear: 'w_wrench', reach: 0.3, rate: 1.05, dmgK: 1.15 },
+  bat: { gear: 'w_bat', reach: 0.45, rate: 1.05, dmgK: 1.2 }, baton: { gear: 'w_baton', reach: 0.35, rate: 0.85, dmgK: 1.0 }, sledge: { gear: 'w_sledge', reach: 0.6, rate: 1.3, dmgK: 1.35 },
+  shovel: { gear: 'w_shovel', reach: 0.6, rate: 1.2, dmgK: 1.2 }, pipe: { gear: 'w_pipe', reach: 0.35, rate: 1.05, dmgK: 1.1 },
 };
 export const MOB_ARM_IDS = Object.keys(MOB_ARMS);
 const ARMS_OF = (cls) => MOB_ARM_IDS.filter((k) => MOB_ARMS[k].cls === cls);
 // Which mob types carry a random weapon, and from which pool. Mobs not listed keep what they have (casters keep their staffs,
 // monsters their claws, the Brute the hammer his body already holds, the archer its bow).
 export const MOB_ARM_POOL = {
-  grunt: ARMS_OF('zombie'), runner: ARMS_OF('zombie'), shambler: ARMS_OF('zombie'), deadcop: ['pipe', 'machete', 'pistol'],
-  troll: ARMS_OF('human'), goblin: ARMS_OF('human'), gobchief: ['sword', 'axe', 'mace', 'greatsword'], bandit: ARMS_OF('human'),
-  assassin: ['sword', 'spear', 'crossbow'], knight: ['sword', 'axe', 'mace', 'spear'], dreadknight: ['greatsword', 'axe', 'mace'], warmaiden: ARMS_OF('human'),
+  // the dead: scavenged tools, each body its own kind (the soldier's field kit, the kitchen and the yard, the garage, the officer's belt)
+  grunt: ['machete', 'shovel', 'hatchet', 'pipe', 'crowbar'], runner: ['cleaver', 'hatchet', 'bat', 'machete'], shambler: ['bat', 'wrench', 'crowbar', 'fireaxe', 'sledge', 'pipe'], deadcop: ['baton', 'crowbar', 'pistol'],
+  // smaller enemies carry swords; the brutes carry axes and long swords
+  goblin: ['scimitar', 'shortsword', 'falchion'], bandit: ['cutlass', 'sabre', 'hatchet'], assassin: ['katana', 'ninjato', 'crossbow'],
+  knight: ['arming', 'falchion', 'mace', 'waraxe'], warmaiden: ['arming', 'shortsword', 'spear', 'waraxe'],
+  troll: ['greataxe', 'battleaxe', 'greatsword'], gobchief: ['longsword', 'battleaxe', 'greataxe'], dreadknight: ['greatsword', 'greataxe', 'warhammer'],
   rifleman: ARMS_OF('soldier'), bulwark: ['pistol', 'smg', 'shotgun'], juggernaut: ['shotgun', 'rifle', 'smg'], trooper: ARMS_OF('soldier'), riot: ARMS_OF('soldier'),
 };
 // The mob's stats with its weapon applied (cached per type and weapon). wi: index into MOB_ARM_IDS, plus 1 (0 = unarmed).

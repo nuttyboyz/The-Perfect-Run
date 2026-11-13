@@ -1157,7 +1157,7 @@ export class UI {
     this.$('#set-blood').onchange = (e) => { g.settings.hudBlood = e.target.checked; g.saveSettings(); };
     const bind = (id, key, kind) => { const el = this.$('#' + id); if (!el) return; el[kind === 'check' ? 'onchange' : kind === 'select' ? 'onchange' : 'oninput'] = (e) => { g.settings[key] = kind === 'check' ? e.target.checked : kind === 'select' ? e.target.value : +e.target.value; g.saveSettings(); if (key === 'layout') { g.settings.layoutChosen = true; this.renderControls(); } this.settingsVals(); this.refreshHints(); }; };
     bind('set-layout', 'layout', 'select'); bind('set-sens-ads', 'sensAds'); bind('set-invert', 'invertY', 'check'); bind('set-music', 'music', 'check'); bind('set-music-vol', 'musicVol');
-    bind('set-sfx', 'sfx', 'check'); bind('set-ui-scale', 'uiScale'); bind('set-cb', 'cb', 'select'); bind('set-xh', 'xh', 'select'); bind('set-xh-size', 'xhSize');
+    bind('set-sfx', 'sfx', 'check'); bind('set-ui-scale', 'uiScale'); bind('set-cb', 'cb', 'select'); bind('set-xh', 'xh', 'select'); bind('set-xh-col', 'xhCol', 'select'); bind('set-xh-size', 'xhSize');
     this.$$('#set-nav button').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.setCat(b.dataset.cat); }));
     this.applyLook(); bind('set-fov', 'fov'); bind('set-shake', 'shake', 'check'); bind('set-dmgnums', 'dmgNums', 'check');
     this.$('#set-view').onchange = (e) => this.setView(e.target.value);
@@ -1311,15 +1311,16 @@ export class UI {
       const cb = S.cb && S.cb !== 'off' ? S.cb : '';
       if (cb) document.documentElement.dataset.cb = cb; else delete document.documentElement.dataset.cb;
     }
-    const hud = this.$('#hud'); if (hud) { hud.dataset.xh = xh; hud.style.setProperty('--xhs', xs); }
-    const demo = this.$('#xh-demo'); if (demo) { demo.dataset.xh = xh; demo.style.setProperty('--xhs', xs); }
+    const xc = /^#[0-9a-f]{6}$/i.test(S.xhCol || '') ? S.xhCol : '#ffffff'; // crosshair colour (Nutty 2026-11-13)
+    const hud = this.$('#hud'); if (hud) { hud.dataset.xh = xh; hud.style.setProperty('--xhs', xs); hud.style.setProperty('--xhc', xc); }
+    const demo = this.$('#xh-demo'); if (demo) { demo.dataset.xh = xh; demo.style.setProperty('--xhs', xs); demo.style.setProperty('--xhc', xc); }
   }
   // The value readouts and the rest of the Settings controls.
   settingsVals() {
     const S = this.game.settings, $ = (id) => this.$('#' + id);
     const set = (id, v, lbl, txt) => { const el = $(id); if (!el) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; if (lbl && $(lbl)) $(lbl).textContent = txt; };
     set('set-layout', S.layout || 'ds');
-    set('set-ui-scale', S.uiScale ?? 1, 'ui-scale-val', Math.round((S.uiScale ?? 1) * 100) + '%'); set('set-cb', S.cb || 'off'); set('set-xh', S.xh || 'cross'); set('set-xh-size', S.xhSize ?? 1, 'xh-size-val', Math.round((S.xhSize ?? 1) * 100) + '%');
+    set('set-ui-scale', S.uiScale ?? 1, 'ui-scale-val', Math.round((S.uiScale ?? 1) * 100) + '%'); set('set-cb', S.cb || 'off'); set('set-xh', S.xh || 'cross'); set('set-xh-col', S.xhCol || '#ffffff'); set('set-xh-size', S.xhSize ?? 1, 'xh-size-val', Math.round((S.xhSize ?? 1) * 100) + '%');
     this.applyLook();
     set('set-sens-ads', S.sensAds ?? 1, 'sens-ads-val', (S.sensAds ?? 1).toFixed(2) + 'x');
     set('set-invert', S.invertY === true);
@@ -1431,10 +1432,13 @@ export class UI {
     for (const k of ['d', 'q', 'e', 'r']) {
       const cd = p.cds[k], max = (k === 'd' ? DASH.cd : p.cls[k].cd) * p.stats.cdr * p.stats.mast[k].cd;
       const el = this.$k('#ab-' + k);
-      const cdv = cd > 0 ? Math.round((cd / max) * 360) + 'deg' : '0deg';
+      // Blink's way back: while it is open its icon counts down the seconds left to return (Nutty 2026-11-13).
+      const B = p.blinkBack && p.blinkBack.key === k ? Math.max(0, p.blinkBack.until - g.now) : 0;
+      const cdv = B > 0 ? Math.round((B / p.blinkBack.dur) * 360) + 'deg' : cd > 0 ? Math.round((cd / max) * 360) + 'deg' : '0deg';
       if (el._cd !== cdv) { el._cd = cdv; el.style.setProperty('--cd', cdv); }
-      this.setC(el, 'ready', cd <= 0);
-      this.setT(el._n ||= this.$('.ab-cd', el), cd > 0 ? Math.ceil(cd) : '');
+      this.setC(el, 'ready', cd <= 0 && !B);
+      this.setC(el, 'back', B > 0);
+      this.setT(el._n ||= this.$('.ab-cd', el), B > 0 ? B.toFixed(1) : cd > 0 ? Math.ceil(cd) : '');
     }
     const wp = p.weapon;
     // Three slots: two weapons and the tier-3 gear (a passive piece shows what it does instead of ammo).

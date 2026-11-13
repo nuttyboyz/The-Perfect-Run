@@ -1709,3 +1709,19 @@ body.split .ds-card b { font-size: .95rem; } body.split .ds-box { padding: 1rem;
 #elem.live .elem-dice .die-shadow { width: 40px; height: 8px; margin-top: 6px; }
 #elem.live .elem-dice .die-text { font-size: 1.15rem; padding: .2rem 1.1rem; margin-top: .35rem; border-width: 2px; }
 .elem-dice .die-text.sel, .elem-dice .die-text.pad-focus, .elem-dice .die-text:hover { background: rgba(150,90,0,.8); color: #fff; box-shadow: 0 0 26px rgba(255,200,80,.85); transform: scale(1.06); }
+/* Blink's way back is open: the icon turns blue and counts down the seconds left to return (Nutty 2026-11-13) */
+.ab-slot.back { border-color: #58a8ff; box-shadow: 0 0 14px rgba(70,150,255,.75); }
+.ab-slot.back::after { background: conic-gradient(rgba(50,130,255,.6) var(--cd), transparent 0); }
+.ab-slot.back .ab-cd { color: #d6ebff; font-size: 1.25rem; }
+/* Level-up picker (Nutty 2026-11-13): higher and centred on the screen; the pointed-at option opens a box that says what it does */
+#elem.live { align-items: center; padding-bottom: calc(16 * var(--vh)); }
+#elem.live .elem-box { margin: auto; }
+#elem.live .elem-card { overflow: visible; }
+#elem.live .b-desc { display: none; position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); width: 250px; padding: .6rem .8rem; border-radius: 10px; background: rgba(10,8,16,.96); border: 1px solid var(--ec); box-shadow: 0 6px 24px rgba(0,0,0,.7), 0 0 18px color-mix(in srgb, var(--ec) 40%, transparent); color: #fff; font-size: .92rem; line-height: 1.35; text-align: center; z-index: 30; pointer-events: none; }
+#elem.live .b-desc::after { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 8px solid transparent; border-top-color: var(--ec); }
+#elem.live .elem-card.sel .b-desc, #elem.live .elem-card:hover .b-desc, #elem.live .elem-card.pad-focus .b-desc { display: block; }
+#elem.live .elem-card.sel, #elem.live .elem-card:hover { z-index: 31; }
+/* Crosshair colour (Settings): every part of every crosshair style takes it */
+#crosshair i, .xh i, #crosshair.ads-tp i { background: var(--xhc, #fff); }
+[data-xh] #crosshair:not(.melee)::before, .xh[data-xh]::before { background: var(--xhc, #fff); }
+[data-xh=circle] #crosshair:not(.melee)::after, .xh[data-xh=circle]::after, #crosshair.melee::after { border-color: var(--xhc, #fff); }

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { lodSet, lodLevel } from './lod.js';
 import { MOBS, MOB_MIN_H, MOB_ARMS, MOB_ARM_POOL } from './data.js';
+import { MOB_ARM_GEO, mobArmParts } from './mobarms.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { getTemplate, bonesOf } from './characters.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -539,6 +540,10 @@ const GEAR_MATS = {
   alienLight: () => new THREE.MeshStandardMaterial({ color: 0x4a6a70, roughness: 0.3, metalness: 0.5 }),
   glowR: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a3a).multiplyScalar(2.4), toneMapped: false }),
   glowB: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4aa0ff).multiplyScalar(2.2), toneMapped: false }),
+  // enemy hand weapons (mobarms.js): forged steel, leather and wood, rusted iron; the colours ride on the vertices
+  wSteel: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.8, envMapIntensity: 1.2 }),
+  wSoft: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.0 }),
+  wRust: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.55 }),
   axeSteel: () => new THREE.MeshStandardMaterial({ color: 0x9aa2b0, roughness: 0.3, metalness: 0.9 }),
   axeHaft: () => new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.75 }),
 };
@@ -766,6 +771,8 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       for (const sd of ['Left', 'Right']) put(sd + 'Hand', 'stone', merge([ball(0.12), ball(0.06).translate(0.07, 0.09, 0.07), ball(0.06).translate(-0.07, 0.09, 0.07), ball(0.06).translate(0, 0.1, -0.07)]), [0, 0, 0]);
     },
   };
+  // Hand weapons from mobarms.js: gripped in the fist and tipped forward, the edge leading, so a swing of the arm is a swing of the weapon.
+  for (const id in MOB_ARM_GEO) G['w_' + id] = () => { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); };
   for (const n of names) if (G[n]) G[n]();
 }
 
