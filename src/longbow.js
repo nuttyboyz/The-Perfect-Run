@@ -405,7 +405,7 @@ function arrowProto(style) {
 // sticks where it lands for a while. Returns the effect so a test can watch it.
 // `proto` (optional) is the mesh to fly instead of a bow's arrow, head at the origin pointing +z (the crossbow's bolt).
 // An arrow that ends in an enemy who is still standing stays stuck in them (stickInto), riding the nearest bone.
-export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 'bow1', mine = false, range = 120, head = 1.5, proto = null, wf = 0 } = {}) {
+export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 'bow1', mine = false, range = 120, head = 1.5, proto = null, wf = 0, fire = !!wf } = {}) { // fire: the arrow itself burns (Flaming Weapons)
   const mesh = (proto || arrowProto(style)).clone();
   mesh.scale.setScalar(1.2); // a touch bigger in flight so the eye can follow it
   const pos = new THREE.Vector3(...o), vel = new THREE.Vector3(...d).normalize().multiplyScalar(speed), last = pos.clone(), dir = new THREE.Vector3();
@@ -415,12 +415,19 @@ export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 
   const st = { pos, vel, stuck: false, hits: 0, traveled: 0, age: 0, spin: 0, dmg };
   const audio = g.audio;
   const thunk = (p, k) => { if (!audio || !audio.ctx || !audio.sfxOn) return; const v = g.distVol ? g.distVol(p.x, p.z) : 1; audio.noiseHit({ dur: 0.07, freq: 700 * k, type: 'bandpass', q: 2.5, gain: 0.16 * v }); audio.tone({ freq: 160 * k, to: 60, dur: 0.1, type: 'triangle', gain: 0.08 * v }); };
-  const stick = (p, why) => { st.stuck = true; st.reason = why; pos.copy(p); mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(Z, dir.copy(vel).normalize()); mesh.rotateZ(st.spin); mesh.position.addScaledVector(dir, 0.06); thunk(p, 1); };
+  const stick = (p, why) => { st.stuck = true; st.stuckAt = st.age; st.reason = why; pos.copy(p); mesh.position.copy(pos); mesh.quaternion.setFromUnitVectors(Z, dir.copy(vel).normalize()); mesh.rotateZ(st.spin); mesh.position.addScaledVector(dir, 0.06); thunk(p, 1); };
   const touch = (p) => w.solidPoint(p.x, p.y, p.z);
   const eff = g.fx.add({
     dur: 30, arrow: st,
     update: (dt) => {
       st.age += dt;
+      if (fire && g.fx.fire && (!st.stuck || st.age - (st.stuckAt || 0) < 2.5)) { // a burning arrow: flame streams off the head in flight and it burns on where it lands
+        const R = (p, q) => p + Math.random() * (q - p), k = st.stuck ? 1 : 2;
+        for (let i = 0; i < g.fx.n(k + 1); i++) { const b = pos.clone().addScaledVector(dir, st.stuck ? 0 : -i * 0.35);
+          g.fx.fire.emit({ p: [b.x + R(-0.04, 0.04), b.y + R(-0.02, 0.06), b.z + R(-0.04, 0.04)], v: [R(-0.3, 0.3), R(0.8, 1.9), R(-0.3, 0.3)], life: R(0.22, 0.45), s0: R(0.22, 0.36), s1: 0.05, c0: [1, 0.55, 0.14, 0.9], c1: [0.9, 0.16, 0.02, 0] }); }
+        if (Math.random() < 0.35) g.fx.spark.emit({ p: [pos.x, pos.y, pos.z], v: [R(-1, 1), R(1, 3), R(-1, 1)], life: R(0.35, 0.7), s0: 0.07, s1: 0.01, c0: [1, 0.6, 0.15, 1], c1: [0.9, 0.15, 0, 0], g: 3 });
+        if (!st.stuck && Math.random() < 0.25) g.fx.smoke.emit({ p: [pos.x, pos.y + 0.1, pos.z], v: [0, 0.8, 0], life: R(0.5, 0.9), s0: 0.15, s1: 0.6, c0: [0.06, 0.05, 0.045, 0.3], c1: [0.16, 0.15, 0.15, 0] });
+      }
       if (st.stuck) return st.age < 12;
       vel.y -= 9.8 * (muOn(LOWGRAV) ? 0.4 : 1) * dt;
       const step = vel.length() * dt;
@@ -434,7 +441,7 @@ export function launchArrow(g, o, d, { speed = 60, dmg = 0, pierce = 1, style = 
           hitIds.add(h.t.id); st.hits++;
           const k = Math.pow(0.7, hitIds.size - 1);
           if (st.dmg) g.damage(h.t, st.dmg * k * (h.head ? head : (h.zone === 'arm' ? 0.8 : h.zone === 'leg' ? 0.6 : 1)), { at: h.point, zone: h.zone, head: h.head, wf });
-          g.fx.impact([h.point.x, h.point.y, h.point.z], [0.75, 0.12, 0.08]);
+          g.fx.impact([h.point.x, h.point.y, h.point.z], [0.75, 0.12, 0.08]); if (fire && g.fx.fireShot) g.fx.fireShot([h.point.x, h.point.y, h.point.z], [h.point.x, h.point.y, h.point.z], true);
           if (hitIds.size >= pierce) { // buried in the last one: it stays in them while they are up
             thunk(h.point, 0.8);
             if (h.t.view && h.t.view.model && !(h.t.view.hp <= 0)) { stickInto(h.t.view, mesh, h.point, dir); st.inMob = true; }

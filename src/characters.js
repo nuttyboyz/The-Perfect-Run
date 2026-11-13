@@ -268,6 +268,11 @@ const FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'];
 
 // Shield on the left forearm: offset (metres at 1.8 m tall) and rotation about the forearm bone. Tuned by eye.
 const SHIELD_MOUNT = { pos: [0, 0.14, 0.03], rot: [0, 0, Math.PI / 2] };
+// A mixer only writes a bone when its animated value changed since the last frame. A body held still (frozen, dead) gets the same value
+// every frame, so nothing is written, and the extra rotations this rig lays on top of the clip pile up frame after frame: the body
+// twists out of shape (Nutty 2026-11-13: frozen enemies distorted). This makes the next update write every bone again.
+function rewritePose(mixer) { const b = mixer._bindings, n = mixer._nActiveBindings; if (!b || n === undefined) return; const k = mixer._accuIndex | 0; for (let i = 0; i < n; i++) { const pm = b[i]; pm.buffer[k * pm.valueSize + pm.valueSize] = NaN; } }
+
 export class CharacterRig {
   constructor(def, opts = {}) {
     this.def = def;
@@ -382,6 +387,7 @@ export class CharacterRig {
     const dir = back ? -1 : 1;
     this.actions.walk.timeScale = dir * THREE.MathUtils.clamp(s / (1.5 * this.h), 0.6, 1.8);
     this.actions.run.timeScale = dir * THREE.MathUtils.clamp(s / (4.6 * this.h), 0.7, 1.5);
+    if (st.dead || !dt) rewritePose(this.mixer);
     this.mixer.update(st.dead ? 0 : dt);
 
     // --- legs turn toward the movement, chest stays on the aim ---

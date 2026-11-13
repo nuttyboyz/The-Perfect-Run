@@ -33,6 +33,7 @@ const tmp = v3(), tmp2 = v3();
 export const rangeK = (wp, d) => { const f = wp.fall; return !f || d <= f[0] ? 1 : d >= f[1] ? f[2] : 1 - (1 - f[2]) * (d - f[0]) / (f[1] - f[0]); };
 export const flashSize = (id) => ({ ak: 0.38, pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
 
+const BLINK = { range: 32, back: 8 }; // how far the circle reaches (m), and how long the way back stays open (s)
 const ORBIT_BLOCKS = 3; // blows one Boulder Orbit rock can take before it crumbles
 
 export class LocalPlayer {
@@ -282,6 +283,7 @@ export class LocalPlayer {
     if (input.pressed.has('KeyQ')) this.cast('q');
     if (input.pressed.has('KeyG')) this.cast('e');
     if (input.pressed.has('KeyF')) this.cast('r');
+    if (this.blinkAim || this.blinkBack) this.blinkTick(input, dt);
     if (input.pressed.has('KeyB')) this.placeBed();
     if (input.pressed.has('KeyV')) this.game.ui.setView(this.game.settings.view === 'first' ? 'third' : 'first');
 
@@ -500,7 +502,8 @@ export class LocalPlayer {
       }
       if (wp.energy && hits.length && n % 2 === 0) g.fx.pulseHit([end.x, end.y, end.z]);
       if (wp.energy) g.fx.shotFx(wp, [origin.x, origin.y, origin.z], [end.x, end.y, end.z], 'me', (g.settings.view === 'first' || !!g.fpNow));
-      else if (!rapid || n % 2 === 0) g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], this.wf ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen);
+      else if (!rapid || n % 2 === 0) { g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], this.wf ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen);
+        if (this.wf) g.fx.fireShot([origin.x, origin.y, origin.z], [end.x, end.y, end.z], rapid || pellets > 1); } // Flaming Weapons: the bullets burn
       lastEnd = end;
     }
     if (gravAt) this.gravShot(gravAt);
@@ -1606,21 +1609,62 @@ export class LocalPlayer {
 
   // Blink: a short teleport (up to 14 m) toward the crosshair, stopping short of anything solid. The spot you left keeps a ball
   // of live electricity for 1.5 s: it shocks and stuns what stands in it at once, then again twice a second.
+  // Blink (Nutty 2026-11-13): a controlled teleport. Hold the button: a blue circle appears on the ground and follows the crosshair.
+  // Let go: you are there at once, and the spot you left crackles. Press again within BLINK.back seconds: you snap back to where you
+  // started. The cooldown starts when you return, or when the way back closes. A quick tap simply blinks to the crosshair.
   ab_blink() {
-    const g = this.game, o = [this.pos.x, this.pos.y, this.pos.z];
-    const a = g.aim.point; let dx = a.x - o[0], dz = a.z - o[2]; const dl = Math.hypot(dx, dz);
-    if (dl < 0.5) { const f = this.forward(); dx = f[0]; dz = f[2]; } else { dx /= dl; dz /= dl; }
-    const max = Math.min(14, Math.max(4, dl));
-    let far = 0;
-    for (let d = 1; d <= max; d += 0.5) { const X = o[0] + dx * d, Z = o[2] + dz * d; if (g.world.solidPoint(X, Math.max(g.world.heightAt(X, Z), o[1]) + 1.1, Z, 0.6)) break; far = d; }
-    if (far < 1) return false; // walled in: nowhere to go
-    const x = o[0] + dx * far, z = o[2] + dz * far, y = Math.max(g.world.heightAt(x, z), o[1]);
-    this.pos.set(x, y, z); this.vel.x = 0; this.vel.z = 0;
+    const g = this.game, key = Object.keys(this.cds).find((k) => this.cls[k] && this.cls[k].id === 'blink') || 'q';
+    if (this.blinkBack) { // the second press: home again
+      const B = this.blinkBack; this.blinkBack = null; if (B.mark) B.mark.end();
+      this.blinkGo(B.o, false);
+      return; // the cooldown starts now
+    }
+    if (this.blinkAim) return false;
+    this.blinkAim = { key, code: { q: 'KeyQ', e: 'KeyG', r: 'KeyF' }[key] || 'KeyQ', mark: Vault.blinkMark(g, 2.2), at: null, t: 0 };
+    this.blinkSpot();
+    g.audio.play('zap', 0.35);
+    return false; // nothing spent yet
+  }
+  // Where the circle sits: the crosshair's spot on the ground, no more than BLINK.range from you and never inside a rock or wall.
+  blinkSpot() {
+    const g = this.game, A = this.blinkAim, a = g.aim.point, o = this.pos;
+    let dx = a.x - o.x, dz = a.z - o.z; const dl = Math.hypot(dx, dz);
+    if (dl < 0.3) { const f = this.forward(); dx = f[0] * 3; dz = f[2] * 3; }
+    else if (dl > BLINK.range) { dx *= BLINK.range / dl; dz *= BLINK.range / dl; }
+    let x = o.x + dx, z = o.z + dz;
+    for (let k = 0; k < 60 && g.world.solidPoint(x, g.world.heightAt(x, z) + 1.1, z, 0.6); k++) { x -= dx / 60; z -= dz / 60; }
+    if (g.duel && g.arena && g.arena.r) { const al = Math.hypot(x - (g.arena.x || 0), z - (g.arena.z || 0)), R = g.arena.r - 1.5; if (al > R) { x = (g.arena.x || 0) + (x - (g.arena.x || 0)) * R / al; z = (g.arena.z || 0) + (z - (g.arena.z || 0)) * R / al; } }
+    A.at = [x, g.world.heightAt(x, z), z];
+    A.mark.set(A.at);
+  }
+  // Every frame while Blink is being aimed or its way back is open.
+  blinkTick(input, dt) {
+    const g = this.game;
+    if (this.blinkAim) {
+      const A = this.blinkAim; A.t += dt;
+      if (!this.alive) { A.mark.end(); this.blinkAim = null; return; }
+      this.blinkSpot();
+      if (!input.keys.has(A.code)) { // let go: there at once
+        const o = [this.pos.x, this.pos.y, this.pos.z];
+        A.mark.end(); this.blinkAim = null;
+        this.blinkGo(A.at, true);
+        this.blinkBack = { o, until: g.now + BLINK.back, key: A.key, mark: Vault.blinkMark(g, 1.1, true) };
+        this.blinkBack.mark.set([o[0], g.world.heightAt(o[0], o[2]), o[2]]);
+        if (g.player === this) g.ui.toast('Press ' + g.ui.key({ q: 'Q', e: 'G', r: 'F' }[A.key] || 'Q') + ' again to return', 'good', 'blink');
+      }
+    } else if (this.blinkBack && (g.now >= this.blinkBack.until || !this.alive)) { // the way back has closed: the cooldown starts
+      const B = this.blinkBack; this.blinkBack = null; B.mark.end();
+      const k = B.key; if (this.cls[k] && this.cls[k].id === 'blink') { const x = this.stats.ab.blink; this.cds[k] = (g.duel ? DUEL.cd : this.cls[k].cd) * this.stats.cdr * this.stats.mast[k].cd * (x ? x.cd : 1); }
+    }
+  }
+  blinkGo(to, pulse) {
+    const g = this.game, o = [this.pos.x, this.pos.y, this.pos.z], y = Math.max(g.world.heightAt(to[0], to[2]), to[1] || -1e9);
+    this.pos.set(to[0], y, to[2]); this.vel.x = 0; this.vel.z = 0; if (this.vel.y < 0) this.vel.y = 0;
     const dmg = this.stats.dmg * this.mm('blink');
-    Vault.blink(g, o, [x, y, z], (k) => g.areaDamage(o, 7, (k ? 28 : 90) * dmg, k ? { slow: 1.5, silentNum: true } : { freeze: 1.2, slow: 2 }));
+    Vault.blink(g, o, [to[0], y, to[2]], (k) => g.areaDamage(o, 7, (k ? 28 : 90) * dmg * (pulse ? 1 : 0.6), k ? { slow: 1.5, silentNum: true } : { freeze: 1.2, slow: 2 }));
     g.shake(0.2);
     g.audio.play('zap'); g.audio.play('thunder', 0.5);
-    g.emitFx(['tb', ...o.map(q10), q10(x), q10(y), q10(z)]);
+    g.emitFx(['tb', ...o.map(q10), q10(to[0]), q10(y), q10(to[2])]);
   }
 
   // Where an aimed stream starts and points this frame: from the muzzle, along the crosshair.
@@ -2438,6 +2482,7 @@ export class LocalPlayer {
   }
 
   die() {
+    if (this.blinkAim) { this.blinkAim.mark.end(); this.blinkAim = null; } if (this.blinkBack) { this.blinkBack.mark.end(); this.blinkBack = null; } // Blink's circles go with you
     const g = this.game;
     this.hp = 0;
     this.alive = false;

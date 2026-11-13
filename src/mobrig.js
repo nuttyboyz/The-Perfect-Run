@@ -152,6 +152,10 @@ function rotVec(bone, x, y, z) {
 
 // Body frame of the mob being animated: side, up, forward (3 floats each).
 const AXS = new Float64Array(9);
+// A mixer only writes a bone when its animated value changed since the last frame. A body held still (frozen, dead) gets the same value
+// every frame, so nothing is written, and the extra rotations this rig lays on top of the clip pile up frame after frame: the body
+// twists out of shape (Nutty 2026-11-13: frozen enemies distorted). This makes the next update write every bone again.
+function rewritePose(mixer) { const b = mixer._bindings, n = mixer._nActiveBindings; if (!b || n === undefined) return; const k = mixer._accuIndex | 0; for (let i = 0; i < n; i++) { const pm = b[i]; pm.buffer[k * pm.valueSize + pm.valueSize] = NaN; } }
 function rv(bone, pitch, twist, roll) {
   rotVec(bone, AXS[0] * pitch + AXS[3] * twist + AXS[6] * roll, AXS[1] * pitch + AXS[4] * twist + AXS[7] * roll, AXS[2] * pitch + AXS[5] * twist + AXS[8] * roll);
 }
@@ -817,7 +821,11 @@ export class MobRig {
     this.kind = kind;
     // 'type@weapon': an armed mob (MOB_ARMS). Same body template; the weapon is glued to this mob's own hand bone.
     const [kb, arm] = kind.split('@'), A = arm && MOB_ARMS[arm];
-    this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged } : (MOB_LOOKS[kb] || {});
+    this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged } : { ...(MOB_LOOKS[kb] || {}) };
+    // Whoever holds a weapon strikes with it (Nutty 2026-11-13: sword carriers were smashing down with both fists). A mob given a melee
+    // weapon, or whose own kit has one, swings the weapon hand: big "slam" bodies use the one-handed overhead cleave, the rest the cross cut.
+    { const own = (this.look.gear || []).some((q) => !['fists', 'tower', 'robe', 'shield', 'staff'].includes(q));
+      if ((A && !A.ranged) || (!A && own && !this.look.cast)) { this.look.oneHand = true; this.look.cast = false; } }
     const tpl = mobTemplate(kb);
     this.root = new THREE.Group();
     this.ok = !!tpl;
@@ -1019,6 +1027,7 @@ export class MobRig {
       A.walk.time = ((this.cyc + S.ow) % 1) * S.dw; A.run.time = ((this.cyc + S.or) % 1) * S.dr;
       if (this.tail.length) animateTail(this.model, this.t, dt, sp, this.yr, TAU * f * 0.5 + 1.2);
     } else if (this.tail.length) animateTail(this.model, this.t, dt, 0, this.yr, 1.6);
+    if (frozen || !dt) rewritePose(this.mixer);
     this.mixer.update(frozen ? 0 : dt);
     for (const [b, sc] of this.keepScale) b.scale.copy(sc);
     this.headSize();
@@ -1041,7 +1050,7 @@ export class MobRig {
 
     // ---- attack timeline: anticipation, fast strike with overshoot, recovery (own clock, not the noisy network value) ----
     const a = Math.min(1, st.attack || 0);
-    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; this.atkKind = st.kind | 0; } else if (a < 0.3) this.atkArm = true;
+    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; this.atkKind = (st.kind | 0) || (L.oneHand && L.slam ? 1 : 0); } else if (a < 0.3) this.atkArm = true;
     let u = -1;
     if (this.atkT >= 0) { this.atkT += dt; if (this.atkT >= this.atkDur) this.atkT = -1; else u = this.atkT / this.atkDur; }
     let sp1 = 0, sp2 = 0, spY = 0, headP = 0, lunge = 0, armRaise = 0, armSweep = 0, foreBend = 0, castLift = 0, pulse = 0, atkE = 0;

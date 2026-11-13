@@ -55,7 +55,7 @@ export const CLASSES = [
     e: { id: 'shockwave', name: 'Thunder Shockwave', cd: 10, desc: 'Slam the ground and send a tight ring of electricity racing 32 m in every direction. Everything it crosses is badly shocked.' },
     more: [
       { id: 'fence', name: 'Tesla Fence', cd: 12, desc: 'Place two posts, one per press, anywhere you can aim. An electric fence joins them however far apart they are and does massive damage to whoever walks into it. It stands for 15s, has its own health and wears down as enemies cross. It recharges once the fence is gone.' },
-      { id: 'blink', name: 'Blink', cd: 5, desc: 'Teleport a short way toward your crosshair. The spot you left crackles with a pulse of electricity that shocks every enemy caught in it.' },
+      { id: 'blink', name: 'Blink', cd: 5, desc: 'Hold the button and a blue circle appears on the ground: move it where you want to go, up to 32 m away. Let go and you are there at once, and the spot you left shocks every enemy near it. Press again within 8s to snap back to where you started.' },
     ],
   },
   {
@@ -658,7 +658,7 @@ export const DUEL = { cd: 5, // every ability cooldown in the arena
 // Gravity Gun: a well pulls everything within `pull` m toward its centre for `dur` seconds, then collapses in a blast of
 // radius `blast`. Bosses are pulled only `boss` m (weakly) and take `bossDmg`. Friends are pulled too, never hurt.
 // Flaming Weapons (Pyre): damage and melee reach while the held weapon burns, and the shortest burn a hit leaves.
-export const FLAME = { dmg: 1.3, reach: 1.35, arc: 1.15, minBurn: 2 };
+export const FLAME = { dmg: 1.95, reach: 1.35, arc: 1.15, minBurn: 2 };
 export const HEAL = { self: 0.1, beam: 1.2 }; // Healing Staff: share of max HP you mend yourself, seconds the beams stay up
 export const GRAV = { dur: 1.25, pull: 14, blast: 9, dmg: 600, boss: 5, bossDmg: 150, max: 6 };
 // The first Duel Arena's look: a bright, flat green plain with the walled arena in the middle (not one of the six run stages).

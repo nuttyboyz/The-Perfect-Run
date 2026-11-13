@@ -54,6 +54,8 @@ export function helpRows(L) {
 }
 // What each keyboard key is called on the other devices (HUD badges and the class card).
 const KEY_HINTS = { pad: { X: 'B', Q: 'LB', G: 'Y', F: 'RB', R: 'X', E: 'X', 1: '◀', 2: '▶', 3: '▶' }, ds: { X: '○', Q: 'L1', G: '△', F: 'R1', R: '□', E: '□', 1: '◀', 2: '▶', 3: '▶' }, kb: { X: "'", Q: '[', G: 'P', F: ']', R: ';', E: ';', 1: '9', 2: '0', 3: '0' } };
+// HUD badge letter -> [default key code, default controller button] of that control, so a remap can be shown.
+const HINT_BIND = { X: ['KeyX', 1], Q: ['KeyQ', 4], G: ['KeyG', 3], F: ['KeyF', 5], R: ['KeyR', 2], E: ['KeyE', 2], 1: ['Digit1', 14], 2: ['Digit2', 15], 3: ['Digit3', undefined] };
 // Xbox button names as PlayStation ones, for the DualShock layout.
 const DS_NAMES = { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', View: 'Share', Menu: 'Options', L3: 'L3', R3: 'R3' };
 export const padName = (s, layout) => layout === 'ds' ? String(s).split(' ').map((w) => DS_NAMES[w] || w).join(' ') : s;
@@ -1857,6 +1859,10 @@ export class UI {
     // Settings > Controller layout decides the badges: PlayStation or Xbox names, or the keys themselves.
     const L = g.settings.layout || 'ds';
     const m = kind === 'kb' ? KEY_HINTS.kb : kind === 'pad' || L === 'ds' || L === 'xbox' ? (L === 'xbox' ? KEY_HINTS.pad : KEY_HINTS.ds) : null;
+    // A remapped control shows the button or key it is on now (Controls screen), not its default.
+    if (kind !== 'kb') { const h = HINT_BIND[k];
+      if (h && m) { const ph = h[1] === undefined ? undefined : padPhys(h[1]); if (ph !== undefined && ph !== h[1]) return (PAD_NAMES[L === 'xbox' ? 'xbox' : 'ds'] || [])[ph] || m[k] || k; }
+      else if (h && !m) { const ph = kbPhys(h[0]); if (ph !== h[0]) return keyName(ph); } }
     return (m && m[k]) || k;
   }
   // Refresh the HUD's ability and weapon key badges for the current device and weapon slot.

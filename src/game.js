@@ -1796,14 +1796,15 @@ export class Game {
         const wp = WEAPON_BY_ID[a[6]] || {};
         if (wp.bow || wp.bolt) {
           // Longbow / crossbow: a real arrow or bolt flies from the teammate's bow (no damage from this copy).
-          const o = P(0), e = P(3); launchArrow(this, o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], wp.bolt ? { speed: wp.boltSpeed || 95, proto: boltProto() } : { speed: wp.speed || 60, style: longbowPick() });
+          const o = P(0), e = P(3); const hot = !!(v.flameUntil && this.now < v.flameUntil); // their Flaming Weapons: the arrow burns for everyone
+          launchArrow(this, o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], wp.bolt ? { speed: wp.boltSpeed || 95, proto: boltProto(), fire: hot } : { speed: wp.speed || 60, style: longbowPick(), fire: hot });
         } else if (wp.eyes) {
           // Laser Vision: twin beams from that player's eyes (one event stands for a pair of pulses).
           const rig = v.model.userData.rig;
           this.fx.laserBeams(rig ? rig.eyesWorld() : [P(0), P(0)], P(3), 'r' + v.id, false, 0.2);
           if (Math.random() < 0.5) this.fx.laserHit(P(3));
         } else if (wp.energy) { this.fx.shotFx(wp, P(0), P(3), 'r' + v.id, false, 0.2); this.fx.pulseMuzzle(P(0)); }
-        else { this.fx.tracer(P(0), P(3), wp.tracer, wp.beamLen); if (!wp.quiet) { const o = P(0), e = P(3); this.fx.muzzle(o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], undefined, flashSize(wp.id)); } }
+        else { const hot = !!(v.flameUntil && this.now < v.flameUntil); this.fx.tracer(P(0), P(3), hot ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen); if (hot) this.fx.fireShot(P(0), P(3), true); if (!wp.quiet) { const o = P(0), e = P(3); this.fx.muzzle(o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], undefined, flashSize(wp.id)); } }
         this.audio.play('shot_' + a[6], vol * (wp.quiet ? 0.5 : 0.7));
         break;
       }

@@ -391,6 +391,33 @@ export function crystals(g, o, pts, onHit) {
 
 // ---- Tempest: Blink. A crack of light where the runner lands (`to`), and at the spot they left (`o`) a ball of live
 // electricity that keeps arcing for `dur` seconds; onPulse(k) fires at once and then twice a second (caster only).
+// Blink's blue circle on the ground: where you will land (or, `home`, where you came from). set([x, y, z]) moves it; end() fades it out.
+export function blinkMark(g, r = 1.5, home = false) {
+  const fx = g.fx, scene = g.scene;
+  const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 }, uH: { value: home ? 1 : 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; uniform float uH; varying vec2 vUv;
+      void main(){ vec2 p = (vUv - 0.5) * 2.; float rr = length(p), a = atan(p.y, p.x);
+        float ring = smoothstep(0.1, 0.0, abs(rr - 0.86)) + 0.6 * smoothstep(0.05, 0.0, abs(rr - 0.6 - 0.05 * sin(uT * 4.)));
+        float arcs = smoothstep(0.55, 1.0, sin(a * 6. + uT * (uH > 0.5 ? -1.5 : 3.))) * smoothstep(0.98, 0.7, rr) * smoothstep(0.3, 0.6, rr) * 0.55;
+        float fill = smoothstep(1.0, 0.0, rr) * 0.16 * (0.7 + 0.3 * sin(uT * 6.));
+        vec3 col = mix(vec3(0.15, 0.5, 1.0), vec3(0.6, 0.85, 1.0), ring);
+        gl_FragColor = vec4(col * (ring + arcs + fill) * (uH > 0.5 ? 0.9 : 1.9), 1.0) * uA * step(rr, 1.0); }` });
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 40).rotateX(-Math.PI / 2), mat); m.renderOrder = 3; m.visible = false; scene.add(m);
+  // a faint column of light so the spot can be found from far away
+  const cm = new THREE.MeshBasicMaterial({ color: home ? 0x3a78ff : 0x58a8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.12, r * 0.55, 9, 16, 1, true).translate(0, 4.5, 0), cm); col.visible = false; scene.add(col);
+  const h = { alive: true, ending: false, at: null,
+    set(p) { h.at = p; m.position.set(p[0], p[1] + 0.12, p[2]); col.position.set(p[0], p[1], p[2]); m.visible = col.visible = true; },
+    end() { h.ending = true; } };
+  let a = 0;
+  fx.add({ dur: 1e9, update: (dt, t) => { mat.uniforms.uT.value = t; a = h.ending ? a - dt * 6 : Math.min(1, a + dt * 8); mat.uniforms.uA.value = Math.max(0, a); cm.opacity = Math.max(0, a) * (home ? 0.14 : 0.34);
+      if (h.at && !h.ending && Math.random() < 0.5) fx.spark.emit({ p: [h.at[0] + rnd(-r, r) * 0.7, h.at[1] + 0.1, h.at[2] + rnd(-r, r) * 0.7], v: [0, rnd(2, 5), 0], life: rnd(0.3, 0.6), s0: 0.12, s1: 0.02, c0: [0.5, 0.8, 1, 1], c1: [0.2, 0.5, 1, 0] });
+      return !(h.ending && a <= 0); },
+    dispose: () => { scene.remove(m); scene.remove(col); m.geometry.dispose(); col.geometry.dispose(); mat.dispose(); cm.dispose(); h.alive = false; } });
+  return h;
+}
 export function blink(g, o, to, onPulse, dur = 1.5, r = 7) {
   const fx = g.fx, gy = g.world.heightAt(o[0], o[2]), C = [o[0], gy + 1.1, o[2]];
   fx.bolt([o[0], o[1] + 1.1, o[2]], [to[0], to[1] + 1.1, to[2]], { width: 0.5, dur: 0.22, color: 0xd0b8ff, branches: 2 });

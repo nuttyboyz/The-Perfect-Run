@@ -394,7 +394,14 @@ export class World {
           const vi = pickVar(i);
           items.push({ m, x: px, z: pz, vi });
           if (BLOB[type] && !def.float) this.blobs.push({ x: px, z: pz, y: this.heightAt(px, pz), r: BLOB[type] * s });
-          if (def.r) this.addCollider(px, pz, def.r * s, y + (def.climb ? def.climb + 3.5 : 6) * s); // trees are about climb + 3.5 tall
+          if (def.r) { this.addCollider(px, pz, def.r * s, y + (def.climb ? def.climb + 3.5 : 6) * s); // trees are about climb + 3.5 tall
+            // Shots and arrows stop at the thing itself, not at a tall invisible column over it: a rock, stump or log is only as high as its
+            // model, and rounded off toward the top (Nutty 2026-11-13: arrows hung in the air above rocks).
+            if (!def.climb) { if (def._h === undefined) { let hi = 0; const seen = new Set(), walk = (o, d) => { if (!o || typeof o !== 'object' || d > 4 || seen.has(o)) return; seen.add(o);
+                  if (o.isBufferGeometry) { if (!o.boundingBox) o.computeBoundingBox(); hi = Math.max(hi, o.boundingBox.max.y); return; }
+                  if (o.isMaterial || o.isTexture) return; for (const k of Array.isArray(o) ? o.keys() : Object.keys(o)) walk(o[k], d + 1); };
+                walk(def.parts, 0); walk(def.variants, 0); def._h = hi > 0.05 ? hi : 6; }
+              const c = this.colliders[this.colliders.length - 1]; c.gy = y; c.shot = y + def._h * s + 0.05; c.dome = def._h < 5; } }
           if (def.climb) {
             // A fork high in the trunk you can stand in (see Player.climb).
             const top = y + def.climb * s;
@@ -877,7 +884,7 @@ export class World {
     return best <= maxD ? best : Infinity;
   }
   // How tall a prop is for shots (props with no stated height count as about 4 m).
-  colTop(c) { if (c.top !== Infinity) return c.top; if (c.shotTop === undefined) c.shotTop = this.heightAt(c.x, c.z) + 4; return c.shotTop; }
+  colTop(c) { if (c.shot !== undefined) return c.shot; if (c.top !== Infinity) return c.top; if (c.shotTop === undefined) c.shotTop = this.heightAt(c.x, c.z) + 4; return c.shotTop; }
   // Is this point inside a tree, rock, tomb, wall or building? (Arrows, rockets, fireballs and enemy shots stop there.)
   // Short-lived solid columns (Pillar Burst's rocks): they stop every shot while they stand.
   addTemp(x, z, r, top, sec) {
@@ -889,7 +896,9 @@ export class World {
     if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true; }
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
-    if (list) for (const c of list) if (y < this.colTop(c) && Math.hypot(x - c.x, z - c.z) < c.r + r) return true;
+    if (list) for (const c of list) { const top = this.colTop(c); if (y >= top) continue;
+      const k = c.dome ? Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (y - c.gy) / Math.max(0.1, top - c.gy)), 2))) : 1; // a boulder narrows toward its top
+      if (Math.hypot(x - c.x, z - c.z) < c.r * k + r) return true; }
     if (this.platforms) for (const pf of this.platsAt(x, z)) {
       if (pf.air || y > pf.top - 0.05) continue;
       if (pf.box) {
@@ -988,7 +997,7 @@ export class World {
       paint(ped, (xx, yy) => 0.55 + 0.45 * clamp(yy / 0.9));
       parts.push(ped.translate(bx, y + 0.0, bz));
       this.braziers.push([x + bx, y + 1.3, z + bz]);
-      this.addCollider(x + bx, z + bz, 0.6);
+      this.addCollider(x + bx, z + bz, 0.6); this.colliders[this.colliders.length - 1].shot = y + 1.35; // the brazier is 1.3 m tall
       this.blobs.push({ x: x + bx, z: z + bz, y, r: 1.2 });
     }
     const m = new THREE.Mesh(merge(parts), stone);

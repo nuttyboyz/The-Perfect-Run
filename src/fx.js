@@ -441,6 +441,14 @@ export class FX {
     }
   }
 
+  // Flaming Weapons: a burning round. Fire licks along the first stretch of its path and bursts where it lands.
+  fireShot(a, b, light = false) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1, n = this.n(light ? 4 : 8), R = (p, q) => p + Math.random() * (q - p);
+    for (let i = 0; i < n; i++) { const d = Math.min(L, 1.2 + (i / n) * Math.min(L, 26) + R(0, 1.5)), k = d / L;
+      this.fire.emit({ p: [a[0] + dx * k + R(-0.05, 0.05), a[1] + dy * k + R(-0.05, 0.05), a[2] + dz * k + R(-0.05, 0.05)], v: [dx / L * 5 + R(-0.4, 0.4), R(0.4, 1.4), dz / L * 5 + R(-0.4, 0.4)], life: R(0.22, 0.45), s0: R(0.16, 0.3), s1: 0.04, c0: [1, 0.55, 0.14, 0.85], c1: [0.9, 0.16, 0.02, 0] }); }
+    for (let i = 0; i < this.n(light ? 3 : 6); i++) this.fire.emit({ p: [b[0] + R(-0.12, 0.12), b[1] + R(-0.05, 0.15), b[2] + R(-0.12, 0.12)], v: [R(-1, 1), R(1, 2.6), R(-1, 1)], life: R(0.3, 0.6), s0: R(0.3, 0.5), s1: 0.06, c0: [1, 0.6, 0.16, 0.9], c1: [0.9, 0.16, 0.02, 0] });
+    for (let i = 0; i < this.n(3); i++) this.spark.emit({ p: [b[0], b[1], b[2]], v: [R(-3, 3), R(1.5, 4.5), R(-3, 3)], life: R(0.35, 0.8), s0: 0.07, s1: 0.01, c0: [1, 0.6, 0.15, 1], c1: [0.9, 0.15, 0, 0], g: 6 });
+  }
   tracer(a, b, color = [1, 0.85, 0.5], beamLen = 0) {
     if (beamLen > 0) { // a short beam: only the stretch just ahead of the muzzle is drawn
       const L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) || 1, k = Math.min(1, beamLen / L);
