@@ -25,34 +25,102 @@ function scanSurface(id, rx, ry, o = {}) {
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
-// A skull for Homing Fireballs: cranium, cheekbones, jaw, black sockets. It faces +Z.
+// A skull for Homing Skulls (Nutty 2026-11-13: "actual detailed skulls", not balls). It is sculpted, not assembled: the shape is a signed
+// distance field (cranium, brow ridges, cheekbones, upper jaw, lower jaw; eye sockets, nose hole, temple hollows, the gap between the teeth
+// and the grooves between each tooth cut out of it), and the mesh is that surface found along a ray through every vertex of a fine sphere.
+// Hollows are shaded dark on the vertices. It faces +Z.
 let SKULL = null;
-function skull() {
-  if (!SKULL) {
-    const bone = scanSurface('rock_face', 1.5, 1, { color: 0xfff0d2, emissive: 0xff5a08, emissiveIntensity: 0.22, roughness: 0.72, normalScale: new THREE.Vector2(1.6, 1.6) });
-    const dark = new THREE.MeshBasicMaterial({ color: 0x120400 });
-    const hot = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb040).multiplyScalar(2.4), toneMapped: false });
-    SKULL = { bone, dark, hot,
-      cran: new THREE.SphereGeometry(0.34, 14, 12).scale(1, 1.05, 1.15).translate(0, 0.08, -0.04),
-      face: new THREE.BoxGeometry(0.4, 0.26, 0.3).translate(0, -0.14, 0.14),
-      jaw: new THREE.BoxGeometry(0.32, 0.12, 0.26).translate(0, -0.33, 0.12),
-      eye: new THREE.SphereGeometry(0.095, 10, 8), pup: new THREE.SphereGeometry(0.04, 8, 6),
-      nose: new THREE.ConeGeometry(0.05, 0.1, 3).rotateX(Math.PI / 2).translate(0, -0.1, 0.3),
-      tooth: new THREE.BoxGeometry(0.3, 0.05, 0.02).translate(0, -0.265, 0.29) };
+function skullGeo() {
+  const ell = (x, y, z, cx, cy, cz, rx, ry, rz) => { const k = Math.hypot((x - cx) / rx, (y - cy) / ry, (z - cz) / rz); return (k - 1) * Math.min(rx, ry, rz); };
+  const rbox = (x, y, z, cx, cy, cz, hx, hy, hz, r) => { const qx = Math.abs(x - cx) - hx + r, qy = Math.abs(y - cy) - hy + r, qz = Math.abs(z - cz) - hz + r;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r; };
+  const smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
+  const smax = (a, b, k) => -smin(-a, -b, k);
+  const TY = -0.262; // where the upper and lower teeth meet
+  const cuts = (x, y, z) => { const ax = Math.abs(x);
+    const eye = ell(ax, y, z, 0.112, 0.03, 0.3, 0.074, 0.064, 0.12);
+    const nose = smin(ell(ax, y, z, 0.024, -0.118, 0.31, 0.03, 0.045, 0.09), ell(x, y, z, 0, -0.075, 0.31, 0.02, 0.05, 0.09), 0.01);
+    const temple = ell(ax, y, z, 0.305, 0.0, 0.11, 0.05, 0.085, 0.1);
+    const cheek = ell(ax, y, z, 0.2, -0.22, 0.17, 0.06, 0.075, 0.1);
+    const mouth = rbox(x, y, z, 0, TY, 0.3, 0.16, 0.009, 0.15, 0.003);
+    const tx = Math.abs(((x + 0.02) % 0.04 + 0.04) % 0.04 - 0.02), gap = Math.max(tx - 0.0065, Math.abs(y - TY) - 0.05, 0.215 - z, ax - 0.15); // between the teeth
+    return { eye, nose, temple, cheek, mouth, gap }; };
+  const sdf = (x, y, z) => { const ax = Math.abs(x);
+    let d = ell(x, y, z, 0, 0.09, -0.05, 0.285, 0.285, 0.35);                              // cranium
+    d = smin(d, rbox(x, y, z, 0, -0.11, 0.14, 0.17, 0.13, 0.13, 0.08), 0.08);              // face
+    d = smin(d, rbox(x, y, z, 0, -0.225, 0.17, 0.135, 0.045, 0.105, 0.04), 0.03);          // upper jaw, where the teeth sit
+    d = smin(d, ell(ax, y, z, 0.1, 0.105, 0.24, 0.088, 0.032, 0.05), 0.04);              // brow ridges
+    d = smin(d, ell(ax, y, z, 0.172, -0.065, 0.15, 0.06, 0.038, 0.12), 0.04);                // cheekbones
+    d = smin(d, ell(x, y, z, 0, -0.03, 0.27, 0.026, 0.05, 0.03), 0.02);                    // bridge of the nose
+    d = smin(d, rbox(x, y, z, 0, -0.33, 0.125, 0.128, 0.062, 0.15, 0.058), 0.01);          // lower jaw
+    d = smin(d, ell(ax, y, z, 0.128, -0.215, 0.02, 0.026, 0.115, 0.06), 0.03);                 // its hinges
+    d = smin(d, ell(x, y, z, 0, -0.385, 0.245, 0.06, 0.03, 0.035), 0.03);                  // chin
+    const c = cuts(x, y, z);
+    d = smax(d, -c.eye, 0.018); d = smax(d, -c.nose, 0.01); d = smax(d, -c.temple, 0.05); d = smax(d, -c.cheek, 0.04); d = Math.max(d, -c.mouth); d = smax(d, -c.gap, 0.004);
+    return d; };
+  // the surface is found on a fine grid (surface nets), so the sockets, the nose hole and the teeth are real hollows with clean edges
+  const H = 0.009, X0 = -0.37, Y0 = -0.47, Z0 = -0.44, nx = 83, ny = 100, nz = 95, sx = nx + 1, sxy = sx * (ny + 1);
+  const V = new Float32Array(sxy * (nz + 1));
+  for (let k = 0; k <= nz; k++) for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) V[i + j * sx + k * sxy] = sdf(X0 + i * H, Y0 + j * H, Z0 + k * H);
+  const id = new Int32Array(nx * ny * nz).fill(-1), pos = [], E = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]], cv = new Float32Array(8);
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    let m = 0; for (let c = 0; c < 8; c++) { const v = V[(i + (c & 1)) + (j + ((c >> 1) & 1)) * sx + (k + (c >> 2)) * sxy]; cv[c] = v; if (v < 0) m |= 1 << c; }
+    if (m === 0 || m === 255) continue;
+    let px = 0, py = 0, pz = 0, n = 0;
+    for (const [a, b] of E) { if ((cv[a] < 0) === (cv[b] < 0)) continue; const t = cv[a] / (cv[a] - cv[b]);
+      px += (a & 1) + ((b & 1) - (a & 1)) * t; py += ((a >> 1) & 1) + (((b >> 1) & 1) - ((a >> 1) & 1)) * t; pz += (a >> 2) + ((b >> 2) - (a >> 2)) * t; n++; }
+    id[i + j * nx + k * nx * ny] = pos.length / 3; pos.push(X0 + (i + px / n) * H, Y0 + (j + py / n) * H, Z0 + (k + pz / n) * H);
   }
-  const K = SKULL, grp = new THREE.Group();
-  grp.add(new THREE.Mesh(K.cran, K.bone), new THREE.Mesh(K.face, K.bone), new THREE.Mesh(K.jaw, K.bone), new THREE.Mesh(K.nose, K.dark), new THREE.Mesh(K.tooth, K.dark));
-  for (const x of [-0.13, 0.13]) { const e = new THREE.Mesh(K.eye, K.dark); e.position.set(x, 0.03, 0.27); const p = new THREE.Mesh(K.pup, K.hot); p.position.set(x, 0.03, 0.33); grp.add(e, p); }
-  grp.traverse((m) => { if (m.isMesh && m.material === K.bone) m.castShadow = true; });
+  const ind = [], cell = (i, j, k) => id[i + j * nx + k * nx * ny];
+  for (let k = 1; k < nz; k++) for (let j = 1; j < ny; j++) for (let i = 1; i < nx; i++) {
+    const v0 = V[i + j * sx + k * sxy];
+    for (let a = 0; a < 3; a++) { const v1 = V[(i + (a === 0)) + (j + (a === 1)) * sx + (k + (a === 2)) * sxy]; if ((v0 < 0) === (v1 < 0)) continue;
+      const q = a === 0 ? [cell(i, j, k), cell(i, j - 1, k), cell(i, j - 1, k - 1), cell(i, j, k - 1)] : a === 1 ? [cell(i, j, k), cell(i, j, k - 1), cell(i - 1, j, k - 1), cell(i - 1, j, k)] : [cell(i, j, k), cell(i - 1, j, k), cell(i - 1, j - 1, k), cell(i, j - 1, k)];
+      if (q[0] < 0 || q[1] < 0 || q[2] < 0 || q[3] < 0) continue;
+      if (v0 < 0) ind.push(q[0], q[1], q[2], q[0], q[2], q[3]); else ind.push(q[0], q[2], q[1], q[0], q[3], q[2]); }
+  }
+  const nv = pos.length / 3, P = new Float32Array(pos), Nn = new Float32Array(nv * 3), col = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), e = 0.004;
+  for (let i = 0; i < nv; i++) { const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+    let gx = sdf(x + e, y, z) - sdf(x - e, y, z), gy = sdf(x, y + e, z) - sdf(x, y - e, z), gz = sdf(x, y, z + e) - sdf(x, y, z - e); const l = Math.hypot(gx, gy, gz) || 1; gx /= l; gy /= l; gz /= l;
+    Nn[i * 3] = gx; Nn[i * 3 + 1] = gy; Nn[i * 3 + 2] = gz; uv[i * 2] = x + z * 0.71; uv[i * 2 + 1] = y + z * 0.53;
+    // shade: how open the surface is to the air (creases and hollows are dark), deep sockets nearly black, teeth paler than bone
+    const open = Math.max(0, Math.min(1, sdf(x + gx * 0.035, y + gy * 0.035, z + gz * 0.035) / 0.035)), open2 = Math.max(0, Math.min(1, sdf(x + gx * 0.09, y + gy * 0.09, z + gz * 0.09) / 0.09));
+    const c = cuts(x, y, z), deep = Math.max(0, Math.min(1, -Math.min(c.eye, c.nose) / 0.03));
+    let s = (0.3 + 0.7 * open) * (0.55 + 0.45 * open2) * (1 - 0.8 * deep);
+    const inRow = Math.abs(y - TY) < 0.05 && z > 0.215 && Math.abs(x) < 0.15;
+    if (inRow) s = c.gap < 0.003 || c.mouth < 0.004 ? s * 0.35 : Math.min(1.2, s * 1.35 + 0.15);
+    s *= 0.92 + 0.08 * Math.sin(x * 60 + y * 47) * Math.sin(z * 53 + y * 31); // old bone is never one colour
+    col[i * 3] = s; col[i * 3 + 1] = s; col[i * 3 + 2] = s; }
+  // make every triangle face outward
+  for (let t = 0; t < ind.length; t += 3) { const a = ind[t] * 3, b = ind[t + 1] * 3, c = ind[t + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    if ((uy * vz - uz * vy) * Nn[a] + (uz * vx - ux * vz) * Nn[a + 1] + (ux * vy - uy * vx) * Nn[a + 2] < 0) { const w = ind[t + 1]; ind[t + 1] = ind[t + 2]; ind[t + 2] = w; } }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(Nn, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(ind); g.computeBoundingSphere();
+  return g;
+}
+function skullKit() {
+  if (!SKULL) {
+    const bone = scanSurface('rock_face', 2.5, 2, { color: 0xd9d0aa, emissive: 0x1c8a10, emissiveIntensity: 0.1, roughness: 0.7, normalScale: new THREE.Vector2(0.6, 0.6), vertexColors: true });
+    const hot = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6aff3a).multiplyScalar(2.6), toneMapped: false });
+    bone.map = null; /* ivory bone: the scan gives it its pitted surface, not its colour */ SKULL = { bone, hot, geo: skullGeo(), pup: new THREE.SphereGeometry(0.02, 8, 6) };
+  }
+  return SKULL;
+}
+function skull() {
+  const K = skullKit(), grp = new THREE.Group(), m = new THREE.Mesh(K.geo, K.bone); m.castShadow = true; grp.add(m);
+  for (const x of [-0.112, 0.112]) { const p = new THREE.Mesh(K.pup, K.hot); p.position.set(x, 0.03, 0.215); grp.add(p); } // a point of green light deep in each socket
   return grp;
 }
-
-// ---- Pyre: Homing Fireballs. A flaming skull that climbs out, then hunts `live()` (or flies to `to` when it has no target) and bursts.
+if (typeof window !== 'undefined') setTimeout(() => { try { skullKit(); } catch (e) {} }, 2500); // sculpt it while the menu is up, never in the middle of a fight
+export { skull as skullModel };
+// ---- Necromancer: Homing Skulls (they were Ember's until 2026-11-13; Nutty moved them and made them green). A skull wreathed in green fire that climbs out, then hunts `live()` (or flies to `to` when it has no target) and bursts.
 export function seeker(g, o, d, live, to, onExplode, delay = 0) {
   const fx = g.fx, pos = new THREE.Vector3(...o), vel = new THREE.Vector3(d[0], d[1], d[2]).normalize().multiplyScalar(13);
   const aim = new THREE.Vector3(...to), want = new THREE.Vector3();
   let age = -delay;
-  const sk = skull(); sk.scale.setScalar(1.25); sk.visible = false; g.scene.add(sk);
+  const sk = skull(); sk.scale.setScalar(1.5); sk.visible = false; g.scene.add(sk);
   fx.add({
     dur: 7 + delay,
     update: (dt) => {
@@ -60,23 +128,24 @@ export function seeker(g, o, d, live, to, onExplode, delay = 0) {
       if (age < 0) return;
       const t = live && live();
       if (t) aim.set(t[0], t[1], t[2]);
-      const sp = Math.min(34, 13 + age * 30);
+      const sp = Math.min(30, 7 + age * age * 34);
       want.copy(aim).sub(pos); const dist = want.length();
       want.normalize().multiplyScalar(sp);
-      vel.lerp(want, Math.min(1, dt * (age < 0.25 ? 1.5 : 7)));
+      vel.lerp(want, Math.min(1, dt * (age < 0.5 ? 1.2 : 7)));
       pos.addScaledVector(vel, dt);
       const P = [pos.x, pos.y, pos.z];
       sk.visible = true; sk.position.copy(pos); sk.lookAt(pos.x + vel.x, pos.y + vel.y, pos.z + vel.z); sk.rotateZ(Math.sin(age * 9) * 0.12);
-      fx.glow.emit({ p: P, life: 0.06, s0: 2.2, s1: 2.2, c0: [1, 0.55, 0.15, 0.5], c1: [1, 0.45, 0.1, 0.35] });
+      if (age < 0.8) { const u = 1 - age / 0.8; sk.rotateY(Math.PI * 2 * u * u); } // it turns once as it rises, so you see its face before it goes
+      { const q = vel.length() || 1; fx.glow.emit({ p: [pos.x - vel.x / q * 0.8, pos.y - vel.y / q * 0.8, pos.z - vel.z / q * 0.8], life: 0.5, s0: 0.45, s1: 0.08, c0: [0.35, 1, 0.25, 0.3], c1: [0.1, 0.7, 0.1, 0] }); } // the green trail it leaves
       // the flames stream back off the crown of the skull
       { const sp = vel.length() || 1, bx = -vel.x / sp, by = -vel.y / sp, bz = -vel.z / sp;
-        for (let i = 0; i < fx.n(4); i++) fx.fire.emit({ p: [pos.x + bx * 0.25 + rnd(-0.28, 0.28), pos.y + 0.22 + rnd(-0.2, 0.25), pos.z + bz * 0.25 + rnd(-0.28, 0.28)], v: [bx * 3 + rnd(-0.6, 0.6), by * 3 + 1.6, bz * 3 + rnd(-0.6, 0.6)], life: rnd(0.25, 0.5), s0: 1.05, s1: 0.15, c0: [1, 0.75, 0.35, 1], c1: [0.9, 0.2, 0.02, 0], turb: 2 }); }
-      if (Math.random() < 0.3) fx.smoke.emit({ p: P, v: [0, 0.5, 0], life: 0.7, s0: 0.4, s1: 1.2, c0: [0.25, 0.22, 0.2, 0.3], c1: [0.3, 0.3, 0.3, 0] });
+        for (let i = 0; i < fx.n(3); i++) fx.fire.emit({ p: [pos.x + bx * 0.95 + rnd(-0.18, 0.18), pos.y + by * 0.95 + 0.1 + rnd(-0.15, 0.2), pos.z + bz * 0.95 + rnd(-0.18, 0.18)], v: [bx * 5 + rnd(-0.5, 0.5), by * 5 + 1.2, bz * 5 + rnd(-0.5, 0.5)], life: rnd(0.25, 0.5), s0: 0.5, s1: 0.15, c0: [0.55, 1, 0.3, 0.8], c1: [0.05, 0.6, 0.05, 0], turb: 2 }); } // the fire stays behind it, so the skull itself is what you see
+      if (Math.random() < 0.12) fx.smoke.emit({ p: [pos.x - vel.x * 0.05, pos.y - vel.y * 0.05, pos.z - vel.z * 0.05], v: [0, 0.5, 0], life: 0.7, s0: 0.4, s1: 1.2, c0: [0.25, 0.22, 0.2, 0.3], c1: [0.3, 0.3, 0.3, 0] });
       const gy = g.world.heightAt(pos.x, pos.z);
       if (dist < 1.3 || pos.y <= gy + 0.2 || age > 5.5) {
         const p = [pos.x, Math.max(pos.y, gy + 0.3), pos.z];
-        fx.explosion(p, 0.8);
-        fx.flash(p, 0xff8a30, 16, 0.2, 10);
+        fx.explosion(p, 0.8, { color: [0.35, 1, 0.25] });
+        fx.flash(p, 0x5aff3a, 16, 0.2, 10);
         onExplode && onExplode(p);
         return false;
       }
@@ -480,6 +549,7 @@ export function darkTornado(g, o, d, dur = 6, speed = 17, onTick) {
   const fx = g.fx, scene = g.scene, H = TWISTER.h;
   const face = typeof d === 'function' ? d : null, d0 = face ? face() : d;
   const dir = new THREE.Vector3(d0[0], 0, d0[2]).normalize(), pos = new THREE.Vector3(o[0] + dir.x * 3, 0, o[2] + dir.z * 3);
+  if (face && face.at) { const a = face.at(); pos.set(a[0], 0, a[1]); }
   const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms: { uT: { value: 0 }, uA: { value: 0 }, uK: { value: 1 } },
     vertexShader: `uniform float uT; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
@@ -517,7 +587,8 @@ export function darkTornado(g, o, d, dur = 6, speed = 17, onTick) {
   fx.add({ dur,
     update: (dt, t) => {
       if (face) { const f = face(); dir.lerp(new THREE.Vector3(f[0], 0, f[2]), Math.min(1, dt * 2.5)).normalize(); }
-      pos.addScaledVector(dir, speed * (face && face.k != null ? face.k : 1) * dt);
+      if (face && face.at) { const a = face.at(), k = 1 - Math.exp(-dt * (face.rate || 60)); pos.x += (a[0] - pos.x) * k; pos.z += (a[1] - pos.z) * k; } // steered 1:1: it sits where the crosshair is
+      else pos.addScaledVector(dir, speed * (face && face.k != null ? face.k : 1) * dt);
       const y = g.world.heightAt(pos.x, pos.z), A = Math.min(1, t * 2.5) * Math.min(1, (dur - t) * 2);
       group.position.set(pos.x, y, pos.z);
       layers.forEach((m, i) => { m.rotation.y -= dt * (3.2 + i * 1.6); });

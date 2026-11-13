@@ -31,7 +31,6 @@ export const CLASSES = [
       { id: 'minisun', name: 'Mini Sun', cd: 12, desc: 'Hang a small blazing sun in the air at your crosshair for 8s. It scorches and sets alight every enemy near it, and each kill it gets makes it bigger, hotter and wider. When it burns out it shrinks, then goes off in a big bang that blasts everything nearby and leaves a spinning galaxy.' },
       { id: 'sunlance', name: 'Sunlance', cd: 12, desc: 'Call a wide beam of sunlight down from the sky onto your crosshair. For 3s it lights the whole area like daylight and burns everything inside it, on the ground or in the air, for huge damage.' },
       { id: 'dragon', name: 'Dragon', cd: 20, desc: 'Summon a giant red dragon in a ring of fire. For 26s it flies with you, circling overhead, and dives on your enemies breathing a river of fire that leaves the ground burning. It climbs to reach bosses and anything that flies.' },
-      { id: 'seekers', name: 'Homing Fireballs', cd: 5, desc: 'Loose 3 flaming skulls that hunt down the nearest enemies by themselves and explode on impact.' },
     ],
   },
   {
@@ -81,8 +80,8 @@ export const CLASSES = [
     e: { id: 'eye', name: 'Eye of the Storm', cd: 10, desc: 'Wrap yourself in a huge swirl of wind for 5s. Nothing can hurt you inside it, enemy shots are deflected back at their shooters, and enemies that touch the swirl are flung away. You can still shoot out.' },
     more: [
       { id: 'cloud', name: 'Cloud Form', cd: 10, desc: 'Turn into drifting mist until Cloud Form is ready again. You pass straight through enemies and attacks, nothing can see you, and you can keep attacking the whole time.' },
-      { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It tears through every enemy in its path for high damage. Every impact scatters the crowd: whoever it hits, and everyone standing near them, is sent flying.' },
-      { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a wide, dark tornado you steer with your crosshair for 6s. It drags in everything nearby and tears at it hard. Whoever falls into it is sent to the top of the funnel and held there, then dropped. It also swallows enemy shots.' },
+      { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It passes through every enemy in its path. It is a gust more than a killing blow: whoever it hits, and everyone standing near them, is blown high into the air and thrown far away.' },
+      { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a wide, dark tornado that stands on your crosshair for 6s and moves exactly as you aim. It drags in everything nearby and tears at it hard. Whoever falls into it is sent to the top of the funnel and held there, then dropped. It also swallows enemy shots.' },
     ],
   },
   {
@@ -92,6 +91,7 @@ export const CLASSES = [
     r: { id: 'acid', name: 'Acid Splash', cd: 10, desc: 'Drop a huge puddle of acid at your feet for 8s. It burns and can kill, slows everything wading through it, and leaves each enemy it touched poisoned for 3s more.' },
     e: { id: 'raise', name: 'Raise the Dead', cd: 10, desc: 'For 10s every enemy you kill gets back up and fights for you for 10 seconds, then falls for good. In a duel, three of the dead climb out of the ground and hunt your opponent.' },
     more: [
+      { id: 'seekers', name: 'Homing Skulls', cd: 5, desc: 'Loose 3 skulls wreathed in green fire, each trailing green. They hunt down the nearest enemies by themselves and explode on impact.' },
       { id: 'vines', name: 'Black Thorn Vines', cd: 10, desc: 'Huge black-rosed vines burst from the ground at your crosshair. Enemies can walk through them but are torn up the whole time they are inside. When the cooldown runs out the thorns fly off into every enemy nearby, and then it recharges again.' },
       { id: 'scythe', name: "Reaper's Scythe", cd: 5, desc: 'A giant ghostly scythe sweeps a full circle around you, cutting down everything in reach.' },
       { id: 'ghostwalk', name: 'Ghost Walk', cd: 10, desc: 'Your body stays behind while your spirit runs ahead for 6s, faster and untouchable, free to scout and attack. Then you snap back to your body. Press again to snap back early.' },

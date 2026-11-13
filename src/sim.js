@@ -890,7 +890,7 @@ export class HostSim {
       m.stag = Math.max(0, m.stag - dt);
       // Knockback decays.
       m.x += m.kx * dt; m.z += m.kz * dt;
-      m.kx *= Math.max(0, 1 - 5 * dt); m.kz *= Math.max(0, 1 - 5 * dt);
+      { const kd = Math.max(0, 1 - (m.lvy ? 0.25 : 5) * dt); m.kx *= kd; m.kz *= kd; } // thrown into the air it keeps flying the way it was hit (Airshot); on the ground it skids to a stop
       const t = this.targetsFor(m.x, m.z, players);
       if (m.roam) {
         // Nutty 2026-11-12 15:11: no more brutal crowds. Enemies notice you from closer than before, and only so many hunt you

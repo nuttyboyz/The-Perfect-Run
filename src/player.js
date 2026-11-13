@@ -232,7 +232,7 @@ export class LocalPlayer {
     if (!this.climb) { if (!this.jet.on && !this.wing.soar && !this.btHang) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt); }
     if (this.knock) { // a shove from the other duelist's hit: slides you back, fading over about 0.4 s
       this.pos.x += this.knock.x * dt; this.pos.z += this.knock.z * dt;
-      const kd = Math.exp(-5 * dt); this.knock.x *= kd; this.knock.z *= kd;
+      const kd = Math.exp(-(this.onGround ? 5 : 0.3) * dt); this.knock.x *= kd; this.knock.z *= kd; // blown off your feet you keep flying until you land
       if (Math.hypot(this.knock.x, this.knock.z) < 0.3) this.knock = null;
     }
     const bx = this.pos.x, bz = this.pos.z;
@@ -1597,7 +1597,7 @@ export class LocalPlayer {
       const fx = o[0] + d[0] * 34, fz = o[2] + d[2] * 34, far = [fx, g.world.heightAt(fx, fz) + 0.6, fz];
       const id = t ? t.id : null, to = t ? [t.x, t.y + t.h * 0.55, t.z] : far;
       Vault.seeker(g, o, d, () => { const q = id != null && g.targets().find((x) => x.id === id); return q ? [q.x, q.y + q.h * 0.55, q.z] : null; }, to,
-        (p) => g.areaDamage(p, 4.2, 48 * dmg, { burn: 4, falloff: 0.5, kb: 6 }), i * 0.12);
+        (p) => g.areaDamage(p, 4.2, 48 * dmg, { burn: 4, falloff: 0.5, kb: 6 }), i * 0.12); // the green fire clings and burns
       ends.push(...to);
     }
     g.audio.play('fire_cast');
@@ -1824,13 +1824,14 @@ export class LocalPlayer {
   // hard, and throws it a long way back.
   ab_airshot() {
     const g = this.game, ray = this.aimRay(), d = ray.d, o = [ray.o[0] + d[0] * 1.6, ray.o[1] + d[1] * 1.6 - 0.15, ray.o[2] + d[2] * 1.6];
-    const dmg = 170 * this.stats.dmg * this.mm('airshot');
+    const dmg = 80 * this.stats.dmg * this.mm('airshot'); // a gust, not a killing blow (Nutty 2026-11-13): it hurts a little and throws them a long way
     const blown = new Set(); // each enemy is thrown once per shot
     Vault.airshot(g, o, d, { targets: () => g.targets(), onHit: (t, dir) => {
       // The impact scatters: whoever it strikes is hurled up and away at a wild angle, and everyone standing round them is blown
       // outward off their feet as well (Nutty 2026-11-13).
       const sd = (Math.random() < 0.5 ? -1 : 1) * rnd(0.35, 1), sx = -dir.z * sd, sz = dir.x * sd;
-      g.damage(t, dmg, { kx: (dir.x + sx) * 34, kz: (dir.z + sz) * 34, launch: 17, freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
+      if (blown.has(t.id)) g.damage(t, dmg * 0.5, { at: [t.x, t.y + t.h * 0.6, t.z] }); // already in the air from the blast: hurt again, not thrown twice
+      else g.damage(t, dmg, { kx: (dir.x + sx * 0.7) * 17, kz: (dir.z + sz * 0.7) * 17, launch: rnd(21, 26), freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
       blown.add(t.id);
       for (const q of g.targets()) {
         if (q.kind === 'demon' || blown.has(q.id)) continue;
@@ -1838,7 +1839,7 @@ export class LocalPlayer {
         if (ed > 6 + q.r || Math.abs(q.y - t.y) > 5) continue;
         blown.add(q.id);
         const a = ed > 0.2 ? Math.atan2(ez, ex) + rnd(-0.5, 0.5) : Math.random() * 6.28;
-        g.damage(q, dmg * 0.35, { kx: Math.cos(a) * 26, kz: Math.sin(a) * 26, launch: 13, freeze: 0.4, at: [q.x, q.y + q.h * 0.6, q.z] });
+        g.damage(q, dmg * 0.5, { kx: (Math.cos(a) + dir.x * 0.5) * rnd(10, 16), kz: (Math.sin(a) + dir.z * 0.5) * rnd(10, 16), launch: rnd(15, 23), freeze: 0.4, at: [q.x, q.y + q.h * 0.6, q.z] });
       }
       g.fx.shockwave([t.x, t.y + 0.3, t.z], 6, 0xdfe4ea, 0.35); g.fx.dustBurst([t.x, t.y, t.z], 1.4);
       g.audio.play('wind', 0.5); g.shake(0.2);
@@ -2289,7 +2290,7 @@ export class LocalPlayer {
     g.emitFx(['wc', Math.round(dur * 10)]);
   }
 
-  // Whirlwind (Nutty 2026-11-13): a wide, dark tornado that chases your crosshair for 6 s. It drags in what is near, and whatever falls
+  // Whirlwind (Nutty 2026-11-13): a wide, dark tornado that stands on your crosshair for 6 s and moves exactly as you aim. It drags in what is near, and whatever falls
   // into it is torn at hard and sent up to the top of the funnel, where it is held, spinning, until the storm lets go. It swallows
   // enemy shots that reach it (Game.handleEvent 'p'), and the long fall hurts again.
   ab_tornado() {
@@ -2308,11 +2309,11 @@ export class LocalPlayer {
       } });
     };
     g.fx.add({ dur: dur + 0.2, update: (dt, t) => { if (t >= dur + 0.05) { for (const id of [...held.keys()]) drop(id); return false; } } });
-    const steer = () => {
-      const a = g.aim.point, dx = a.x - zone.x, dz = a.z - zone.z, d = Math.hypot(dx, dz);
-      steer.k = Math.min(1, d / 4);
-      return d > 0.3 ? [dx / d, 0, dz / d] : [f0[0], 0, f0[2]];
-    };
+    const steer = () => [f0[0], 0, f0[2]];
+    // It moves exactly as the stick or mouse does (Nutty 2026-11-13): the funnel stands on the crosshair's spot on the ground, no lag,
+    // no top speed. It only stays within 80 m of you.
+    steer.at = () => { const a = g.aim.point; let dx = a.x - this.pos.x, dz = a.z - this.pos.z; const dl = Math.hypot(dx, dz); if (dl > 80) { dx *= 80 / dl; dz *= 80 / dl; } return [this.pos.x + dx, this.pos.z + dz]; };
+    { const a = steer.at(); zone.x = a[0]; zone.z = a[1]; }
     Vault.darkTornado(g, [this.pos.x, this.pos.y, this.pos.z], steer, dur, 17, (c) => {
       zone.x = c[0]; zone.z = c[2];
       for (const t of g.targets()) {
@@ -2326,7 +2327,7 @@ export class LocalPlayer {
         } else if (dd < T.r + 11 + t.r) g.damage(t, 1, { kx: dx / dd * 16, kz: dz / dd * 16, silent: true });
       }
       for (const [id, at] of held) if (at !== n) drop(id); // it slipped out of the funnel
-      if (n % 2 === 0) g.emitFx(['wt', q10(c[0]), q10(c[2]), n === 0 ? 1 : 0]);
+      g.emitFx(['wt', q10(c[0]), q10(c[2]), n === 0 ? 1 : 0]);
       n++;
     });
     g.audio.play('cyclone'); g.audio.play('thunder', 0.5);
