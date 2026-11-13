@@ -112,9 +112,10 @@ export function orbit(g, follow, n) {
     end() { h.set(0); },
     // the rock closest to where a blow comes from (or any rock): it flinches and that is where the dust flies
     // the rock closest to where a blow comes from takes it: it flinches, cracks, and after `max` blows it breaks apart
-    block(from, max) { let best = null, bd = 1e9; for (const m of rocks) { const d = from ? Math.hypot(m.position.x - from[0], m.position.z - from[2]) : Math.random(); if (d < bd) { bd = d; best = m; } } if (!best) return null;
-      const u = best.userData, p = [best.position.x, best.position.y, best.position.z]; u.hit = 1; u.dmg = (u.dmg || 0) + 1; u.s *= 0.9;
-      if (u.dmg < max) { chips(p, 5); return { p, broke: false }; }
+    block(from, max) { let best = null, bd = 1e9; // one rock at a time: the one already cracked keeps taking the blows until it breaks, so the player sees them go one by one
+      for (const m of rocks) { const d = -(m.userData.dmg || 0) * 1e6 + (from ? Math.hypot(m.position.x - from[0], m.position.z - from[2]) : Math.random()); if (d < bd) { bd = d; best = m; } } if (!best) return null;
+      const u = best.userData, p = [best.position.x, best.position.y, best.position.z]; u.hit = 1; u.dmg = (u.dmg || 0) + 1; u.s *= 0.84; // it flinches and visibly loses a piece with every blow
+      if (u.dmg < max) { chips(p, 9); return { p, broke: false }; }
       rocks.splice(rocks.indexOf(best), 1); scene.remove(best); crumble(p); if (!rocks.length) h.alive = false; return { p, broke: true }; },
     crumbleAt(p) { let best = null, bd = 1e9; for (const m of rocks) { const d = Math.hypot(m.position.x - p[0], m.position.y - p[1], m.position.z - p[2]); if (d < bd) { bd = d; best = m; } } if (!best) return;
       rocks.splice(rocks.indexOf(best), 1); scene.remove(best); crumble([best.position.x, best.position.y, best.position.z]); if (!rocks.length) h.alive = false; },
@@ -444,8 +445,9 @@ export function breath(g, follow, dur = 4, len = 18, onTick) {
 }
 
 // ---- Rime: Whirlpool. A disc of spinning water at `c` (radius r) for `dur` seconds, foam spiralling into its middle. onTick() four times a second.
-export function whirlpool(g, c, dur = 6, r = 7, onTick) {
-  const fx = g.fx, scene = g.scene, gy = g.world.heightAt(c[0], c[2]);
+// steer() (the caster) returns the point it should glide toward; for everyone else the returned handle's `to` is set as it moves.
+export function whirlpool(g, c, dur = 6, r = 7, onTick, steer) {
+  const fx = g.fx, scene = g.scene, h = { to: null, c }; let gy = g.world.heightAt(c[0], c[2]);
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms: { uT: { value: 0 }, uA: { value: 0 } },
@@ -473,6 +475,9 @@ export function whirlpool(g, c, dur = 6, r = 7, onTick) {
     update: (dt, t) => {
       mat.uniforms.uT.value = t;
       mat.uniforms.uA.value = Math.min(1, t * 3) * Math.min(1, Math.max(0, (dur + 0.5 - t) * 2));
+      { const to = steer ? steer() : h.to; // it goes where its caster points: it glides across the ground after the crosshair
+        if (to && t < dur) { const dx = to[0] - c[0], dz = to[2] - c[2], d = Math.hypot(dx, dz), sp = (steer ? 11 : 13) * dt;
+          if (d > 0.05) { const k = Math.min(1, sp / d); c[0] += dx * k; c[2] += dz * k; gy += (g.world.heightAt(c[0], c[2]) - gy) * Math.min(1, dt * 8); c[1] = gy; m.position.set(c[0], gy + 0.18, c[2]); } } }
       if (t < dur) {
         for (let i = 0; i < fx.n(7); i++) {
           const a = Math.random() * 6.28, rr = rnd(1, r);
@@ -486,6 +491,7 @@ export function whirlpool(g, c, dur = 6, r = 7, onTick) {
     },
     dispose: () => { scene.remove(m); geo.dispose(); mat.dispose(); },
   });
+  return h;
 }
 
 // ---- Rime: Pressure Jet. A thin, hard stream of water from o along d (follow() returns { o, d }, null ends it), `len` m long. onTick(o, d) five times a second.

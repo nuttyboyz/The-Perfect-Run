@@ -1653,7 +1653,7 @@ export class LocalPlayer {
 
   // Dragon Breath: an 18 m stream of fire, full length from the first frame, that follows where you face for 4 s. No holding.
   ab_breath() {
-    const g = this.game, dur = 4, dmg = 24 * this.stats.dmg * this.mm('breath');
+    const g = this.game, dur = 5.5, dmg = 24 * this.stats.dmg * this.mm('breath');
     let n = 0;
     Vault.breath(g, () => (this.alive ? this.streamRay() : null), dur, 18, (o, d) => {
       n++;
@@ -1761,7 +1761,7 @@ export class LocalPlayer {
   ab_dragon() {
     const g = this.game;
     if (this.dragon && this.dragon.fx && !this.dragon.fx.done && this.dragon.until > g.now) return false; // one at a time
-    const dur = 18, dmg = 70 * this.stats.dmg * this.mm('dragon');
+    const dur = 26, dmg = 70 * this.stats.dmg * this.mm('dragon');
     let n = 0;
     const d = spawnDragon(g, {
       dur, yaw: this.yaw,
@@ -1784,16 +1784,30 @@ export class LocalPlayer {
   ab_airshot() {
     const g = this.game, ray = this.aimRay(), d = ray.d, o = [ray.o[0] + d[0] * 1.6, ray.o[1] + d[1] * 1.6 - 0.15, ray.o[2] + d[2] * 1.6];
     const dmg = 170 * this.stats.dmg * this.mm('airshot');
+    const blown = new Set(); // each enemy is thrown once per shot
     Vault.airshot(g, o, d, { targets: () => g.targets(), onHit: (t, dir) => {
-      g.damage(t, dmg, { kx: dir.x * 42, kz: dir.z * 42, freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
-      g.audio.play('wind', 0.5);
+      // The impact scatters: whoever it strikes is hurled up and away at a wild angle, and everyone standing round them is blown
+      // outward off their feet as well (Nutty 2026-11-13).
+      const sd = (Math.random() < 0.5 ? -1 : 1) * rnd(0.35, 1), sx = -dir.z * sd, sz = dir.x * sd;
+      g.damage(t, dmg, { kx: (dir.x + sx) * 34, kz: (dir.z + sz) * 34, launch: 17, freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
+      blown.add(t.id);
+      for (const q of g.targets()) {
+        if (q.kind === 'demon' || blown.has(q.id)) continue;
+        const ex = q.x - t.x, ez = q.z - t.z, ed = Math.hypot(ex, ez);
+        if (ed > 6 + q.r || Math.abs(q.y - t.y) > 5) continue;
+        blown.add(q.id);
+        const a = ed > 0.2 ? Math.atan2(ez, ex) + rnd(-0.5, 0.5) : Math.random() * 6.28;
+        g.damage(q, dmg * 0.35, { kx: Math.cos(a) * 26, kz: Math.sin(a) * 26, launch: 13, freeze: 0.4, at: [q.x, q.y + q.h * 0.6, q.z] });
+      }
+      g.fx.shockwave([t.x, t.y + 0.3, t.z], 6, 0xdfe4ea, 0.35); g.fx.dustBurst([t.x, t.y, t.z], 1.4);
+      g.audio.play('wind', 0.5); g.shake(0.2);
     } });
     g.audio.play('wind');
     g.shake(0.15);
     g.emitFx(['ga', ...o.map(q10), Math.round(d[0] * 100), Math.round(d[1] * 100), Math.round(d[2] * 100)]);
   }
 
-  // Whirlpool: 6 s of spinning water at the crosshair (within 30 m). It drags in what is near, holds and staggers what is in it,
+  // Whirlpool: 6 s of spinning water that opens at the crosshair (within 30 m) and then follows it wherever the player aims. It drags in what is near, holds and staggers what is in it,
   // and each enemy takes more the longer it has been inside (up to 4x).
   ab_whirl() {
     const g = this.game, a = g.aim.point;
@@ -1813,6 +1827,12 @@ export class LocalPlayer {
           g.damage(t, dmg * mul, { freeze: 0.4, slow: 1.5, kx: ex / dd * 6 - ez / dd * 4, kz: ez / dd * 6 + ex / dd * 4, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * 0.6, t.z] });
         } else { inside.delete(t.id); if (dd < R + 6 + t.r) g.damage(t, 1, { kx: ex / dd * 13, kz: ez / dd * 13, silent: true }); }
       }
+      if (n % 2 === 0) g.emitFx(['rm', q10(c[0]), q10(c[2])]); // where it has been steered to, for everyone else
+    }, () => { // steered: it follows the crosshair for its whole life, never more than 30 m from its caster (Nutty 2026-11-13)
+      if (!this.alive) return null;
+      const q = g.aim.point; let sx = q.x - this.pos.x, sz = q.z - this.pos.z; const sl = Math.hypot(sx, sz);
+      if (sl > 30) { sx *= 30 / sl; sz *= 30 / sl; }
+      return [this.pos.x + sx, 0, this.pos.z + sz];
     });
     g.audio.play('ice_big');
     g.emitFx(['rw', ...c.map(q10)]);
@@ -1820,7 +1840,7 @@ export class LocalPlayer {
 
   // Pressure Jet: a thin, hard stream of water along the crosshair for 2.5 s. It goes through every enemy in line and staggers them.
   ab_jet() {
-    const g = this.game, dur = 2.5, dmg = 22 * this.stats.dmg * this.mm('jet');
+    const g = this.game, dur = 3.5, dmg = 22 * this.stats.dmg * this.mm('jet');
     let n = 0;
     Vault.jet(g, () => (this.alive ? this.streamRay() : null), dur, 45, (o, d, L) => {
       n++;
@@ -1841,9 +1861,9 @@ export class LocalPlayer {
     Vault.snowball(g, () => {
       if (!this.alive || g.now >= S.until || this.snow !== S) return null;
       const mx = this.pos.x - S.last[0], mz = this.pos.z - S.last[1], md = Math.hypot(mx, mz);
-      if (md < 20) S.r = Math.min(5.2, S.r + md * 0.034); // +1 m of radius every 30 m rolled
+      if (md < 20) S.r = Math.min(3, S.r + md * 0.034); // +1 m of radius every 30 m rolled; capped so it never hides the view (Nutty 2026-11-13)
       S.last = [this.pos.x, this.pos.z];
-      const dmg = 58 * this.stats.dmg * this.mm('snowball') * Math.pow(S.r / 1.1, 1.5);
+      const dmg = 58 * this.stats.dmg * this.mm('snowball') * Math.pow(S.r / 1.1, 2.3); // steeper, so the smaller full-size ball still hits as hard as the old giant one
       for (const t of g.targets()) {
         if (t.kind === 'demon' || Math.hypot(t.x - this.pos.x, t.z - this.pos.z) > S.r + t.r + 0.3 || Math.abs(t.y - this.pos.y) > S.r * 2 + 1) continue;
         if (g.now - (S.hit.get(t.id) || -9) < 0.6) continue;
@@ -2319,7 +2339,8 @@ export class LocalPlayer {
         const R = this.rocks, hit = R.fx.block(g.attackerPos ? g.attackerPos(src) : null, ORBIT_BLOCKS), c = (hit && hit.p) || [this.pos.x, this.pos.y + 1.2, this.pos.z];
         g.fx.dustBurst(c, 0.45); g.fx.impact(c, [0.75, 0.62, 0.48]); g.audio.play('deflect', 0.55); g.audio.play('earth', 0.25);
         if (hit && hit.broke) {
-          R.n--; g.emitFx(['bo', R.n, ...c.map((q) => Math.round(q * 10))]); g.audio.play('quake', 0.45); g.shake(0.2);
+          R.n--; g.emitFx(['bo', R.n, ...c.map((q) => Math.round(q * 10))]); g.audio.play('quake', 0.6); g.audio.play('earth', 0.7); g.shake(0.3);
+          if (g.player === this) g.ui.toast(R.n > 0 ? 'A rock shattered: ' + R.n + ' left' : 'Your last rock shattered', 'bad', 'orbit');
           if (R.n <= 0) { // the last one is gone: the cooldown starts, as if it had been thrown
             this.rocks = null;
             const key = Object.keys(this.cds).find((k) => this.cls[k] && this.cls[k].id === 'orbit');

@@ -1897,7 +1897,8 @@ export class Game {
       case 'gm': if (v.golem && v.golem.setRoam) v.golem.setRoam(!!a[0]); break; // their Golem switched between following and roaming
       case 'ga': Vault.airshot(this, P(0), D(3)); this.audio.play('wind', vol); break;
       case 'nv': this.fx.shockwave([v.pos.x, v.pos.y + 0.1, v.pos.z], a[0] / 10, a[1], 0.45); this.audio.play('gust', vol * 0.6); break; // an elemental power-up's burst
-      case 'rw': Vault.whirlpool(this, P(0)); this.audio.play('ice_big', vol); break;
+      case 'rw': (this._whirls || (this._whirls = new Map())).set(v, Vault.whirlpool(this, P(0))); this.audio.play('ice_big', vol); break;
+      case 'rm': { const h = this._whirls && this._whirls.get(v); if (h) h.to = [a[0] / 10, 0, a[1] / 10]; break; }
       case 'rs': { // Snowball: it grows with the distance that runner rolls, the same rule as their own game uses
         const until = this.now + a[0] / 10, S = { r: 1.1, last: [v.pos.x, v.pos.z] };
         v.ball = true;
@@ -2313,7 +2314,7 @@ export class Game {
     const wpn = p.weapon;
     // Aim down sights always looks through the sights, even from the third-person view (Call of Duty style).
     // Nutty (2026-11-05): aiming no longer flips a third-person player into first person; third person just zooms in.
-    const fp = this.settings.view === 'first' && !p.out && p.alive && rig;
+    const fp = this.settings.view === 'first' && !p.out && p.alive && rig && !p.snow; // rolling in a Snowball is always seen from behind
     this.fpNow = !!fp;
     if (rig) rig.firstPerson = !!fp;
     // Aim down sights: zoom in (scoped weapons a lot), and in first person line the eye up behind the gun.
@@ -2354,9 +2355,10 @@ export class Game {
     // Up in a tree the foliage closes in, so the camera tucks in close.
     const high = p.climb || (p.onGround && p.pos.y - this.world.heightAt(p.pos.x, p.pos.z) > 2.5);
     const S = this.duel ? DUEL.size : 1; // a duel-sized fighter gets the camera pulled back in proportion
-    const back = (4.4 - 3.0 * Math.max(ads, p.aimIn || 0)) * (high ? 0.45 : 1) * S; // aiming: closer over the shoulder
+    const ball = p.snow ? p.snow.r : 0; // inside a Snowball the camera backs off and rises as the ball grows, so it never fills the view
+    const back = (4.4 - 3.0 * Math.max(ads, p.aimIn || 0)) * (high ? 0.45 : 1) * S + ball * 3.2; // aiming: closer over the shoulder
     const rx = -Math.cos(yaw) * S, rz = Math.sin(yaw) * S;
-    const pivot = new THREE.Vector3(px, py + 1.65 * S, pz); // chest height, even on a duel-sized fighter
+    const pivot = new THREE.Vector3(px, py + 1.65 * S + ball * 1.1, pz); // chest height, even on a duel-sized fighter
     let dist = back;
     const w = this.world;
     // Pull in when terrain blocks the view.

@@ -26,11 +26,11 @@ export const CLASSES = [
     r: { id: 'inferno', name: 'Inferno', cd: 10, desc: 'Erupt in a wide ring of fire that scorches everything around you for 5s while blasts keep going off inside it.' },
     e: { id: 'firewall', name: 'Wall of Fire', cd: 10, desc: 'Raise a long, tall wall of flame across your crosshair for 6 seconds. Anything caught in it or walking through burns hard.' },
     more: [
-      { id: 'breath', name: 'Dragon Breath', cd: 10, desc: 'Breathe a stream of fire that is at full length the moment you cast it, no holding needed. For 4s it sweeps wherever you face, burning everything in it.' },
+      { id: 'breath', name: 'Dragon Breath', cd: 10, desc: 'Breathe a stream of fire that is at full length the moment you cast it, no holding needed. For 5.5s it sweeps wherever you face, burning everything in it.' },
       { id: 'flameweap', name: 'Flaming Weapons', cd: 10, desc: 'Set whatever you are holding on fire until this is ready again. Blades and fists hit harder, reach farther and trail fire; bullets, arrows and blasts hit harder too. Every hit sets the enemy alight, and they keep burning until they die or the fire goes out.' },
       { id: 'minisun', name: 'Mini Sun', cd: 12, desc: 'Hang a small blazing sun in the air at your crosshair for 8s. It scorches and sets alight every enemy near it, and each kill it gets makes it bigger, hotter and wider. When it burns out it shrinks, then goes off in a big bang that blasts everything nearby and leaves a spinning galaxy.' },
       { id: 'sunlance', name: 'Sunlance', cd: 12, desc: 'Call a wide beam of sunlight down from the sky onto your crosshair. For 3s it lights the whole area like daylight and burns everything inside it, on the ground or in the air, for huge damage.' },
-      { id: 'dragon', name: 'Dragon', cd: 20, desc: 'Summon a giant red dragon in a ring of fire. For 18s it flies with you, circling overhead, and dives on your enemies breathing a river of fire that leaves the ground burning. It climbs to reach bosses and anything that flies.' },
+      { id: 'dragon', name: 'Dragon', cd: 20, desc: 'Summon a giant red dragon in a ring of fire. For 26s it flies with you, circling overhead, and dives on your enemies breathing a river of fire that leaves the ground burning. It climbs to reach bosses and anything that flies.' },
       { id: 'seekers', name: 'Homing Fireballs', cd: 5, desc: 'Loose 3 flaming skulls that hunt down the nearest enemies by themselves and explode on impact.' },
     ],
   },
@@ -41,7 +41,7 @@ export const CLASSES = [
     r: { id: 'rockarmor', name: 'Rock Armor', cd: 10, desc: 'Stone slabs clamp on to your body and you take no damage at all until Rock Armor is ready again. Every hit the armor takes shocks the ground, knocking back and stunning enemies around you.' },
     e: { id: 'pillars', name: 'Pillar Burst', cd: 10, desc: 'Stamp the ground: tall, jagged spikes of rock erupt under every enemy within 12 m, launching, stunning and crushing them. No shot gets through the rocks while they stand.' },
     more: [
-      { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. While they circle they block incoming attacks, and each crumbles after blocking three. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
+      { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. While they circle they block incoming attacks. They break one at a time: each crumbles after blocking three. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
       { id: 'meteor', name: 'Meteor Call', cd: 10, desc: 'Mark a spot with your crosshair. Two seconds later a giant flaming rock falls from the sky and crushes everything there.' },
       { id: 'golem', name: 'Golem', cd: 30, desc: 'A towering rock golem breaks out of the ground in front of you and rises to his full height. For 25s he walks with you and hurls huge boulders at every enemy within 40 m. Press the button again to let him roam free, and again to call him back. He crumbles to rubble when his time or his health runs out.' },
       { id: 'stomp', name: 'Seismic Stomp', cd: 10, desc: 'Leap up and slam the ground. Slabs of rock burst up, chunks fly in every direction, and everything within 15 m is staggered and takes heavy damage.' },
@@ -66,8 +66,9 @@ export const CLASSES = [
     e: { id: 'tsunami', name: 'Tsunami', cd: 10, desc: 'A towering wave of water surges forward and drowns a wide spread of enemies.' },
     more: [
       { id: 'rain', name: 'Healing Rain', cd: 10, desc: 'Call down a small, heavy rain storm for 7s. Its raindrops heal you and every teammate under it, and are toxic to every enemy caught in it.' },
-      { id: 'whirl', name: 'Whirlpool', cd: 10, desc: 'Open a spinning whirlpool at your crosshair for 6s. It drags enemies in, traps and staggers them, and hurts more the longer they stay in it.' },
+      { id: 'whirl', name: 'Whirlpool', cd: 10, desc: 'Open a spinning whirlpool at your crosshair for 6s and steer it: it follows wherever you aim. It drags enemies in, traps and staggers them, and hurts more the longer they stay in it.' },
       { id: 'jet', name: 'Pressure Jet', cd: 5, desc: 'Fire a thin, high-pressure stream of water along your crosshair. It pierces through every enemy and staggers them until it runs out.' },
+      { id: 'polaris', name: 'Polaris', cd: 30, desc: 'A huge arctic bear bursts up out of the ice and fights for you for 25s. He runs down enemies by himself, rears up to claw them, bites, and pounces from a distance. What he hits is often frozen solid.' },
       { id: 'snowball', name: 'Snowball', cd: 10, desc: 'Hop into a snowball for 16s and roll through enemies. It grows as it rolls and hits harder the bigger it gets. Anything it touches is slowed for 3s.' },
       { id: 'zero', name: 'Absolute Zero', cd: 10, desc: 'Every enemy near you stops dead for 5s, and so does every enemy shot in mid-air.' },
     ],
@@ -80,7 +81,7 @@ export const CLASSES = [
     e: { id: 'eye', name: 'Eye of the Storm', cd: 10, desc: 'Wrap yourself in a huge swirl of wind for 5s. Nothing can hurt you inside it, enemy shots are deflected back at their shooters, and enemies that touch the swirl are flung away. You can still shoot out.' },
     more: [
       { id: 'cloud', name: 'Cloud Form', cd: 10, desc: 'Turn into drifting mist until Cloud Form is ready again. You pass straight through enemies and attacks, nothing can see you, and you can keep attacking the whole time.' },
-      { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It tears through every enemy in its path for high damage and blasts each one far away.' },
+      { id: 'airshot', name: 'Airshot', cd: 6, desc: 'Fire a spinning ball of hard wind straight ahead. It tears through every enemy in its path for high damage. Every impact scatters the crowd: whoever it hits, and everyone standing near them, is sent flying.' },
       { id: 'tornado', name: 'Whirlwind', cd: 10, desc: 'Summon a tornado you steer with your crosshair like a guided missile for 6s. It drags in everything nearby, lifts enemies and shreds them, swallows enemy shots, and the fall hurts them again when it drops them.' },
     ],
   },

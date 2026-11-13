@@ -40,8 +40,10 @@ function loft(st, seg, ring, uRep = 3, vRep = 1) {
 const on = (L, z, ang, depth = 0) => { const S = L.S; let k = 0; while (k < S.length - 2 && S[k + 1].z < z) k++; const a = S[k], b = S[k + 1], f = clamp((z - a.z) / Math.max(1e-4, b.z - a.z), 0, 1), m = (q) => a[q] + (b[q] - a[q]) * f;
   const cs = Math.cos(ang), sn = Math.sin(ang), n = V(cs / m('sx'), sn / m('sy'), 0).normalize(); return { p: V(cs * m('r') * m('sx'), m('y') + sn * m('r') * m('sy'), z).addScaledVector(n, -depth), n }; };
 // a limb lofted downward (-y): sections [down, radius, sx, sz, forward]
-const limb = (st, seg) => { const g = loft(st.map(([d, r, sx = 1, sy = 1, f = 0]) => ({ z: d, y: f, r, sx, sy })), seg, 12, 2, 1.4).geo; g.rotateX(Math.PI / 2); return g.toNonIndexed(); };
-const ball = (r, sc, at) => new THREE.SphereGeometry(r, 12, 9).scale(sc[0], sc[1], sc[2]).translate(at.x, at.y, at.z).toNonIndexed();
+const limb = (st, seg) => { const g = loft(st.map(([d, r, sx = 1, sy = 1, f = 0]) => ({ z: d, y: f, r, sx, sy })), seg, 22, 2, 1.4).geo; g.rotateX(Math.PI / 2); return g.toNonIndexed(); };
+const ball = (r, sc, at) => new THREE.SphereGeometry(r, 18, 12).scale(sc[0], sc[1], sc[2]).translate(at.x, at.y, at.z).toNonIndexed();
+// how long the fur stands at each vertex (1 = full coat)
+const setFur = (geo, fn) => { const p = geo.attributes.position, a = new Float32Array(p.count); for (let k = 0; k < p.count; k++) a[k] = fn(p.getX(k), p.getY(k), p.getZ(k)); geo.setAttribute('aFur', new THREE.BufferAttribute(a, 1)); return geo; };
 // a sharp shard of ice: base at `at`, pointing along dir
 function shard(at, dir, len, w, seed = 1) {
   const g = new THREE.ConeGeometry(1, 1, 5 + (seed % 2), 1).toNonIndexed(); g.translate(0, 0.5, 0); g.scale(w, len, w * (0.55 + (seed % 3) * 0.15)); g.rotateY(seed * 1.7);
@@ -51,6 +53,7 @@ function shard(at, dir, len, w, seed = 1) {
 
 // ---------------------------------------------------------------- fur
 let MATS = null;
+const SCAR_N = 4, SCAR_P = 8, SCAR = { value: Array.from({ length: SCAR_N * SCAR_P }, () => new THREE.Vector3(0, 99, 0)) }; // claw gashes across the face, in head space
 function mats() {
   if (MATS) return MATS;
   const N = 512, cv = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; };
@@ -71,25 +74,46 @@ function mats() {
   for (let i = 0; i < 26000; i++) { const x = rr() * N, y = rr() * N, v = 60 + rr() * 195; tx.fillStyle = `rgb(${v},${v},${v})`; tx.fillRect(x, y, 1.6, 2.6); }
   const T = (c, srgb) => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
   const map = T(ac, true), nor = T(nc, false), tuft = T(tc, false);
-  const furLen = { value: 0.085 };
-  const fur = (layer, layers) => { // layer 0 is the skin under the fur; the rest are shells of hair standing out from it
-    const k = layer / layers, m = new THREE.MeshStandardMaterial({ map, normalMap: nor, normalScale: new THREE.Vector2(1.3, 1.3), roughness: 0.92, metalness: 0, color: 0xffffff });
-    m.onBeforeCompile = (sh) => { sh.uniforms.uShell = { value: k }; sh.uniforms.uLen = furLen; sh.uniforms.uTuft = { value: tuft };
-      sh.vertexShader = 'uniform float uShell; uniform float uLen;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * uShell * uLen; transformed.y -= uShell * uShell * uLen * 0.45;');
-      sh.fragmentShader = 'uniform float uShell; uniform sampler2D uTuft;\n' + sh.fragmentShader
+  map.repeat.set(2.2, 2.2); nor.repeat.set(2.2, 2.2);
+  const furLen = { value: 0.105 };
+  const fur = (layer, layers, scar = false) => { // layer 0 is the skin under the fur; the rest are shells of hair standing out from it
+    const k = layer / layers, m = new THREE.MeshStandardMaterial({ map, normalMap: nor, normalScale: new THREE.Vector2(0.75, 0.75), roughness: 0.95, metalness: 0, color: 0xffffff });
+    m.onBeforeCompile = (sh) => { sh.uniforms.uShell = { value: k }; sh.uniforms.uLen = furLen; sh.uniforms.uTuft = { value: tuft }; sh.uniforms.uScar = SCAR;
+      sh.vertexShader = 'attribute float aFur; uniform float uShell; uniform float uLen; varying vec3 vScP; varying float vFur;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vScP = position; vFur = aFur; transformed += normalize(objectNormal) * uShell * uLen * aFur; transformed.y -= uShell * uShell * uLen * 0.45 * aFur;');
+      sh.fragmentShader = 'uniform float uShell; uniform sampler2D uTuft; varying vec3 vScP; varying float vFur;\n' + (scar ? `uniform vec3 uScar[${SCAR_N * SCAR_P}];
+          // how deep into a claw gash this point is: 0 = the middle of a cut, 1 = its edge, more = clear of it
+          float scarAt(vec3 p) { float best = 9.0;
+            for (int g = 0; g < ${SCAR_N}; g++) for (int i = 0; i < ${SCAR_P - 1}; i++) { vec3 a = uScar[g * ${SCAR_P} + i], b = uScar[g * ${SCAR_P} + i + 1], ab = b - a;
+              float h = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0), tt = (float(i) + h) / ${SCAR_P - 1}.0;
+              float w = 0.021 * pow(sin(3.14159 * clamp(tt, 0.02, 0.98)), 0.55) * (g == 1 || g == 2 ? 1.0 : 0.78);
+              best = min(best, length(p - a - ab * h) / w); }
+            return best; }\n` : '') + sh.fragmentShader
         .replace('#include <map_fragment>', `#include <map_fragment>
           float tf_ = texture2D(uTuft, vMapUv * 3.0).r;
+          float sc_ = 9.0;
+          ${scar ? `sc_ = scarAt(vScP) + (tf_ - 0.45) * 0.5 + (texture2D(uTuft, vMapUv * 0.7).r - 0.4) * 0.35;
+          if (uShell > 0.0 && sc_ < 1.25 + uShell * 0.5) discard;   // the coat is parted along every cut, hair leaning in over the edges` : ''}
           if (uShell > 0.0 && tf_ < 0.3 + uShell * 0.68) discard;
-          diffuseColor.rgb *= mix(0.62, 1.06, uShell) * vec3(1.0, 0.99, 0.95);`)
+          diffuseColor.rgb *= mix(0.56, 1.14, sqrt(uShell)) * vec3(1.0, 0.985, 0.94);
+          diffuseColor.rgb *= 0.93 + 0.09 * sin(vScP.x * 23.0 + sin(vScP.z * 17.0) * 2.0) * sin(vScP.y * 19.0 + vScP.z * 13.0); // the coat lies in clumps
+          diffuseColor.rgb *= mix(vec3(0.5, 0.47, 0.45), vec3(1.0), smoothstep(0.04, 0.34, vFur));                                // thin fur: the dark hide shows through
+          ${scar ? `{ float skin = 1.0 - smoothstep(1.0, 2.1, sc_), flesh = 1.0 - smoothstep(0.55, 1.05, sc_), core = 1.0 - smoothstep(0.0, 0.5, sc_);
+            float mot = texture2D(uTuft, vMapUv * 5.0).r;
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.09, 0.085), skin * 0.92);                       // bare dark hide round the wound
+            diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.4, 0.15, 0.14), vec3(0.26, 0.045, 0.05), mot), flesh); // raw healed-over flesh, mottled
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.012, 0.015), core * 0.9); }                    // the dark crease down the middle` : ''}`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          roughnessFactor = mix(roughnessFactor, 0.42, 1.0 - smoothstep(0.55, 1.05, sc_));`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           totalEmissiveRadiance += vec3(0.5, 0.62, 0.8) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.0) * 0.16;`); };
-    m.customProgramCacheKey = () => 'polaris-fur' + (layer ? 1 : 0);
+    m.customProgramCacheKey = () => 'polaris-fur4' + (layer ? 1 : 0) + (scar ? 's' : '');
     return m;
   };
-  const LAYERS = 4;
-  MATS = { fur: Array.from({ length: LAYERS + 1 }, (_, i) => fur(i, LAYERS)), ice: iceMat(),
-    dark: new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.35 }), eye: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.6, 4.2), toneMapped: false }),
-    tooth: new THREE.MeshStandardMaterial({ color: 0xe8e2cf, roughness: 0.4 }), mouth: new THREE.MeshStandardMaterial({ color: 0x3a1418, roughness: 0.6 }) };
+  const LAYERS = 6;
+  MATS = { fur: Array.from({ length: LAYERS + 1 }, (_, i) => fur(i, LAYERS)), furHead: Array.from({ length: LAYERS + 1 }, (_, i) => fur(i, LAYERS, true)), ice: iceMat(),
+    dark: new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.35 }), eye: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.16, 0.75, 2.1), toneMapped: false }),
+    tooth: new THREE.MeshStandardMaterial({ color: 0xefe8d2, roughness: 0.32 }), mouth: new THREE.MeshStandardMaterial({ color: 0x200a0d, roughness: 0.55 }),
+    gum: new THREE.MeshStandardMaterial({ color: 0x3d1a1e, roughness: 0.4 }), tongue: new THREE.MeshStandardMaterial({ color: 0x8a4048, roughness: 0.45 }) };
   return MATS;
 }
 
@@ -98,40 +122,99 @@ let GEO = null;
 function geos() {
   if (GEO) return GEO;
   // torso: rump, deep belly, chest, the big shoulder hump of a polar bear, a long thick neck
-  const B = loft([{ z: -1.5, y: 0.0, r: 0.3, sx: 1, sy: 1 }, { z: -1.2, y: 0.05, r: 0.62, sx: 1.02, sy: 1 }, { z: -0.6, y: 0.02, r: 0.74, sx: 1.04, sy: 1.02 }, { z: 0.1, y: -0.02, r: 0.74, sx: 1.0, sy: 1.02 }, { z: 0.7, y: 0.06, r: 0.72, sx: 0.98, sy: 1.08 }, { z: 1.15, y: 0.12, r: 0.6, sx: 0.95, sy: 1.05 }, { z: 1.6, y: 0.08, r: 0.46, sx: 0.95, sy: 1 }, { z: 2.05, y: -0.02, r: 0.38, sx: 0.95, sy: 1 }, { z: 2.3, y: -0.06, r: 0.33, sx: 0.95, sy: 1 }], 40, 22, 5, 1.2);
+  const B = loft([{ z: -1.5, y: 0.0, r: 0.3, sx: 1, sy: 1 }, { z: -1.2, y: 0.05, r: 0.62, sx: 1.02, sy: 1 }, { z: -0.6, y: 0.02, r: 0.74, sx: 1.04, sy: 1.02 }, { z: 0.1, y: -0.02, r: 0.74, sx: 1.0, sy: 1.02 }, { z: 0.7, y: 0.06, r: 0.72, sx: 0.98, sy: 1.08 }, { z: 1.15, y: 0.12, r: 0.64, sx: 0.96, sy: 1.05 }, { z: 1.5, y: 0.1, r: 0.55, sx: 0.96, sy: 1.02 }, { z: 1.8, y: 0.05, r: 0.44, sx: 0.94, sy: 1 }, { z: 2.0, y: 0.02, r: 0.36, sx: 0.92, sy: 0.98 }], 48, 34, 5, 1.2);
   const tail = ball(0.16, [1, 0.9, 1.2], V(0, 0.22, -1.52));
-  // head: broad skull narrowing to a long roman-nosed muzzle
-  const H = loft([{ z: -0.3, y: 0, r: 0.34, sx: 1, sy: 0.95 }, { z: -0.05, y: 0.02, r: 0.37, sx: 1.08, sy: 0.92 }, { z: 0.22, y: 0.0, r: 0.33, sx: 1.02, sy: 0.86 }, { z: 0.48, y: -0.04, r: 0.235, sx: 0.98, sy: 0.84 }, { z: 0.78, y: -0.07, r: 0.185, sx: 1, sy: 0.82 }, { z: 1.0, y: -0.09, r: 0.155, sx: 1, sy: 0.8 }, { z: 1.09, y: -0.1, r: 0.08, sx: 1, sy: 0.8 }], 24, 16, 3, 1.6);
+  // head: one smooth sculpted skin. A wide, heavy skull, small round ears set out to the sides, a short deep muzzle with a gentle
+  // roman nose (no step at the brow), cheeks, eye sockets and whisker pads worked into the surface rather than stuck on.
+  const H = loft([{ z: -0.36, y: 0, r: 0.41, sx: 1.05, sy: 0.96 }, { z: -0.12, y: 0.0, r: 0.44, sx: 1.18, sy: 0.9 }, { z: 0.1, y: -0.01, r: 0.42, sx: 1.15, sy: 0.86 }, { z: 0.28, y: -0.035, r: 0.365, sx: 1.06, sy: 0.85 },
+    { z: 0.447, y: -0.065, r: 0.31, sx: 1.02, sy: 0.86 }, { z: 0.589, y: -0.085, r: 0.28, sx: 1.04, sy: 0.86 }, { z: 0.708, y: -0.1, r: 0.255, sx: 1.05, sy: 0.85 }, { z: 0.78, y: -0.11, r: 0.205, sx: 1.05, sy: 0.84 }, { z: 0.821, y: -0.115, r: 0.1, sx: 1.05, sy: 0.84 }], 48, 32, 3, 1.6);
+  const bump = (x, y, z, cx, cy, cz, rad) => Math.exp(-((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz)) / (rad * rad));
+  const hdef = (x, y, z) => { const ax = Math.abs(x);
+    let d = 0;
+    d -= 0.06 * bump(ax, y, z, 0.185, 0.12, 0.36, 0.08);    // eye sockets
+    d += 0.092 * bump(ax, y, z, 0.2, 0.185, 0.31, 0.085);     // a heavy brow pulled low over each eye: he glares
+    d += 0.045 * bump(ax, y, z, 0.38, -0.1, 0.08, 0.17);    // cheeks
+    d += 0.03 * bump(ax, y, z, 0.16, -0.12, 0.661, 0.11);   // whisker pads
+    d += 0.025 * bump(ax, y, z, 0.0, 0.14, 0.566, 0.14);    // the bridge of the nose
+    d -= 0.03 * bump(ax, y, z, 0.0, 0.3, 0.22, 0.08);       // the furrow between the brows
+    d += 0.012 * Math.sin(z * 60) * bump(ax, y, z, 0.0, 0.1, 0.62, 0.1); // the snarl wrinkles the top of his muzzle
+    let dy = 0; if (y < -0.08 && z > 0.3) dy = -0.045 * Math.min(1, ax / 0.12) * Math.min(1, (z - 0.3) / 0.12) * Math.min(1, Math.max(0, (0.777 - z) / 0.06));
+    return [d, dy]; };
+  { const p = H.geo.attributes.position;
+    for (let k = 0; k < p.count; k++) { const x = p.getX(k), y = p.getY(k), z = p.getZ(k), l = Math.hypot(x, y) || 1, [d, dy] = hdef(x, y, z);
+      p.setXYZ(k, x + (x / l) * d, y + (y / l) * d + dy, z); }
+    H.geo.computeVertexNormals(); }
+  // a point on the finished face: length z, angle round it, lifted `lift` off the skin
+  const surf = (z, ang, lift = 0) => { const q = on(H, z, ang, 0), l = Math.hypot(q.p.x, q.p.y) || 1, [d, dy] = hdef(q.p.x, q.p.y, z); return V(q.p.x + (q.p.x / l) * d, q.p.y + (q.p.y / l) * d + dy, z).addScaledVector(q.n, lift); };
+  // the scar: four claw gashes raked across his face by another bear, from over his right eye, across the bridge of the nose, on to the other cheek.
+  // They are not a model: the fur shader paints them into the hide and parts the coat along them (SCAR).
+  const scarLine = [[0.0, 2.62], [0.12, 2.5], [0.24, 2.36], [0.34, 2.2], [0.44, 1.98], [0.54, 1.68], [0.63, 1.3], [0.7, 0.95], [0.75, 0.6]];
+  const scarAt = (t) => { const f = clamp(t, 0, 1) * (scarLine.length - 1), k = Math.min(scarLine.length - 2, Math.floor(f)), u = f - k; return [scarLine[k][0] + (scarLine[k + 1][0] - scarLine[k][0]) * u, scarLine[k][1] + (scarLine[k + 1][1] - scarLine[k][1]) * u]; };
+  const scarCurves = [[-0.115, 0.16, 0.74, 0.05], [-0.04, 0.03, 0.9, -0.03], [0.035, 0.08, 0.97, 0.04], [0.105, 0.24, 0.8, -0.05]].map(([dz, t0, t1, wob], g) => { const pts = [];
+    for (let k = 0; k < SCAR_P; k++) { const u = k / (SCAR_P - 1), [z, a] = scarAt(t0 + (t1 - t0) * u), p = surf(clamp(z + dz, -0.2, 0.74), a + dz * 1.5 + Math.sin(u * 5 + g * 2) * wob, 0); pts.push(p); SCAR.value[g * SCAR_P + k].copy(p); }
+    return pts; });
+  const segD = (x, y, z, a, b) => { const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z, h = clamp(((x - a.x) * abx + (y - a.y) * aby + (z - a.z) * abz) / (abx * abx + aby * aby + abz * abz), 0, 1); return Math.hypot(x - a.x - abx * h, y - a.y - aby * h, z - a.z - abz * h); };
+  const scarD = (x, y, z) => { let m = 9; for (const c of scarCurves) for (let k = 0; k < c.length - 1; k++) m = Math.min(m, segD(x, y, z, c[k], c[k + 1])); return m; };
   const headBits = [H.geo.toNonIndexed()];
+  const lipPts = [];
   for (const s of [-1, 1]) { const A = (a) => (s > 0 ? a : Math.PI - a);
-    headBits.push(ball(0.085, [0.9, 1, 0.5], on(H, -0.1, A(0.95), 0.015).p)); // ear, sunk into the skull
-    headBits.push(new THREE.SphereGeometry(0.085, 12, 9).scale(1.5, 0.42, 1.0).rotateZ(-s * 0.5).rotateY(s * 0.3).translate(...on(H, 0.3, A(0.95), 0.045).p.toArray()).toNonIndexed()); // a hard, slanted brow: he glares
-    headBits.push(ball(0.1, [1, 0.8, 1.7], on(H, 0.74, A(-0.35), 0.06).p)); } // lip
-  const J = loft([{ z: 0.0, y: 0, r: 0.16, sx: 1.2, sy: 0.6 }, { z: 0.35, y: -0.02, r: 0.14, sx: 1.1, sy: 0.55 }, { z: 0.68, y: -0.02, r: 0.11, sx: 1, sy: 0.55 }, { z: 0.8, y: -0.01, r: 0.05, sx: 1, sy: 0.6 }], 10, 12, 2, 1.6);
-  const teeth = [], jteeth = [];
-  for (const s of [-1, 1]) { const A = (a) => (s > 0 ? a : Math.PI - a);
-    for (const [z, h, r] of [[0.96, 0.14, 0.03], [0.84, 0.06, 0.02], [0.72, 0.06, 0.02], [0.6, 0.055, 0.02]]) { const q = on(H, z, A(-0.75), 0.03); teeth.push(new THREE.ConeGeometry(r, h + 0.04, 6).rotateX(Math.PI).translate(q.p.x * 0.8, q.p.y - h / 2 + 0.02, q.p.z).toNonIndexed()); }
-    for (const [z, h, r] of [[0.68, 0.12, 0.028], [0.56, 0.05, 0.02], [0.44, 0.05, 0.02]]) { const q = on(J, z, A(0.8), 0.025); jteeth.push(new THREE.ConeGeometry(r, h + 0.03, 6).translate(q.p.x * 0.85, q.p.y + h / 2 - 0.015, q.p.z).toNonIndexed()); } }
-  // legs: massive, pillar-like, with the huge flat paws of a polar bear
-  const leg = (rear) => ({
-    up: limb(rear ? [[-0.3, 0.3, 1, 1.3], [0.0, 0.42, 0.9, 1.45, 0.02], [0.3, 0.4, 0.88, 1.3, 0.05], [0.55, 0.31, 0.95, 1.1, 0.02], [0.74, 0.27, 1, 1]] : [[-0.3, 0.3, 1, 1.2], [0.0, 0.4, 0.9, 1.3], [0.3, 0.36, 0.92, 1.2, 0.02], [0.55, 0.29, 0.97, 1.05], [0.74, 0.26, 1, 1]], 14),
-    low: limb([[-0.16, 0.24, 1, 1], [0.12, 0.275, 0.97, 1.08, -0.02], [0.42, 0.24, 1, 1], [0.6, 0.23, 1.05, 1.05, 0.02], [0.68, 0.22, 1.1, 1.1, 0.03]], 10),
-    paw: mergeGeometries([ball(0.27, [1.05, 0.5, 1.3], V(0, -0.02, 0.12)), ...[-0.17, -0.06, 0.06, 0.17].map((x) => ball(0.085, [1, 0.8, 1.3], V(x, -0.06, 0.42)))]),
-  });
+    const e = on(H, -0.16, A(0.7), 0.03).p; // a small round ear, cupped, sunk into the skull
+    headBits.push(new THREE.SphereGeometry(0.1, 20, 14).scale(1, 1.05, 0.5).rotateY(s * 0.45).translate(e.x, e.y + 0.02, e.z).toNonIndexed()); }
+  // the black edge of the lips, round the whole mouth
+  const lipLine = (side) => [0.3, 0.42, 0.55, 0.68, 0.76].map((z) => { const q = on(H, z, side > 0 ? -0.72 : Math.PI + 0.72, 0.012).p; return V(q.x, q.y - (z > 0.34 ? 0.045 : 0.02), q.z); });
+  const lipCurve = new THREE.CatmullRomCurve3([...lipLine(1), V(0.1, -0.3, 0.8), V(0, -0.292, 0.812), V(-0.1, -0.3, 0.8), ...lipLine(-1).reverse()]);
+  const lips = new THREE.TubeGeometry(lipCurve, 40, 0.009, 6).toNonIndexed();
+  const J = loft([{ z: -0.02, y: 0, r: 0.2, sx: 1.3, sy: 0.62 }, { z: 0.23, y: -0.02, r: 0.2, sx: 1.2, sy: 0.6 }, { z: 0.46, y: -0.025, r: 0.185, sx: 1.1, sy: 0.6 }, { z: 0.62, y: -0.02, r: 0.16, sx: 1.05, sy: 0.6 }, { z: 0.69, y: -0.01, r: 0.075, sx: 1.05, sy: 0.62 }], 18, 22, 2, 1.6);
+  // a jaw full of teeth: long canines, six incisors across the front, and a row of cheek teeth down each side, top and bottom, set in gums
+  const tooth = (r, h, up) => { const g = new THREE.ConeGeometry(r, h, 8); g.scale(1, 1, 0.8); if (!up) g.rotateX(Math.PI); return g; };
+  const teeth = [], jteeth = [], gumU = [], gumL = [];
+  const UP = [[0.768, 0.07, 0.022, 0.03], [0.762, 0.075, 0.022, 0.075], [0.744, 0.085, 0.024, 0.118], [0.679, 0.27, 0.047, 0.165], [0.578, 0.075, 0.03, 0.178], [0.494, 0.085, 0.034, 0.19], [0.405, 0.09, 0.038, 0.205], [0.316, 0.075, 0.036, 0.22]]; // z, length, radius, x
+  for (const s of [-1, 1]) { const row = [];
+    for (const [z, h, r, x] of UP) { const base = on(H, z, -Math.PI / 2, 0).p.y + 0.035; teeth.push(tooth(r, h, false).translate(s * x * 0.9, base - h / 2 + 0.02, z).toNonIndexed()); row.push(V(s * x * 0.86, base + 0.012, z - 0.012)); }
+    gumU.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(row), 16, 0.024, 6).toNonIndexed()); }
+  const LO = [[0.65, 0.06, 0.02, 0.028], [0.644, 0.065, 0.02, 0.07], [0.627, 0.07, 0.022, 0.108], [0.564, 0.19, 0.04, 0.142], [0.46, 0.065, 0.028, 0.16], [0.38, 0.08, 0.032, 0.175], [0.293, 0.085, 0.036, 0.19], [0.207, 0.07, 0.034, 0.205]];
+  for (const s of [-1, 1]) { const row = [];
+    for (const [z, h, r, x] of LO) { const base = on(J, z, Math.PI / 2, 0).p.y - 0.03; jteeth.push(tooth(r, h, true).translate(s * x * 0.9, base + h / 2 - 0.015, z).toNonIndexed()); row.push(V(s * x * 0.86, base + 0.004, z - 0.012)); }
+    gumL.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(row), 16, 0.022, 6).toNonIndexed()); }
+  const tongue = new THREE.SphereGeometry(0.1, 16, 10).scale(1.05, 0.28, 2.7).translate(0, 0.118, 0.3).toNonIndexed();
+  const floor = new THREE.SphereGeometry(1, 16, 10).scale(0.15, 0.03, 0.3).translate(0, 0.092, 0.3).toNonIndexed(); // the wet floor of the mouth, inside the lower teeth
+  const palate = new THREE.SphereGeometry(1, 16, 10).scale(0.165, 0.032, 0.27).translate(0, -0.325, 0.5).toNonIndexed(); // the roof of the mouth, inside the upper teeth
+  // legs: a bear's. The front: a heavy shoulder that runs into the body, an elbow that stands out behind, a thick forearm down to a wide wrist.
+  // The hind: a huge round haunch, the knee forward, a short shank and the hock behind. Each ends in a broad flat paw: one pad-shaped
+  // foot with five toes grown into its front edge and a short, thick, curved claw out of the end of every toe.
+  const claw = (x, z, yaw) => { const g = new THREE.ConeGeometry(0.034, 0.19, 8, 6); g.rotateX(Math.PI / 2); g.translate(0, 0, 0.085); const p = g.attributes.position;
+    for (let k = 0; k < p.count; k++) { const zz = Math.max(0, p.getZ(k)); p.setY(k, p.getY(k) - 2.6 * zz * zz); }
+    g.rotateY(yaw); g.translate(x, -0.045, z); g.computeVertexNormals(); return g.toNonIndexed(); };
+  const pawOf = (rear) => { const k = rear ? 1.22 : 1, TX5 = [-0.25, -0.13, 0, 0.13, 0.25];
+    const L = loft([{ z: -0.26 * k, y: -0.02, r: 0.1, sx: 1.25, sy: 0.7 }, { z: -0.12 * k, y: -0.02, r: 0.2, sx: 1.3, sy: 0.66 }, { z: 0.1 * k, y: -0.025, r: 0.25, sx: 1.4, sy: 0.56 }, { z: 0.3 * k, y: -0.045, r: 0.245, sx: 1.48, sy: 0.46 }, { z: 0.42 * k, y: -0.06, r: 0.17, sx: 1.5, sy: 0.44 }, { z: 0.47 * k, y: -0.065, r: 0.06, sx: 1.5, sy: 0.44 }], 16, 22, 2, 1.4);
+    const tz = (x) => (0.44 - Math.abs(x) * 0.42) * k;
+    const fur = setFur(mergeGeometries([L.geo.toNonIndexed(), ...TX5.map((x) => ball(0.082, [1.0, 0.82, 1.45], V(x, -0.075, tz(x)))), ball(rear ? 0.215 : 0.25, [1.06, 1.1, 1.08], V(0, 0.02, 0))]), (x, y, z) => (Math.hypot(x, y, z) < 0.3 ? 0.62 : 0.55));
+    return { fur, claws: mergeGeometries(TX5.map((x) => claw(x, tz(x) + 0.075, x * 0.7))) }; };
+  const leg = (rear) => { const pw = pawOf(rear); return {
+    up: setFur(mergeGeometries([limb(rear ? [[-0.6, 0.18, 0.8, 1.5, -0.08], [-0.2, 0.44, 0.74, 1.62, -0.03], [0.2, 0.42, 0.78, 1.4, 0.06], [0.46, 0.33, 0.92, 1.14, 0.05], [0.62, 0.27, 1, 1.05, 0.0]] : [[-0.62, 0.16, 0.8, 1.3, 0.04], [-0.22, 0.4, 0.74, 1.42, 0.04], [0.2, 0.38, 0.8, 1.22, 0.0], [0.46, 0.32, 0.94, 1.1, -0.02], [0.62, 0.29, 1, 1.05, 0.0]], 18),
+      rear ? ball(0.17, [0.9, 1.15, 1], V(0, -0.54, 0.11)) : ball(0.16, [0.9, 1.2, 1], V(0, -0.56, -0.14))]), () => 1), // the knee (hind) or the elbow (front)
+    low: setFur(mergeGeometries([limb(rear ? [[0.0, 0.27, 1, 1.05, 0], [0.16, 0.275, 0.98, 1.14, -0.03], [0.38, 0.225, 1, 1.05, -0.03], [0.52, 0.2, 1.02, 1.05, -0.01], [0.62, 0.19, 1.04, 1.06, 0.0]] : [[0.0, 0.29, 1, 1.05, 0], [0.16, 0.295, 0.98, 1.08, 0.01], [0.38, 0.265, 1, 1.02, 0.01], [0.52, 0.24, 1.02, 1.03, 0.0], [0.62, 0.225, 1.04, 1.05, 0.0]], 14), ball(rear ? 0.295 : 0.315, [1, 1.05, 1.06], V(0, 0, 0)),
+      ...(rear ? [ball(0.12, [0.85, 1.1, 1.1], V(0, -0.5, -0.14))] : [])]), (x, y) => 1 - 0.38 * clamp((-y - 0.2) / 0.42, 0, 1)), // the hock; fur shortens toward the paw
+    paw: pw.fur, claws: pw.claws }; };
   // ice. The crest: long spikes fanning up and back from the neck, shoulders and spine; shorter shards down the flanks.
   const crest = [];
   let sd = 1;
-  for (let z = 1.75; z > -1.3; z -= 0.17) { const big = Math.exp(-Math.pow((z - 0.85) / 0.75, 2)), nAcross = z > 0 ? 7 : 5;
+  for (let z = 1.62; z > -1.3; z -= 0.17) { const big = Math.exp(-Math.pow((z - 0.85) / 0.75, 2)), nAcross = z > 0 ? 7 : 5;
     for (let j = 0; j < nAcross; j++) { const a = Math.PI / 2 + (j / (nAcross - 1) - 0.5) * (z > 0.2 ? 2.0 : 1.3) + Math.sin(sd * 3.1) * 0.08, q = on(B, z + Math.sin(sd * 1.3) * 0.05, a, 0.12), up = Math.sin(a);
       const len = (0.28 + big * 1.25 * (0.55 + 0.45 * up)) * (0.75 + (Math.sin(sd * 7.7) * 0.5 + 0.5) * 0.5);
       crest.push(shard(q.p, V(q.n.x * 0.9, q.n.y * 0.9 + 0.25, -0.55 - (1 - big) * 0.5), len, 0.05 + len * 0.075, sd)); sd++; } }
   for (const s of [-1, 1]) for (let z = 1.2; z > -1.2; z -= 0.3) { const q = on(B, z, s > 0 ? 0.15 : Math.PI - 0.15, 0.08); crest.push(shard(q.p, V(q.n.x, 0.25, -0.9), 0.3 + Math.abs(Math.sin(z * 5)) * 0.25, 0.06, sd++)); }
-  const headIce = []; for (const s of [-1, 1]) for (const [z, a, l] of [[-0.2, 1.25, 0.5], [-0.22, 0.75, 0.42], [0.0, 1.45, 0.3]]) { const q = on(H, z, s > 0 ? a : Math.PI - a, 0.06); headIce.push(shard(q.p, V(q.n.x, q.n.y + 0.2, -0.8), l, 0.045, sd++)); }
+  const headIce = []; for (const s of [-1, 1]) for (const [z, a, l] of [[-0.3, 1.3, 0.42], [-0.3, 0.6, 0.34]]) { const q = on(H, z, s > 0 ? a : Math.PI - a, 0.06); headIce.push(shard(q.p, V(q.n.x, q.n.y + 0.2, -0.8), l, 0.045, sd++)); }
   const legIce = (rear) => [shard(V(0, -0.1, -0.3), V(0, 0.35, -1), rear ? 0.45 : 0.4, 0.06, sd++), shard(V(0.12, -0.35, -0.26), V(0.3, 0.2, -1), 0.3, 0.05, sd++), shard(V(-0.12, -0.5, -0.24), V(-0.3, 0.15, -1), 0.24, 0.045, sd++)];
-  const claws = mergeGeometries([-0.17, -0.06, 0.06, 0.17].map((x, i) => shard(V(x, -0.07, 0.5), V(x * 0.4, -0.35, 1), 0.3, 0.035, 40 + i)));
-  GEO = { body: mergeGeometries([B.geo.toNonIndexed(), tail]), head: mergeGeometries(headBits), jaw: J.geo.toNonIndexed(), teeth: mergeGeometries(teeth), jteeth: mergeGeometries(jteeth), front: leg(false), rear: leg(true),
-    crest: mergeGeometries(crest), headIce: mergeGeometries(headIce), legIceF: mergeGeometries(legIce(false)), legIceR: mergeGeometries(legIce(true)), claws,
-    nose: new THREE.SphereGeometry(0.075, 10, 8).scale(1.2, 0.85, 1), eye: new THREE.SphereGeometry(0.048, 10, 8), mouth: new THREE.SphereGeometry(0.1, 8, 6).scale(1, 0.4, 2.2),
+  
+  const headGeo = setFur(mergeGeometries(headBits), (x, y, z) => { let f = z > 0.55 ? 0.1 : z > 0.2 ? 0.1 + (0.55 - z) / 0.35 * 0.45 : 0.55 + clamp((0.2 - z) / 0.45, 0, 1) * 0.45;
+    if (y < -0.2 && z > 0.25) f = Math.min(f, 0.06);                       // the lips and the underside of the muzzle: bare
+    f *= clamp((Math.hypot(Math.abs(x) - 0.19, y - 0.12, z - 0.38) - 0.035) / 0.09, 0.04, 1); // short round the eyes
+    f *= clamp((Math.hypot(x, y + 0.035, z - 0.795) - 0.07) / 0.08, 0.05, 1);              // and round the nose
+    return f * clamp(0.35 + (scarD(x, y, z) - 0.02) / 0.06, 0.35, 1); });                  // the coat lies short and flat beside the gashes
+  GEO = { body: mergeGeometries([B.geo.toNonIndexed(), tail]), head: headGeo, eyeP: [on(H, 0.375, 0.72, 0.052).p, on(H, 0.395, 0.72, 0.022).p, surf(0.37, 0.98, 0.012)], jaw: setFur(J.geo.toNonIndexed(), (x, y, z) => (y > 0.02 ? 0.04 : 0.14)), teeth: mergeGeometries(teeth), jteeth: mergeGeometries(jteeth), gumU: mergeGeometries(gumU), gumL: mergeGeometries(gumL), tongue, lips, front: leg(false), rear: leg(true),
+    crest: mergeGeometries(crest), headIce: mergeGeometries(headIce), legIceF: mergeGeometries(legIce(false)), legIceR: mergeGeometries(legIce(true)),
+    nose: new THREE.SphereGeometry(0.075, 20, 14).scale(1.5, 0.9, 0.75), socket: new THREE.SphereGeometry(0.058, 14, 10), palate, floor, eye: new THREE.SphereGeometry(0.03, 14, 10), mouth: new THREE.SphereGeometry(0.13, 12, 8).scale(1.1, 0.5, 1.7),
     spike: shard(V(0, 0, 0), V(0, 1, 0), 1, 0.22, 3) };
   return GEO;
 }
@@ -139,19 +222,19 @@ function geos() {
 export function buildPolaris() {
   const G = geos(), M = mats(), root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const all = [];
-  const furry = (parent, geo) => { for (const m of M.fur) { const q = new THREE.Mesh(geo, m); q.castShadow = m === M.fur[0]; q.receiveShadow = true; q.frustumCulled = false; parent.add(q); all.push(q); } };
+  const furry = (parent, geo, mats = M.fur) => { if (!geo.attributes.aFur) setFur(geo, () => 1); for (const m of mats) { const q = new THREE.Mesh(geo, m); q.castShadow = m === M.fur[0]; q.receiveShadow = true; q.frustumCulled = false; parent.add(q); all.push(q); } };
   const put = (parent, geo, mat, at) => { const q = new THREE.Mesh(geo, mat); if (at) q.position.copy(at); q.castShadow = true; q.frustumCulled = false; parent.add(q); all.push(q); return q; };
   furry(body, G.body); put(body, G.crest, M.ice);
-  const neck = new THREE.Group(); neck.position.set(0, -0.04, 2.15); body.add(neck);
-  const head = new THREE.Group(); head.position.set(0, 0.02, 0.2); neck.add(head);
-  furry(head, G.head); put(head, G.headIce, M.ice); put(head, G.teeth, M.tooth); put(head, G.nose, M.dark, V(0, -0.07, 1.08)); put(head, G.mouth, M.mouth, V(0, -0.2, 0.55));
-  for (const s of [-1, 1]) put(head, G.eye, M.eye, V(s * 0.2, 0.115, 0.335));
-  const jaw = new THREE.Group(); jaw.position.set(0, -0.2, 0.22); head.add(jaw); furry(jaw, G.jaw); put(jaw, G.jteeth, M.tooth);
+  const neck = new THREE.Group(); neck.position.set(0, 0.0, 1.88); body.add(neck);
+  const head = new THREE.Group(); head.position.set(0, 0.02, 0.2); head.scale.set(0.85, 0.86, 1.12); neck.add(head);
+  furry(head, G.head, M.furHead); put(head, G.headIce, M.ice); put(head, G.teeth, M.tooth); put(head, G.nose, M.dark, V(0, -0.035, 0.795)); put(head, G.mouth, M.mouth, V(0, -0.2, 0.3)); put(head, G.lips, M.dark); put(head, G.gumU, M.gum); put(head, G.palate, M.mouth);
+  for (const s of [-1, 1]) { put(head, G.socket, M.dark, V(s * G.eyeP[0].x, G.eyeP[0].y, G.eyeP[0].z)); const e = put(head, G.eye, M.eye, V(s * G.eyeP[1].x, G.eyeP[1].y, G.eyeP[1].z)); e.scale.set(1.35, 0.62, 1); e.rotation.z = s * 0.45; } // narrowed and slanted down toward the nose: a glare
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.215, 0.1); head.add(jaw); furry(jaw, G.jaw); put(jaw, G.jteeth, M.tooth); put(jaw, G.gumL, M.gum); put(jaw, G.floor, M.mouth); put(jaw, G.tongue, M.tongue);
   const legs = [];
   for (const [x, y, z, rear] of [[0.44, -0.22, 0.95, 0], [-0.44, -0.22, 0.95, 0], [0.46, -0.2, -0.95, 1], [-0.46, -0.2, -0.95, 1]]) {
     const L = rear ? G.rear : G.front, hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip); furry(hip, L.up); put(hip, rear ? G.legIceR : G.legIceF, M.ice);
     const knee = new THREE.Group(); knee.position.set(0, -0.62, 0); hip.add(knee); furry(knee, L.low);
-    const paw = new THREE.Group(); paw.position.set(0, -0.62, 0); knee.add(paw); furry(paw, L.paw); put(paw, G.claws, M.ice);
+    const paw = new THREE.Group(); paw.position.set(0, -0.62, 0); knee.add(paw); furry(paw, L.paw); put(paw, L.claws, M.ice);
     legs.push({ hip, knee, paw, rear: !!rear, s: Math.sign(x) });
   }
   return { root, body, neck, head, jaw, legs, all };
@@ -162,28 +245,43 @@ const LEG = 0.62, STANDY = 0.2 + LEG * 2 + 0.12; // body height when he stands s
 // lie 0..1 (lying dead), look yaw }
 export function posePolaris(D, P) {
   const run = P.run || 0, rear = P.rear || 0, lie = P.lie || 0, leap = P.leap || 0, ph = P.ph || 0;
-  const pitch = -rear * 1.05 + Math.sin(ph + 0.9) * 0.1 * run - leap * 0.22 + (P.land || 0) * 0.25;
-  D.body.rotation.set(pitch, 0, lie * 1.35, 'YXZ');
-  // he pivots about his hind hips when he rears, so his hind paws stay planted
-  const hipY = -0.2, hipZ = -0.95, cs = Math.cos(pitch), sn = Math.sin(pitch);
-  const squat = lie * 0.9 + (P.land || 0) * 0.35 + (P.crouch || 0) * 0.3;
-  D.body.position.set(lie * 0.35, (STANDY - hipY) + (hipY * cs - hipZ * sn) - hipY - squat * (STANDY - 0.62) + Math.abs(Math.sin(ph)) * 0.12 * run - lie * 0.1, hipZ - (hipY * sn + hipZ * cs));
+  const squat = clamp((P.land || 0) * 0.55 + (P.crouch || 0) * 0.5, 0, 1);
+  const pitch = -rear * 1.05 + Math.sin(ph + 0.9) * 0.09 * run - leap * 0.2 + (P.land || 0) * 0.22;
+  D.body.rotation.set(pitch, 0, lie * 1.4, 'YXZ');
+  // Legs. hip angle a: + swings the leg back, - forward. knee angle b: a bear's elbow bends back (b < 0), its hind knee forward (b > 0).
+  let hind = 0;
   for (const L of D.legs) {
-    const off = L.rear ? 0 : 2.3, side = L.s > 0 ? 0.3 : 0, sw = Math.sin(ph + off + side), lift = Math.max(0, Math.cos(ph + off + side));
-    let a = -sw * 0.75 * run, b = lift * 0.9 * run + (L.rear ? 0.12 : 0.05);
-    if (L.rear) { a += -pitch * 0.92 + rear * 0.1; b += rear * 0.25; a += leap * 0.95; b += leap * 0.2; } // hind legs: stay under him when he rears, trail behind in a leap
-    else { a += rear * (-0.55) - leap * 1.15; b += rear * 0.9 - leap * 0.5; const s = L.s > 0 ? (P.swR || 0) : (P.swL || 0); a += -s * 1.25 + rear * 0.0; b += -s * 0.75; }
-    a += squat * (L.rear ? 0.9 : -0.8); b += squat * (L.rear ? -1.9 : 1.7) * (L.rear ? 1 : 1);
-    if (L.rear && squat > 0) b = Math.abs(b) * -1 * 0 + (b);
-    L.hip.rotation.set(a, 0, L.s * (0.04 + lie * 0.25 + (L.rear ? 0 : rear * 0.18)));
-    L.knee.rotation.x = L.rear ? Math.abs(b) : -Math.abs(b) * (squat > 0.2 ? -1 : 1) * (L.rear ? 1 : -1);
-    L.paw.rotation.x = -(L.hip.rotation.x + L.knee.rotation.x) - pitch * (L.rear ? 1 : 0.3) + (L.rear ? 0 : (rear + leap) * 0.5);
+    const th = ph + (L.rear ? 0 : 2.3) + (L.s > 0 ? 0.35 : 0), sw = Math.sin(th), lift = Math.max(0, -Math.cos(th));
+    let a, b;
+    if (L.rear) {
+      a = -0.25 + sw * 0.7 * run; b = 0.5 + lift * 0.95 * run;
+      a -= squat * 0.6; b += squat * 1.25;          // folds under him
+      a += -pitch * rear;                            // rearing: hind legs stay straight down under the hips
+      a += leap * 1.0; b += -leap * 0.25;            // a leap: they trail out behind
+      a += lie * 0.5; b += lie * 0.5;
+    } else {
+      const s = L.s > 0 ? (P.swR || 0) : (P.swL || 0);
+      a = 0.15 + sw * 0.7 * run; b = -0.3 - lift * 0.95 * run;
+      a += squat * 0.6; b -= squat * 1.25;
+      a += -rear * 0.75 - s * 1.15; b += -rear * 0.45 + s * 0.55; // reared: paws up in front of the chest; a swipe lifts one high and rakes it down
+      a += -leap * 1.15; b += leap * 0.2;            // a leap: both reach out in front
+      a += -lie * 0.6; b += lie * 0.1;
+    }
+    L.hip.rotation.set(a, 0, L.s * (0.04 + lie * 0.3 + (L.rear ? 0 : rear * 0.2)));
+    L.knee.rotation.x = b;
+    const grounded = L.rear ? 1 - leap : (1 - rear) * (1 - leap);
+    L.paw.rotation.x = (-(a + b) - pitch) * grounded + (1 - grounded) * 0.5;
+    if (L.rear) hind += LEG * (Math.cos(a + pitch * rear) + Math.cos(a + pitch * rear + b)) / 2;
   }
+  // Body height comes from the hind legs, so squatting and crouching keep the paws on the ground. Rearing pivots him about the hind hips.
+  const hipY = -0.2, hipZ = -0.95, cs = Math.cos(pitch), sn = Math.sin(pitch);
+  const hipH = hind + 0.12, standY = hipH - (hipY * cs - hipZ * sn), bob = Math.abs(Math.sin(ph)) * 0.1 * run;
+  D.body.position.set(lie * 0.3, (standY + bob) * (1 - lie) + lie * 0.58, (hipZ - (hipY * sn + hipZ * cs)) * (1 - lie));
   const bite = P.bite || 0;
-  D.neck.rotation.set(rear * 0.75 - leap * 0.1 + lie * 0.3 + Math.sin(ph + 2) * 0.06 * run + bite * 0.12 - (P.sniff || 0) * 0.3, clamp(P.look || 0, -0.8, 0.8), -lie * 0.4, 'YXZ');
-  D.head.position.z = 0.2 + Math.sin(Math.min(1, bite * 1.4) * Math.PI) * 0.28;
-  D.head.rotation.x = 0.12 + rear * 0.25 - bite * 0.1;
-  D.jaw.rotation.x = (P.jaw || 0) * 0.75 + lie * 0.25;
+  D.neck.rotation.set(0.16 + rear * 0.8 - leap * 0.2 + lie * 0.25 + Math.sin(ph + 2) * 0.06 * run + bite * 0.12 + (P.sniff || 0) * 0.3, clamp(P.look || 0, -0.8, 0.8), -lie * 0.35, 'YXZ');
+  D.head.position.z = 0.2 + Math.sin(Math.min(1, bite * 1.4) * Math.PI) * 0.26;
+  D.head.rotation.x = 0.1 + rear * 0.2 - bite * 0.1;
+  D.jaw.rotation.x = Math.max(0.27, (P.jaw || 0)) * 0.72 + lie * 0.2; // never fully shut: the teeth always show
 }
 
 // ---------------------------------------------------------------- living
