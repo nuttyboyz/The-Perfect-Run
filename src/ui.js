@@ -89,6 +89,7 @@ export const AB_ICONS = {
   minisun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1l1.2 4h-2.4zM12 23l-1.2-4h2.4zM1 12l4-1.2v2.4zM23 12l-4 1.2v-2.4zM4.2 4.2l3.7 2-1.7 1.7zM19.8 19.8l-3.7-2 1.7-1.7zM19.8 4.2l-2 3.7-1.7-1.7zM4.2 19.8l2-3.7 1.7 1.7z"/></svg>',
   flameweap: '<svg viewBox="0 0 24 24"><path d="M5 21l2-2 8.5-8.5 2 2L9 21zM17 3c2.5 2.6 3.6 5 1.2 7.4a2.6 2.6 0 0 1-4-.4c-.9-1.4-.3-2.7.8-3.8C16 5.200 17 4.400 17 3zM9 4c1.500 1.600 2.200 3 .8 4.500A1.700 1.700 0 0 1 7 8c-.5-1.500 2-2.200 2-4z"/></svg>',
   sunlance: '<svg viewBox="0 0 24 24"><path d="M9 1h6l-1 15h-4zM4 19c2.500-2 5-3 8-3s5.500 1 8 3c-2.500 2-5 3-8 3s-5.500-1-8-3zM3 4l3 5H4zM21 4l-3 5h2z"/></svg>',
+  polaris: '<svg viewBox="0 0 24 24"><path d="M5 5a2 2 0 013 0 7 7 0 018 0 2 2 0 013 0c1 1 0 3-1 3 1 2 1 4 0 6-1 3-3 5-6 5s-5-2-6-5c-1-2-1-4 0-6-1 0-2-2-1-3zm5 6a1 1 0 100 2 1 1 0 000-2zm4 0a1 1 0 100 2 1 1 0 000-2zm-3 4l1 2 1-2z"/></svg>',
   golem: '<svg viewBox="0 0 24 24"><path d="M9 3h6l1 3h4l2 5-2 1v6l-3 1v3h-4v-5h-2v5H7v-3l-3-1v-6l-2-1 2-5h4z"/></svg>',
   dragon: '<svg viewBox="0 0 24 24"><path d="M2 9c3-4 7-5 10-2 3-3 7-2 10 2-3-1-5 0-6 2 2 1 3 3 2 6l-3-3-3 6-3-6-3 3c-1-3 0-5 2-6-1-2-3-3-6-2z"/></svg>',
   airshot: '<svg viewBox="0 0 24 24"><path d="M14 4a8 8 0 1 1-7.400 11h2.200A6 6 0 1 0 14 6a4 4 0 0 0-4 4h-2a6 6 0 0 1 6-6zM2 9h9v2H2zM4 13h8v2H4zM14 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>',
@@ -1657,24 +1658,27 @@ export class UI {
     el.classList.toggle('live', !!live);
     this.$('#elem .vote-kicker').textContent = duel ? 'Power-up round ' + (this.game.dp || 1) : 'Level up';
     this.$('#elem h2').textContent = duel ? 'Choose an Attack Power-Up' : 'Choose a Power-Up';
-    this.$('#elem-sub').textContent = duel
-      ? 'The match is frozen until you both choose. Click, press 1-5, or use ◀ ▶ and Space. Picks stack.'
-      : live ? 'Press 1-9 or 0, or ◀ ▶ then Space · D-pad ◀ ▶ then ' + 'X (A on Xbox)' + ' on a controller · the run keeps going' : 'The game is paused. Click, press 1-9 or 0, or use ◀ ▶ and Space. Everything stacks.';
+    this.$('#elem-sub').textContent = duel ? 'The match is frozen until you both choose.' : ''; // no how-to-move line (Nutty 2026-11-13)
     el.classList.toggle('ten', !duel && opts.length > 5);
     this.$('#elem-cards').innerHTML = opts.map((e, i) => {
       const info = puInfo(e, p.cls);
       const n = e.el ? p.stats.elem[e.el] : p.powerups.filter((q) => q.id === e.id).length;
       return `<button class="elem-card${i === 0 ? ' sel pad-first' : ''}" data-i="${i}" style="--ec:${e.color || '#ffb347'}"><div class="b-icon">${hasPuIcon(e) ? `<span class="pu-ic">${puIcon(e)}</span>` : e.icon || '•'}</div><div class="b-name">${esc(info.name)}${n ? ` <small>×${n}</small>` : ''}</div><div class="b-desc">${esc(info.desc)}</div><kbd>${i === 9 ? 0 : i + 1}</kbd></button>`;
     }).join('');
-    this.$$('.elem-card').forEach((b) => (b.onclick = () => this.game.pickElem(+b.dataset.i)));
+    this.$$('.elem-card').forEach((b) => { b.onclick = () => this.game.pickElem(+b.dataset.i);
+      const hov = () => { const g = this.game; if (g.elemSel !== +b.dataset.i) { g.elemSel = +b.dataset.i; this.elemSel(g.elemSel); } };
+      b.onmouseenter = hov; b.addEventListener('padfocus', hov); });
     // The tumbling die under the cards says a reroll is available; click it (or R) for a whole new set.
     const dc = this.$('#elem-dice'), rr = p.rerolls || 0;
     dc.classList.toggle('on', !duel); dc.classList.toggle('empty', !(rr > 0)); // always under the cards; dim when no reroll is banked
-    dc.querySelector('.die-text').textContent = 'REROLL (' + rr + ')';
+    const rb = dc.querySelector('.die-text');
+    rb.textContent = 'ROLL (' + rr + ')'; rb.classList.remove('sel');
     dc.onclick = () => this.game.rerollElem();
-    dc.querySelector('.die-text').onclick = (e) => { e.stopPropagation(); this.game.rerollElem(); };
+    rb.onclick = (e) => { e.stopPropagation(); this.game.rerollElem(); };
+    const onRoll = () => { const g = this.game, n = g.elemOpts ? g.elemOpts.length : 0; if (g.elemSel !== n) { g.elemSel = n; this.elemSel(n); } };
+    rb.onmouseenter = onRoll; if (!rb._pf) { rb._pf = true; rb.addEventListener('padfocus', () => rb.onmouseenter()); }
   }
-  elemSel(i) { this.$$('.elem-card').forEach((b, j) => b.classList.toggle('sel', i === j)); }
+  elemSel(i) { const cards = this.$$('.elem-card'); cards.forEach((b, j) => b.classList.toggle('sel', i === j)); const rb = this.$('#elem-dice .die-text'); if (rb) rb.classList.toggle('sel', i >= cards.length); }
 
   cpuFlag(on) { const f = this.$('#cpuflag'); if (f) f.classList.toggle('on', !!on); }
 

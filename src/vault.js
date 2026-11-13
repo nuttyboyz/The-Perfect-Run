@@ -89,6 +89,18 @@ export function seeker(g, o, d, live, to, onExplode, delay = 0) {
 export function orbit(g, follow, n) {
   const scene = g.scene, fx = g.fx, geos = rockGeos(), mat = rockMat();
   const rocks = [];
+  const chips = (p, k) => { for (let i = 0; i < fx.n(k); i++) fx.debris.emit({ p: [p[0] + rnd(-0.4, 0.4), p[1] + rnd(-0.4, 0.4), p[2] + rnd(-0.4, 0.4)], v: [rnd(-4, 4), rnd(1, 6), rnd(-4, 4)], life: rnd(0.6, 1.1), s0: rnd(0.12, 0.3), s1: 0.08, c0: [0.5, 0.4, 0.3, 1], c1: [0.4, 0.3, 0.2, 0], g: 22, drag: 0.3 }); };
+  // a rock breaking up: real chunks of the same scanned stone fly apart, fall and sink away
+  const crumble = (p) => { chips(p, 14); fx.dustBurst(p, 1.1, [0.58, 0.48, 0.36]);
+    const N = fx.n(9) | 0 || 4, im = new THREE.InstancedMesh(geos[0], mat, N), C = [], M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), P = new THREE.Vector3(), SC = new THREE.Vector3();
+    im.castShadow = true; im.frustumCulled = false; scene.add(im);
+    for (let i = 0; i < N; i++) C.push({ p: [p[0] + rnd(-0.3, 0.3), p[1] + rnd(-0.3, 0.3), p[2] + rnd(-0.3, 0.3)], v: [rnd(-5, 5), rnd(1, 7), rnd(-5, 5)], rot: [rnd(0, 6), rnd(0, 6), rnd(0, 6)], spin: [rnd(-8, 8), rnd(-8, 8), rnd(-8, 8)], s: rnd(0.14, 0.34), hit: 0 });
+    fx.add({ dur: 2.4, update: (dt, t) => { const out = Math.max(0, (t - 1.7) / 0.7);
+        C.forEach((q, i) => { if (q.hit < 2) { q.v[1] -= 27 * dt; for (let k = 0; k < 3; k++) { q.p[k] += q.v[k] * dt; q.rot[k] += q.spin[k] * dt; }
+            const gy = g.world.heightAt(q.p[0], q.p[2]) + q.s * 0.4; if (q.p[1] < gy && q.v[1] < 0) { q.p[1] = gy; q.hit++; q.v[1] *= -0.3; q.v[0] *= 0.45; q.v[2] *= 0.45; for (let k = 0; k < 3; k++) q.spin[k] *= 0.4; } }
+          E.set(q.rot[0], q.rot[1], q.rot[2]); Q.setFromEuler(E); P.set(q.p[0], q.p[1] - out * q.s, q.p[2]); SC.setScalar(q.s * (1 - out * 0.5)); im.setMatrixAt(i, M.compose(P, Q, SC)); });
+        im.instanceMatrix.needsUpdate = true; },
+      dispose: () => { scene.remove(im); im.dispose(); } }); };
   const add = (i) => { const m = new THREE.Mesh(geos[i % geos.length], mat); m.castShadow = true; m.scale.setScalar(0.01); m.userData = { s: 0.85 + (i % 3) * 0.06, sp: [rnd(-2, 2), rnd(-2, 2), rnd(-2, 2)] }; scene.add(m); rocks.push(m); };
   for (let i = 0; i < n; i++) add(i);
   const first = follow();
@@ -98,6 +110,14 @@ export function orbit(g, follow, n) {
     take() { const m = rocks.pop(); if (!m) return null; const p = [m.position.x, m.position.y, m.position.z]; scene.remove(m); if (!rocks.length) h.alive = false; return p; },
     set(k) { while (rocks.length > k) scene.remove(rocks.pop()); while (rocks.length < k) add(rocks.length); if (!k) h.alive = false; },
     end() { h.set(0); },
+    // the rock closest to where a blow comes from (or any rock): it flinches and that is where the dust flies
+    // the rock closest to where a blow comes from takes it: it flinches, cracks, and after `max` blows it breaks apart
+    block(from, max) { let best = null, bd = 1e9; for (const m of rocks) { const d = from ? Math.hypot(m.position.x - from[0], m.position.z - from[2]) : Math.random(); if (d < bd) { bd = d; best = m; } } if (!best) return null;
+      const u = best.userData, p = [best.position.x, best.position.y, best.position.z]; u.hit = 1; u.dmg = (u.dmg || 0) + 1; u.s *= 0.9;
+      if (u.dmg < max) { chips(p, 5); return { p, broke: false }; }
+      rocks.splice(rocks.indexOf(best), 1); scene.remove(best); crumble(p); if (!rocks.length) h.alive = false; return { p, broke: true }; },
+    crumbleAt(p) { let best = null, bd = 1e9; for (const m of rocks) { const d = Math.hypot(m.position.x - p[0], m.position.y - p[1], m.position.z - p[2]); if (d < bd) { bd = d; best = m; } } if (!best) return;
+      rocks.splice(rocks.indexOf(best), 1); scene.remove(best); crumble([best.position.x, best.position.y, best.position.z]); if (!rocks.length) h.alive = false; },
   };
   fx.add({
     dur: 1e9,
@@ -108,7 +128,7 @@ export function orbit(g, follow, n) {
       rocks.forEach((m, i) => {
         const a = h.ang + (i / rocks.length) * Math.PI * 2, u = m.userData, rise = Math.min(1, t / 0.45);
         m.position.set(c[0] + Math.cos(a) * 3, c[1] - 1.4 * (1 - rise) + Math.sin(t * 2 + i * 2) * 0.18, c[2] + Math.sin(a) * 3);
-        m.scale.setScalar(u.s * rise);
+        u.hit = Math.max(0, (u.hit || 0) - dt * 5); m.scale.setScalar(u.s * rise * (1 + 0.22 * u.hit));
         m.rotation.x += u.sp[0] * dt; m.rotation.y += u.sp[1] * dt; m.rotation.z += u.sp[2] * dt;
         if (Math.random() < 0.12) fx.debris.emit({ p: [m.position.x, m.position.y - 0.3, m.position.z], v: [rnd(-0.5, 0.5), -1, rnd(-0.5, 0.5)], life: 0.5, s0: 0.12, s1: 0.05, c0: [0.5, 0.4, 0.3, 1], c1: [0.4, 0.3, 0.2, 0], g: 10 });
       });
@@ -156,18 +176,49 @@ export function meteor(g, p, onImpact, delay = 2, r = 9) {
 }
 
 // ---- Bastion: Seismic Stomp. The ground breaks open in rings round `c`.
-export function stomp(g, c, r = 11) {
-  const fx = g.fx;
-  fx.shockwave(c, r, 0xc8955a, 0.45);
-  fx.shockwave(c, r * 0.6, 0xffd9a0, 0.3);
-  fx.decal([c[0], 0, c[2]], TX.crackDecal(), r * 1.6, 12);
-  fx.flash([c[0], c[1] + 1, c[2]], 0xffb070, 22, 0.25, 16);
-  fx.dustBurst(c, 3, [0.58, 0.48, 0.36]);
+export function stomp(g, c, r = 15) {
+  const fx = g.fx, scene = g.scene, gy0 = g.world.heightAt(c[0], c[2]);
+  fx.shockwave(c, r, 0xc8955a, 0.5);
+  fx.shockwave(c, r * 0.6, 0xffd9a0, 0.32);
+  fx.decal([c[0], 0, c[2]], TX.crackDecal(), r * 1.7, 12);
+  fx.decal([c[0], 0, c[2]], TX.crackDecal(), r * 0.8, 12);
+  fx.flash([c[0], c[1] + 1, c[2]], 0xffb070, 22, 0.25, 18);
+  fx.dustBurst(c, 3.6, [0.58, 0.48, 0.36]);
   for (let k = 0; k < 3; k++) for (let i = 0; i < fx.n(14); i++) {
     const a = (i / 14) * 6.28 + k, rr = r * (0.3 + k * 0.3), x = c[0] + Math.cos(a) * rr, z = c[2] + Math.sin(a) * rr, y = g.world.heightAt(x, z);
-    fx.debris.emit({ p: [x, y + 0.2, z], v: [Math.cos(a) * rnd(2, 6), rnd(6, 13), Math.sin(a) * rnd(2, 6)], life: rnd(0.7, 1.3), s0: rnd(0.35, 0.9), s1: 0.25, c0: [0.5, 0.38, 0.26, 1], c1: [0.4, 0.3, 0.2, 0], g: 20, drag: 0.3 });
+    fx.debris.emit({ p: [x, y + 0.2, z], v: [Math.cos(a) * rnd(2, 6), rnd(6, 13), Math.sin(a) * rnd(2, 6)], life: rnd(0.7, 1.3), s0: rnd(0.2, 0.5), s1: 0.15, c0: [0.5, 0.38, 0.26, 1], c1: [0.4, 0.3, 0.2, 0], g: 20, drag: 0.3 });
     fx.smoke.emit({ p: [x, y + 0.3, z], v: [Math.cos(a) * 3, rnd(1, 3), Math.sin(a) * 3], life: rnd(0.9, 1.6), s0: 1.5, s1: 4.5, c0: [0.6, 0.5, 0.38, 0.5], c1: [0.6, 0.5, 0.4, 0], drag: 1 });
   }
+  // Real rock (the scanned boulder surface): slabs of ground heave up and tilt outward in broken rings, and chunks are thrown
+  // in every direction, tumble, bounce once and come to rest before the lot sinks back (Nutty 2026-11-13).
+  const geos = rockGeos(), mat = rockMat(), NS = fx.n(22) | 0 || 8, NC = fx.n(30) | 0 || 10;
+  const slabs = new THREE.InstancedMesh(geos[1 % geos.length], mat, NS), chunks = new THREE.InstancedMesh(geos[0], mat, NC);
+  for (const m of [slabs, chunks]) { m.castShadow = true; m.frustumCulled = false; scene.add(m); }
+  const S = [], C = [], M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Q2 = new THREE.Quaternion(), E = new THREE.Euler(), P = new THREE.Vector3(), SC = new THREE.Vector3();
+  for (let i = 0; i < NS; i++) { const ring = i % 3, a = (i / NS) * 6.28 * 3 + ring * 0.7 + rnd(-0.2, 0.2), d = r * (0.4 + ring * 0.22 + rnd(-0.04, 0.04)), x = c[0] + Math.cos(a) * d, z = c[2] + Math.sin(a) * d;
+    S.push({ x, z, gy: g.world.heightAt(x, z), a, s: rnd(0.42, 0.8) * (1.25 - ring * 0.18), tilt: rnd(0.45, 0.95), roll: rnd(-0.35, 0.35), tw: rnd(0, 6.28), delay: d / r * 0.16 }); }
+  for (let i = 0; i < NC; i++) { const a = Math.random() * 6.28, d = r * rnd(0.3, 0.7), sp = rnd(4, 15), x = c[0] + Math.cos(a) * d, z = c[2] + Math.sin(a) * d, da = a + rnd(-0.5, 0.5);
+    C.push({ p: [x, g.world.heightAt(x, z) + 0.2, z], v: [Math.cos(da) * sp, rnd(9, 21), Math.sin(da) * sp], rot: [rnd(0, 6), rnd(0, 6), rnd(0, 6)], spin: [rnd(-7, 7), rnd(-7, 7), rnd(-7, 7)], s: rnd(0.1, 0.34), hit: 0 }); }
+  const DUR = 3.4, ez = (k) => { k = Math.max(0, Math.min(1, k)); return 1 - (1 - k) * (1 - k); };
+  fx.add({
+    dur: DUR,
+    update: (dt, t) => {
+      const out = Math.max(0, (t - (DUR - 1)) / 1);
+      S.forEach((q, i) => { const k = ez((t - q.delay) / 0.16), up = k - out;
+        E.set(q.roll, -q.a + Math.PI / 2 + q.tw * 0.0, 0, 'YXZ'); Q.setFromEuler(E);
+        E.set(q.tilt * k, 0, 0); Q.multiply(Q2.setFromEuler(E)); // leans away from the middle
+        P.set(q.x, q.gy - q.s * 1.5 * (1 - up) + q.s * 0.35, q.z); SC.set(q.s * 1.15, q.s * 1.7, q.s * 0.75);
+        slabs.setMatrixAt(i, M.compose(P, Q, SC)); });
+      C.forEach((q, i) => {
+        if (q.hit < 2) { q.v[1] -= 27 * dt; q.p[0] += q.v[0] * dt; q.p[1] += q.v[1] * dt; q.p[2] += q.v[2] * dt; for (let k = 0; k < 3; k++) q.rot[k] += q.spin[k] * dt;
+          const gy = g.world.heightAt(q.p[0], q.p[2]) + q.s * 0.4;
+          if (q.p[1] < gy && q.v[1] < 0) { q.p[1] = gy; q.hit++; if (q.hit === 1) { q.v[1] *= -0.32; q.v[0] *= 0.5; q.v[2] *= 0.5; for (let k = 0; k < 3; k++) q.spin[k] *= 0.5; if (Math.random() < 0.6) fx.dustBurst([q.p[0], gy, q.p[2]], 0.35, [0.58, 0.48, 0.36]); } } }
+        E.set(q.rot[0], q.rot[1], q.rot[2]); Q.setFromEuler(E); P.set(q.p[0], q.p[1] - out * q.s * 1.2, q.p[2]); SC.setScalar(q.s);
+        chunks.setMatrixAt(i, M.compose(P, Q, SC)); });
+      slabs.instanceMatrix.needsUpdate = true; chunks.instanceMatrix.needsUpdate = true;
+    },
+    dispose: () => { scene.remove(slabs); scene.remove(chunks); slabs.dispose(); chunks.dispose(); },
+  });
 }
 
 // ---- Rime: Healing Rain. A small, heavy rain storm: a low, dark-bellied storm cloud lit blue from inside, sheets of rain,
@@ -1037,7 +1088,7 @@ const SUN_NOISE = `
     return mix(mix(mix(dot(h3(i), f), dot(h3(i + vec3(1,0,0)), f - vec3(1,0,0)), u.x), mix(dot(h3(i + vec3(0,1,0)), f - vec3(0,1,0)), dot(h3(i + vec3(1,1,0)), f - vec3(1,1,0)), u.x), u.y),
                mix(mix(dot(h3(i + vec3(0,0,1)), f - vec3(0,0,1)), dot(h3(i + vec3(1,0,1)), f - vec3(1,0,1)), u.x), mix(dot(h3(i + vec3(0,1,1)), f - vec3(0,1,1)), dot(h3(i + vec3(1,1,1)), f - vec3(1,1,1)), u.x), u.y), u.z); }
   float fbm(vec3 p){ float a = 0.5, s = 0.; for (int i = 0; i < 5; i++){ s += a * n3(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }`;
-export function miniSun(g, c, dur = 8, r = 1.3, R = 8, onTick) {
+export function miniSun(g, c, dur = 8, r = 1.3, R = 8, onTick, onBang) {
   const fx = g.fx, scene = g.scene, gy = g.world.heightAt(c[0], c[2]);
   const S = { r: 0.01, tr: r, R, tR: R };
   // the boiling surface: bright cells with darker lanes between them, hotter toward the rim (seen edge-on the fire is deeper)
@@ -1094,10 +1145,75 @@ export function miniSun(g, c, dur = 8, r = 1.3, R = 8, onTick) {
   const light = { intensity: 0, distance: 30 }; let lightT = 0; // lit through the pooled effect lights
   fx.flash([c[0], c[1], c[2]], 0xffb060, 30, 0.4, 26);
   fx.shockwave([c[0], gy, c[2]], R, 0xff7a20, 0.5);
-  let tick = 0, ended = false;
+  let tick = 0, ended = false, gal = null;
+  const BANG = 2.8; // after the sun has shrunk away it goes off like a small big bang and leaves a spinning galaxy that fades (Nutty 2026-11-13)
+  const bang = () => {
+    const BR = S.R * 1.5;
+    ball.visible = false; disc.visible = false;
+    const gm = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { uT: { value: 0 }, uA: { value: 1 }, uSeed: { value: Math.random() * 40 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+      fragmentShader: `uniform float uT; uniform float uA; uniform float uSeed; varying vec2 vUv;` + SUN_NOISE + `
+        float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        void main(){
+          vec2 p = (vUv - 0.5) * 2.; float r = length(p); if (r > 1.) discard;
+          float a = atan(p.y, p.x);
+          float wind = 5.2 * log(r + 0.04) - uT * 1.5;                 // the arms wind tighter toward the core and the whole disc turns
+          float arm = pow(0.5 + 0.5 * cos(2. * a - wind * 2.), 2.2);
+          vec2 sw = vec2(cos(a - wind * 0.5), sin(a - wind * 0.5)) * r;   // dust lanes dragged round with the spin
+          float dust = fbm(vec3(sw * 4.5, uSeed)) * 0.5 + 0.5;
+          float knots = smoothstep(0.55, 0.9, fbm(vec3(sw * 11., uSeed + 7.)) * 0.5 + 0.5);
+          float fall = exp(-r * 2.9) * smoothstep(1., 0.72, r);
+          float core = exp(-r * 13.) * 2.6 + exp(-r * 5.) * 0.55;
+          // stars: sharp points scattered through the disc, denser along the arms, twinkling
+          vec2 sp = sw * 46.; vec2 cell = floor(sp); vec2 f = fract(sp) - 0.5;
+          float hs = h21(cell + uSeed);
+          float star = step(0.9 - arm * 0.16, hs) * smoothstep(0.26, 0.0, length(f + (vec2(h21(cell + 3.1), h21(cell + 9.7)) - 0.5) * 0.5)) * (0.55 + 0.45 * sin(uT * 9. + hs * 60.));
+          vec3 blue = vec3(0.12, 0.3, 1.0), violet = vec3(0.55, 0.12, 0.95), pink = vec3(1.0, 0.22, 0.5), gold = vec3(1.0, 0.74, 0.38);
+          vec3 col = mix(violet, blue, smoothstep(0.15, 0.8, r)) * arm * (0.35 + 0.9 * dust) * fall * 2.3;
+          col += pink * knots * arm * fall * 1.9;
+          col += gold * core;
+          col += vec3(0.95, 0.96, 1.0) * star * (0.5 + arm) * smoothstep(1., 0.6, r) * 1.6;
+          col *= 1. - 0.55 * smoothstep(0.35, 0.7, dust) * (1. - arm) * step(0.12, r); // dark dust between the arms
+          gl_FragColor = vec4(col * uA, 1.);
+        }`,
+    });
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(1, 64), gm);
+    mesh.position.set(c[0], c[1], c[2]); mesh.lookAt(g.camera.position.x, c[1], g.camera.position.z); mesh.rotateX(-0.95); // a tilted disc turned toward whoever is watching, so the spiral reads
+    mesh.frustumCulled = false; mesh.renderOrder = 7; scene.add(mesh);
+    gal = { mesh, gm, BR, t0: -1 };
+    // the bang itself: a white-hot flash, a blast ring on the ground, and matter thrown out in every direction
+    fx.flash([c[0], c[1], c[2]], 0xfff2d8, 90, 0.5, 30 + BR * 2);
+    fx.shockwave([c[0], gy, c[2]], BR, 0xcfa8ff, 0.7);
+    fx.shockwave([c[0], gy, c[2]], BR * 0.6, 0xffe2a0, 0.45);
+    g.shake && g.shake(0.5);
+    for (let i = 0; i < fx.n(70); i++) {
+      const a = Math.random() * 6.28, y = rnd(-0.55, 0.55), q = Math.sqrt(1 - y * y), sp = rnd(0.35, 1) * BR * 1.1, d = [Math.cos(a) * q, y, Math.sin(a) * q];
+      const hot = Math.random() < 0.5;
+      fx.spark.emit({ p: [c[0], c[1], c[2]], v: [d[0] * sp - d[2] * sp * 0.5, d[1] * sp, d[2] * sp + d[0] * sp * 0.5], life: rnd(0.8, 1.9), s0: rnd(0.14, 0.34), s1: 0.02, c0: hot ? [1, 0.9, 0.7, 1] : [0.6, 0.7, 1, 1], c1: hot ? [1, 0.4, 0.5, 0] : [0.5, 0.2, 1, 0], drag: 1.4, g: 0 });
+    }
+    for (let i = 0; i < fx.n(16); i++) {
+      const a = Math.random() * 6.28, y = rnd(-0.4, 0.6), q = Math.sqrt(1 - y * y);
+      fx.fire.emit({ p: [c[0], c[1], c[2]], v: [Math.cos(a) * q * BR * 0.8, y * BR * 0.8, Math.sin(a) * q * BR * 0.8], life: rnd(0.35, 0.7), s0: S.r * 1.4, s1: 0.2, c0: [1, 0.8, 0.5, 0.8], c1: [0.6, 0.2, 0.9, 0], drag: 2.2 });
+    }
+    onBang && onBang(BR);
+  };
   fx.add({
-    dur: dur + 0.7,
+    dur: dur + 0.7 + BANG,
     update: (dt, t) => {
+      if (t >= dur + 0.7) {
+        if (!gal) bang();
+        const u = Math.min(1, (t - dur - 0.7) / BANG), grow = 1 - Math.pow(1 - Math.min(1, u * 2.2), 3);
+        gal.mesh.scale.setScalar(Math.max(0.01, gal.BR * 0.8 * (0.12 + 0.88 * grow)));
+        gal.gm.uniforms.uT.value = t; gal.gm.uniforms.uA.value = Math.min(1, u * 14) * Math.pow(1 - Math.max(0, (u - 0.45) / 0.55), 1.6) * 0.62;
+        glow.scale.setScalar(S.r * (3 + 14 * grow)); glow.material.opacity = 0.9 * Math.pow(1 - Math.min(1, u * 2.6), 2);
+        for (let i = 0; i < fx.n(u < 0.6 ? 3 : 1); i++) { // stars drifting round the arms
+          const a = Math.random() * 6.28, q = rnd(0.15, 0.95) * gal.BR * 0.8 * (0.12 + 0.88 * grow), tv = 3.2;
+          fx.spark.emit({ p: [c[0] + Math.cos(a) * q, c[1] + rnd(-0.5, 0.5) - Math.sin(a) * q * 0.4, c[2] + Math.sin(a) * q], v: [-Math.sin(a) * tv, rnd(-0.3, 0.3), Math.cos(a) * tv], life: rnd(0.4, 0.9), s0: rnd(0.07, 0.16), s1: 0.01, c0: [0.85, 0.88, 1, 0.9 * (1 - u)], c1: [0.6, 0.4, 1, 0], g: 0 });
+        }
+        return;
+      }
       const out = Math.min(1, Math.max(0, (dur + 0.7 - t) / 0.7)), inn = Math.min(1, t * 2.2), k = inn * out;
       S.r += (S.tr - S.r) * Math.min(1, dt * 5); S.R += (S.tR - S.R) * Math.min(1, dt * 5);
       const rr = S.r * (0.25 + 0.75 * k) * (1 + 0.025 * Math.sin(t * 6));
@@ -1119,7 +1235,7 @@ export function miniSun(g, c, dur = 8, r = 1.3, R = 8, onTick) {
         if (tick >= 0.25) { tick -= 0.25; onTick && onTick(); }
       } else if (!ended) { ended = true; fx.shockwave([c[0], gy, c[2]], S.R * 0.6, 0xff7a20, 0.35); }
     },
-    dispose: () => { scene.remove(ball); scene.remove(glow); scene.remove(disc); geo.dispose(); mat.dispose(); fmat.dispose(); dmat.dispose(); disc.geometry.dispose(); glow.material.dispose(); },
+    dispose: () => { if (gal) { scene.remove(gal.mesh); gal.mesh.geometry.dispose(); gal.gm.dispose(); } scene.remove(ball); scene.remove(glow); scene.remove(disc); geo.dispose(); mat.dispose(); fmat.dispose(); dmat.dispose(); disc.geometry.dispose(); glow.material.dispose(); },
   });
   return {
     c, grow(r2, R2) { S.tr = r2; S.tR = R2; fx.flash([c[0], c[1], c[2]], 0xffc070, 34, 0.3, 28); fx.shockwave([c[0], gy, c[2]], R2, 0xffa040, 0.4);

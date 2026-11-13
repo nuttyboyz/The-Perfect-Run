@@ -28,7 +28,7 @@ export const CLASSES = [
     more: [
       { id: 'breath', name: 'Dragon Breath', cd: 10, desc: 'Breathe a stream of fire that is at full length the moment you cast it, no holding needed. For 4s it sweeps wherever you face, burning everything in it.' },
       { id: 'flameweap', name: 'Flaming Weapons', cd: 10, desc: 'Set whatever you are holding on fire until this is ready again. Blades and fists hit harder, reach farther and trail fire; bullets, arrows and blasts hit harder too. Every hit sets the enemy alight, and they keep burning until they die or the fire goes out.' },
-      { id: 'minisun', name: 'Mini Sun', cd: 12, desc: 'Hang a small blazing sun in the air at your crosshair for 8s. It scorches and sets alight every enemy near it, and each kill it gets makes it bigger, hotter and wider.' },
+      { id: 'minisun', name: 'Mini Sun', cd: 12, desc: 'Hang a small blazing sun in the air at your crosshair for 8s. It scorches and sets alight every enemy near it, and each kill it gets makes it bigger, hotter and wider. When it burns out it shrinks, then goes off in a big bang that blasts everything nearby and leaves a spinning galaxy.' },
       { id: 'sunlance', name: 'Sunlance', cd: 12, desc: 'Call a wide beam of sunlight down from the sky onto your crosshair. For 3s it lights the whole area like daylight and burns everything inside it, on the ground or in the air, for huge damage.' },
       { id: 'dragon', name: 'Dragon', cd: 20, desc: 'Summon a giant red dragon in a ring of fire. For 18s it flies with you, circling overhead, and dives on your enemies breathing a river of fire that leaves the ground burning. It climbs to reach bosses and anything that flies.' },
       { id: 'seekers', name: 'Homing Fireballs', cd: 5, desc: 'Loose 3 flaming skulls that hunt down the nearest enemies by themselves and explode on impact.' },
@@ -41,10 +41,10 @@ export const CLASSES = [
     r: { id: 'rockarmor', name: 'Rock Armor', cd: 10, desc: 'Stone slabs clamp on to your body and you take no damage at all until Rock Armor is ready again. Every hit the armor takes shocks the ground, knocking back and stunning enemies around you.' },
     e: { id: 'pillars', name: 'Pillar Burst', cd: 10, desc: 'Stamp the ground: tall, jagged spikes of rock erupt under every enemy within 12 m, launching, stunning and crushing them. No shot gets through the rocks while they stand.' },
     more: [
-      { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
+      { id: 'orbit', name: 'Boulder Orbit', cd: 10, desc: 'Three rocks rise and circle you. While they circle they block incoming attacks, and each crumbles after blocking three. Each press hurls one at your crosshair. The cooldown only starts once all three are thrown.' },
       { id: 'meteor', name: 'Meteor Call', cd: 10, desc: 'Mark a spot with your crosshair. Two seconds later a giant flaming rock falls from the sky and crushes everything there.' },
-      { id: 'golem', name: 'Golem', cd: 30, desc: 'A towering rock golem breaks out of the ground in front of you and rises to his full height. For 25s he walks with you and hurls huge boulders at every enemy within 40 m. He crumbles to rubble when his time or his health runs out.' },
-      { id: 'stomp', name: 'Seismic Stomp', cd: 10, desc: 'Leap up and slam the ground. Everything nearby is staggered and takes heavy damage.' },
+      { id: 'golem', name: 'Golem', cd: 30, desc: 'A towering rock golem breaks out of the ground in front of you and rises to his full height. For 25s he walks with you and hurls huge boulders at every enemy within 40 m. Press the button again to let him roam free, and again to call him back. He crumbles to rubble when his time or his health runs out.' },
+      { id: 'stomp', name: 'Seismic Stomp', cd: 10, desc: 'Leap up and slam the ground. Slabs of rock burst up, chunks fly in every direction, and everything within 15 m is staggered and takes heavy damage.' },
     ],
   },
   {
@@ -719,7 +719,7 @@ const AB_PERKS = {
   fence: ['Live Wire', { nova: 2, ward: 3 }], blink: ['Flicker', { echo: 0.4, heal: 0.05 }],
   shards: ['Glacier Lance', { dmg: 1.4 }], barrier: ['Permafrost', { heal: 0.12, nova: 1 }], tsunami: ['Riptide', { cd: 0.75, haste: 4 }],
   rain: ['Monsoon', { heal: 0.1, ward: 3 }], whirl: ['Maelstrom', { dmg: 1.4 }], jet: ['Fire Hose', { echo: 0.3 }],
-  snowball: ['Snow Day', { ward: 5, nova: 1 }], zero: ['Deep Freeze', { cd: 0.75, nova: 1 }],
+  snowball: ['Snow Day', { ward: 5, nova: 1 }], polaris: ['North Star', { dmg: 1.3, heal: 0.08 }], zero: ['Deep Freeze', { cd: 0.75, nova: 1 }],
   veil: ['Tailwind', { haste: 6, heal: 0.06 }], cyclone: ['Twin Twisters', { echo: 0.3 }], eye: ['Calm Centre', { heal: 0.15, cd: 0.85 }],
   cloud: ['Silver Lining', { heal: 0.2, nova: 1 }], airshot: ['Sonic Boom', { dmg: 1.4, nova: 1 }], tornado: ['Hurricane', { dmg: 1.3, haste: 4 }],
   lifedrain: ['Blood Feast', { dmg: 1.3, heal: 0.05 }], acid: ['Corrosion', { dmg: 1.4 }], raise: ['Legion', { echo: 0.3 }],
@@ -760,18 +760,21 @@ const UTILITY = ['hp', 'cd', 'armor', 'learn'];
 const MASTERY = POWERUPS.filter((p) => p.kind === 'ability').map((p) => p.id);
 // Nutty 2026-11-12 14:42: the cards are random every level (ten of them again, Nutty 2026-11-12 21:59; no repeats), and one or two are always elemental
 // power-ups for the cooldowns of your own element that you carry (AB_PUS).
+// The "one more" cards belong to each element's first cooldown. They are only offered while that cooldown is one of the three equipped.
+const SIGNATURE = { pyre: 'fireball', bastion: 'boulder', gale: 'cyclone', tempest: 'shockwave', necro: 'lifedrain', rime: 'shards' };
+export function hasSignature(cls) { return !!cls && ['q', 'r', 'e'].some((k) => cls[k] && cls[k].id === SIGNATURE[cls.id]); }
 export function levelOffer(cls) {
   const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const mine = cls ? shuffle(['q', 'r', 'e'].map((k) => cls[k] && AB_PU_BY_AB[cls[k].id]).filter(Boolean)) : [];
   const el = mine.slice(0, mine.length ? 1 + (Math.random() < 0.5 ? 1 : 0) : 0);
-  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', 'extra', 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS]);
+  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', ...(hasSignature(cls) ? ['extra'] : []), 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS]);
   return shuffle([...el, ...pool.slice(0, 10 - el.length)]);
 }
 
 // A reroll: ten different picks drawn from the 30 reroll power-ups, never any that are on screen now.
-export function rerollOffer(current) {
+export function rerollOffer(current, cls) {
   const cur = new Set((current || []).map((o) => o.id));
-  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id));
+  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id) && (p.id !== 'rr_echo' || hasSignature(cls)));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
   return pool.slice(0, 10);
 }

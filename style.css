@@ -1688,4 +1688,24 @@ body.split .ds-card b { font-size: .95rem; } body.split .ds-box { padding: 1rem;
 /* Reroll die is always under the level-up cards; dim and still when none is banked */
 .elem-dice.empty { opacity: .45; filter: grayscale(.7); }
 .elem-dice.empty .die, .elem-dice.empty .cube, .elem-dice.empty .die-shadow { animation: none; }
-#elem.live .elem-dice.empty { display: none; }
+
+
+/* Level-up picker (Nutty 2026-11-13): always five cards over five, the 3D die under them with its Roll button below, in every mode. */
+#elem.ten .bless-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 192px)); justify-content: center; max-width: none; }
+#elem.ten .elem-card, #elem.live.ten .elem-card { width: auto; }
+#elem.live.ten .bless-cards { grid-template-columns: repeat(5, minmax(0, 132px)); gap: calc(.8 * var(--vh)) 10px; }
+#elem.live .elem-sub:empty, #elem .elem-sub:empty { display: none; }
+#elem .elem-dice { margin-top: calc(2.2 * var(--vh)); }
+#elem.live { padding-bottom: calc(13.5 * var(--vh)); }
+#elem.live .elem-box { margin: auto auto 0; }
+#elem .elem-card.sel, #elem .elem-card.pad-focus { outline: 3px solid #fff; outline-offset: 2px; }
+#elem.live .elem-dice { margin-top: calc(1.2 * var(--vh)); }
+#elem.live .elem-dice .die { width: 46px; height: 46px; }
+#elem.live .elem-dice .cube i { padding: 6px; border-radius: 9px; }
+#elem.live .elem-dice .cube i b { width: 8px; height: 8px; }
+#elem.live .elem-dice .f1 { transform: translateZ(23px); } #elem.live .elem-dice .f6 { transform: rotateY(180deg) translateZ(23px); }
+#elem.live .elem-dice .f2 { transform: rotateY(90deg) translateZ(23px); } #elem.live .elem-dice .f5 { transform: rotateY(-90deg) translateZ(23px); }
+#elem.live .elem-dice .f3 { transform: rotateX(90deg) translateZ(23px); } #elem.live .elem-dice .f4 { transform: rotateX(-90deg) translateZ(23px); }
+#elem.live .elem-dice .die-shadow { width: 40px; height: 8px; margin-top: 6px; }
+#elem.live .elem-dice .die-text { font-size: 1.15rem; padding: .2rem 1.1rem; margin-top: .35rem; border-width: 2px; }
+.elem-dice .die-text.sel, .elem-dice .die-text.pad-focus, .elem-dice .die-text:hover { background: rgba(150,90,0,.8); color: #fff; box-shadow: 0 0 26px rgba(255,200,80,.85); transform: scale(1.06); }

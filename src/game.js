@@ -16,6 +16,7 @@ import * as Vault from './vault.js';
 import { assetsReady, whenAssets } from './assets.js';
 import { spawnDragon } from './dragon.js';
 import { spawnGolem } from './golem.js';
+import { spawnPolaris } from './polaris.js';
 import { classWith, FLAME } from './data.js';
 import { igniteFx } from './flameweapon.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
@@ -275,7 +276,18 @@ export class Game {
       // Chrome sometimes reports a huge jump on the first event after locking; drop it.
       if (document.pointerLockElement === this.canvas && Math.abs(e.movementX) < 250 && Math.abs(e.movementY) < 250) { I.dx += e.movementX; I.dy += e.movementY; }
       this.menuMouse = [e.clientX / window.innerWidth, e.clientY / window.innerHeight];
+      syncButtons(e);
     });
+    // Some mice and drivers never send a separate "button down" for the left button while the right one is already held (aiming).
+    // Every mouse event also carries the full set of held buttons, so the two are kept in step from that as well.
+    const syncButtons = (e) => {
+      if (this.mode !== 'game' || document.pointerLockElement !== this.canvas || typeof e.buttons !== 'number') return;
+      const l = !!(e.buttons & 1), r = !!(e.buttons & 2);
+      if (l && !I.mouseDown) I.mouseClicked = true;
+      if (r && !I.aimHeld) I.rightClicked = true;
+      I.mouseDown = l; I.aimHeld = r;
+    };
+    for (const ev of ['pointerdown', 'pointerup', 'pointermove', 'mouseup']) window.addEventListener(ev, syncButtons);
     this.canvas.addEventListener('mousedown', (e) => {
       this.audio.unlock();
       if (this.mode !== 'game') return;
@@ -1068,9 +1080,11 @@ export class Game {
       const I = this.input;
       if (ev.dl) { I.pressed.delete('Digit1'); this.elemMove(-1); }
       if (ev.dr) { I.pressed.delete('Digit2'); this.elemMove(1); }
-      if (ev.a) { I.pressed.delete('Space'); I.keys.delete('Space'); this.pickElem(this.elemSel); } // the press picks, it does not also jump
+      if (ev.du) this.elemMove(0, -1);
+      if (ev.dd) this.elemMove(0, 1);
+      if (ev.a) { I.pressed.delete('Space'); I.keys.delete('Space'); this.elemConfirm(); } // the press picks, it does not also jump
     }
-    if (ev.dd) this.cycleSpeed();
+    if (ev.dd && !this.elemOpen) this.cycleSpeed();
     // D-pad left / right: previous / next weapon, round all three slots. In the vote and
     // the element picker those same presses stay the 1 / 2 choices, so only turn them into a cycle outside those.
     if ((ev.dl || ev.dr) && !this.elemOpen && this.phase !== 'vote') { const I = this.input; I.pressed.delete('Digit1'); I.pressed.delete('Digit2'); I.wheel = ev.dr ? 1 : -1; }
@@ -1813,6 +1827,7 @@ export class Game {
       case 'fs': { const o = P(0); for (let i = 3, k = 0; i + 2 < a.length; i += 3, k++) { const to = P(i), dx = to[0] - o[0], dz = to[2] - o[2], l = Math.hypot(dx, dz) || 1; Vault.seeker(this, o, [dx / l, 0.6, dz / l], null, to, null, k * 0.12); } this.audio.play('fire_cast', vol); break; }
       case 'bo': {
         const m = this._orbits || (this._orbits = new Map()), h = m.get(v);
+        if (h && h.alive && a.length > 3) h.crumbleAt([a[1] / 10, a[2] / 10, a[3] / 10]); // one broke under a blow
         if (h && h.alive) h.set(a[0]);
         else if (a[0] > 0) m.set(v, Vault.orbit(this, () => (v.alive && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y + 1.25, v.pos.z] : null), a[0]));
         break;
@@ -1867,12 +1882,19 @@ export class Game {
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
-      case 'gg': { // another runner's Golem: the same giant with the same habits; in a duel he throws at you
+      case 'pb': { // another runner's Polaris; in a duel he hunts you
         const me = this.player;
-        spawnGolem(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+        spawnPolaris(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
+      case 'gg': { // another runner's Golem: the same giant with the same habits; in a duel he throws at you
+        const me = this.player;
+        v.golem = spawnGolem(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+          targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
+        break;
+      }
+      case 'gm': if (v.golem && v.golem.setRoam) v.golem.setRoam(!!a[0]); break; // their Golem switched between following and roaming
       case 'ga': Vault.airshot(this, P(0), D(3)); this.audio.play('wind', vol); break;
       case 'nv': this.fx.shockwave([v.pos.x, v.pos.y + 0.1, v.pos.z], a[0] / 10, a[1], 0.45); this.audio.play('gust', vol * 0.6); break; // an elemental power-up's burst
       case 'rw': Vault.whirlpool(this, P(0)); this.audio.play('ice_big', vol); break;
@@ -2707,8 +2729,10 @@ export class Game {
     const I = this.input;
     if (I.pressed.has('ArrowLeft')) { I.pressed.delete('ArrowLeft'); this.elemMove(-1); }
     if (I.pressed.has('ArrowRight')) { I.pressed.delete('ArrowRight'); this.elemMove(1); }
-    if (I.pressed.has('Enter')) { I.pressed.delete('Enter'); this.pickElem(this.elemSel); return; }
-    if (I.pressed.has('Space')) { I.pressed.delete('Space'); I.keys.delete('Space'); this.pickElem(this.elemSel); return; } // Space bar picks the highlighted power-up
+    if (I.pressed.has('ArrowUp')) { I.pressed.delete('ArrowUp'); this.elemMove(0, -1); }
+    if (I.pressed.has('ArrowDown')) { I.pressed.delete('ArrowDown'); this.elemMove(0, 1); }
+    if (I.pressed.has('Enter')) { I.pressed.delete('Enter'); this.elemConfirm(); return; }
+    if (I.pressed.has('Space')) { I.pressed.delete('Space'); I.keys.delete('Space'); this.elemConfirm(); return; } // Space bar picks the highlighted power-up
     if (I.pressed.has('KeyR')) { I.pressed.delete('KeyR'); this.rerollElem(); }
     for (let i = 0; i < this.elemOpts.length; i++) { const key = i === 9 ? 'Digit0' : 'Digit' + (i + 1); if (I.pressed.has(key)) { I.pressed.delete(key); this.pickElem(i); if (!this.elemOpen) return; } }
   }
@@ -2718,12 +2742,23 @@ export class Game {
     if (!this.elemOpen || this.elemKind !== 'elem' || !p) return;
     if (!(p.rerolls > 0)) { this.ui.toast('No rerolls. Find the dice lying around the map', 'bad'); this.audio.play('deny'); return; }
     p.rerolls--;
-    this.elemOpts = rerollOffer(this.elemOpts);
-    this.elemSel = 0;
+    this.elemOpts = rerollOffer(this.elemOpts, p.cls);
+    this.elemSel = this.elemSel >= this.elemOpts.length ? this.elemOpts.length : 0; // rolled from the Roll button: stay on it
     this.audio.play('bless');
     this.ui.elem(this.elemOpts, p, !this.elemStops(), 'elem');
+    this.ui.elemSel(this.elemSel);
   }
-  elemMove(d) { const n = this.elemOpts.length; this.elemSel = (this.elemSel + d + n) % n; this.ui.elemSel(this.elemSel); this.audio.play('ui'); }
+  // Move the highlight freely over the cards (two rows of five) and down to the Roll button under them. Index n = the Roll button.
+  elemMove(dx, dy = 0) {
+    const n = this.elemOpts.length, cols = n > 5 ? 5 : n, roll = this.elemKind === 'elem';
+    let i = this.elemSel;
+    if (i >= n) { if (dy < 0) i = Math.min(n - 1, n - cols + (this.elemCol ?? 2)); }
+    else if (dx) { const r = Math.floor(i / cols), c = (i % cols + dx + cols) % cols; i = Math.min(n - 1, r * cols + c); }
+    else if (dy) { const j = i + dy * cols; if (j >= 0 && j < n) i = j; else if (j >= n && roll) { this.elemCol = i % cols; i = n; } }
+    if (i === this.elemSel) return;
+    this.elemSel = i; this.ui.elemSel(i); this.audio.play('ui');
+  }
+  elemConfirm() { if (this.elemSel >= this.elemOpts.length) this.rerollElem(); else this.pickElem(this.elemSel); }
   pickElem(i) {
     const pu = this.elemOpts && this.elemOpts[i], p = this.player;
     if (!this.elemOpen || !pu || !p) return;
@@ -2744,7 +2779,7 @@ export class Game {
     p.takePowerup(pu);
     this.fx.shockwave([p.pos.x, p.pos.y + 0.1, p.pos.z], 7, pu.color ? parseInt(pu.color.slice(1), 16) : 0xffd96a, 0.6);
     const info = puInfo(pu, p.cls), n = pu.el ? p.stats.elem[pu.el] : p.powerups.filter((q) => q.id === pu.id).length;
-    this.ui.toast(pu.icon + ' ' + info.name + (n > 1 ? ' ×' + n : ''), 'good');
+    this.ui.toast(pu.icon + ' ' + info.desc + (n > 1 ? ' (×' + n + ')' : ''), 'good'); // says what it does, not just its name (Nutty 2026-11-13)
     if (stops && p.elemPending <= 0) this.lockPointer();
   }
 

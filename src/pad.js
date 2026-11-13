@@ -15,14 +15,28 @@ export function connectedPads() {
 
 export class PadInput {
   // which: a gamepad index, 'any' (first connected), or null (none).
-  constructor(which) { this.which = which; this.prev = []; this.held = new Set(); this.sprint = false; this.lastUse = -1e9; this.navCd = 0; }
+  constructor(which) { this.which = which; this.prev = []; this.held = new Set(); this.sprint = false; this.lastUse = -1e9; this.navCd = 0;
+    // Once a controller is in use it stays the device in use (no idle time-out) until the keyboard or a mouse button is touched.
+    this.sticky = false;
+    if (typeof window !== 'undefined') { const off = (e) => { if (e.isTrusted !== false) this.sticky = false; }; window.addEventListener('keydown', off, true); window.addEventListener('mousedown', off, true); }
+  }
   get() {
     const pads = connectedPads();
     if (this.which === null || this.which === undefined) return null;
-    if (this.which === 'any') return pads[0] || null;
+    if (this.which === 'any') {
+      // Any controller: whichever one is being used. Windows often lists other devices (a headset dongle, a keyboard's media keys,
+      // a wheel) as "gamepads" ahead of the real one, so the first in the list is not good enough.
+      const real = (q) => q.mapping === 'standard' && q.buttons.length >= 12;
+      const busy = (q) => q.buttons.some((x) => x.pressed || x.value > 0.5) || (real(q) && q.axes.slice(0, 4).some((v) => Math.abs(v) > 0.5));
+      let cur = pads.find((q) => q.index === this.lastIdx) || null;
+      if (!cur || !busy(cur)) { const other = pads.find((q) => q !== cur && busy(q) && (real(q) || !cur || !real(cur))); if (other) cur = other; }
+      if (!cur) cur = pads.find(real) || pads[0] || null;
+      if (cur && cur.index !== this.lastIdx) { this.lastIdx = cur.index; this.prev = []; }
+      return cur;
+    }
     return pads.find((p) => p.index === this.which) || null;
   }
-  get active() { return performance.now() - this.lastUse < 8000; }
+  get active() { return this.sticky || performance.now() - this.lastUse < 8000; }
 
   // Gameplay: merge this frame's controller state into the shared input object.
   apply(I, dt, now) {
@@ -33,7 +47,7 @@ export class PadInput {
     const b = p.index >= 0 && anyPadRemap() ? raw.map((v, i) => (i < 16 ? !!raw[padPhys(i)] : v)) : raw;
     const down = (i) => b[i] && !this.prev[i];
     const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0), rx = dz(p.axes[2] || 0), ry = dz(p.axes[3] || 0);
-    if (b.some(Boolean) || lx || ly || rx || ry) this.lastUse = performance.now();
+    if (b.some(Boolean) || lx || ly || rx || ry) { this.lastUse = performance.now(); this.sticky = true; }
     // Move: analog stick.
     I.ax = lx; I.ay = -ly;
     if (Math.hypot(lx, ly) < 0.3) this.sprint = false;
@@ -67,7 +81,7 @@ export class PadInput {
     const b = p.buttons.map((x) => x.pressed || x.value > 0.5);
     const down = (i) => b[i] && !this.prev[i];
     const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0);
-    if (b.some(Boolean) || lx || ly) this.lastUse = performance.now();
+    if (b.some(Boolean) || lx || ly) { this.lastUse = performance.now(); this.sticky = true; }
     if (root.querySelector('#controls.listening')) { this.prev = b; return; } // the Controls screen is waiting for a button to remap
     this.navCd -= dt;
     let dir = null;

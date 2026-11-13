@@ -1,0 +1,311 @@
+// Tundra's Polaris (Nutty 2026-11-13): a summon. A huge arctic polar bear bursts up out of ice and fights for his summoner: he lopes after
+// enemies on his own, rears up to swipe with both paws, snaps at them, and pounces from a distance, landing with all his weight. What he hits
+// often freezes. Thick white fur, a crest of long ice spikes fanning up and back from his shoulders, neck and spine, smaller shards along his
+// sides and legs, ice claws, shining blue eyes. When his time ends he lies down, then breaks apart into tiny fragments of ice.
+// spawnPolaris() draws and moves him for everyone; only the caster passes `hit`, which does the damage.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { iceMat } from './elements.js';
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const wrap = (a) => { while (a > Math.PI) a -= 6.2832; while (a < -Math.PI) a += 6.2832; return a; };
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const ease = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
+const key = (t, ks) => { if (t <= ks[0][0]) return ks[0][1]; for (let i = 1; i < ks.length; i++) if (t < ks[i][0]) return ks[i - 1][1] + (ks[i][1] - ks[i - 1][1]) * ease((t - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])); return ks[ks.length - 1][1]; };
+
+export const POLARIS = { dur: 25, hp: 700, claw: 55, bite: 90, pounce: 130, pounceR: 4, freeze: 0.65, freezeFor: 2, speed: 9.5, range: 45 };
+const SIZE = 1.3;
+
+// ---------------------------------------------------------------- shapes
+// A skin lofted along z through sections { z, y, r, sx, sy }. Returns the geometry and the sections so things can be planted on its surface.
+function loft(st, seg, ring, uRep = 3, vRep = 1) {
+  const pos = [], uv = [], idx = [], S = [];
+  const cr = (a, b, c, d, k) => 0.5 * ((2 * b) + (-a + c) * k + (2 * a - 5 * b + 4 * c - d) * k * k + (-a + 3 * b - 3 * c + d) * k * k * k);
+  const at = (f, key, def) => { const i = clamp(Math.floor(f), 0, st.length - 2), k = f - i, g = (j) => st[clamp(j, 0, st.length - 1)][key] ?? def; return cr(g(i - 1), g(i), g(i + 1), g(i + 2), k); };
+  let len = 0, pz = null, py = null;
+  for (let i = 0; i <= seg; i++) {
+    const f = (i / seg) * (st.length - 1), z = at(f, 'z', 0), y = at(f, 'y', 0), r = Math.max(0.001, at(f, 'r', 0.1)), sx = at(f, 'sx', 1), sy = at(f, 'sy', 1);
+    if (pz !== null) len += Math.hypot(z - pz, y - py); pz = z; py = y;
+    S.push({ z, y, r, sx, sy });
+    for (let j = 0; j <= ring; j++) { const a = -Math.PI / 2 + (j / ring) * Math.PI * 2; pos.push(Math.cos(a) * r * sx, y + Math.sin(a) * r * sy, z); uv.push((j / ring) * uRep, len * vRep); }
+  }
+  const W = ring + 1;
+  for (let i = 0; i < seg; i++) for (let j = 0; j < ring; j++) { const a = i * W + j, b = a + W; idx.push(a, a + 1, b, a + 1, b + 1, b); }
+  for (const end of [0, seg]) { const base = pos.length / 3; pos.push(0, S[end].y, S[end].z); uv.push(0.5, 0); for (let j = 0; j < ring; j++) { const a = end * W + j; if (end === 0) idx.push(base, a + 1, a); else idx.push(base, a, a + 1); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  return { geo: g, S };
+}
+// the point on a lofted skin at length z and angle ang round it (0 = his left side, PI/2 = the top), sunk `depth` in; n = outward there
+const on = (L, z, ang, depth = 0) => { const S = L.S; let k = 0; while (k < S.length - 2 && S[k + 1].z < z) k++; const a = S[k], b = S[k + 1], f = clamp((z - a.z) / Math.max(1e-4, b.z - a.z), 0, 1), m = (q) => a[q] + (b[q] - a[q]) * f;
+  const cs = Math.cos(ang), sn = Math.sin(ang), n = V(cs / m('sx'), sn / m('sy'), 0).normalize(); return { p: V(cs * m('r') * m('sx'), m('y') + sn * m('r') * m('sy'), z).addScaledVector(n, -depth), n }; };
+// a limb lofted downward (-y): sections [down, radius, sx, sz, forward]
+const limb = (st, seg) => { const g = loft(st.map(([d, r, sx = 1, sy = 1, f = 0]) => ({ z: d, y: f, r, sx, sy })), seg, 12, 2, 1.4).geo; g.rotateX(Math.PI / 2); return g.toNonIndexed(); };
+const ball = (r, sc, at) => new THREE.SphereGeometry(r, 12, 9).scale(sc[0], sc[1], sc[2]).translate(at.x, at.y, at.z).toNonIndexed();
+// a sharp shard of ice: base at `at`, pointing along dir
+function shard(at, dir, len, w, seed = 1) {
+  const g = new THREE.ConeGeometry(1, 1, 5 + (seed % 2), 1).toNonIndexed(); g.translate(0, 0.5, 0); g.scale(w, len, w * (0.55 + (seed % 3) * 0.15)); g.rotateY(seed * 1.7);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.clone().normalize())); g.translate(at.x, at.y, at.z); g.computeVertexNormals();
+  return g;
+}
+
+// ---------------------------------------------------------------- fur
+let MATS = null;
+function mats() {
+  if (MATS) return MATS;
+  const N = 512, cv = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; };
+  let seed = 11; const rr = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // coat: off-white with thousands of fine strands lying along the body, slightly yellow at the roots like a real polar bear
+  const ac = cv(), ax = ac.getContext('2d'); ax.fillStyle = '#e9e6dc'; ax.fillRect(0, 0, N, N);
+  const hc = cv(), hx = hc.getContext('2d'); hx.fillStyle = '#808080'; hx.fillRect(0, 0, N, N);
+  for (let i = 0; i < 9000; i++) { const x = rr() * N, y = rr() * N, l = 10 + rr() * 26, lean = (rr() - 0.5) * 7, v = rr();
+    ax.strokeStyle = v < 0.5 ? `rgba(255,255,255,${0.25 + rr() * 0.4})` : `rgba(${188 + rr() * 30},${182 + rr() * 26},${160 + rr() * 26},${0.2 + rr() * 0.3})`; ax.lineWidth = 0.8 + rr() * 1.2;
+    hx.strokeStyle = `rgba(${v < 0.5 ? 255 : 30},${v < 0.5 ? 255 : 30},${v < 0.5 ? 255 : 30},${0.3 + rr() * 0.4})`; hx.lineWidth = ax.lineWidth;
+    for (const c of [ax, hx]) for (const oy of [0, N, -N]) { c.beginPath(); c.moveTo(x, y + oy); c.quadraticCurveTo(x + lean, y + oy + l * 0.5, x + lean * 1.6, y + oy + l); c.stroke(); } }
+  const hd = hx.getImageData(0, 0, N, N).data, nc = cv(), nx = nc.getContext('2d'), nd = nx.createImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const h = (X, Y) => hd[(((Y + N) % N) * N + ((X + N) % N)) * 4] / 255, dx = (h(x + 1, y) - h(x - 1, y)) * 2.2, dy = (h(x, y + 1) - h(x, y - 1)) * 2.2, l = Math.hypot(dx, dy, 1), o = (y * N + x) * 4;
+    nd.data[o] = (-dx / l * 0.5 + 0.5) * 255; nd.data[o + 1] = (-dy / l * 0.5 + 0.5) * 255; nd.data[o + 2] = (1 / l * 0.5 + 0.5) * 255; nd.data[o + 3] = 255; }
+  nx.putImageData(nd, 0, 0);
+  // tufts: where each shell of fur still has hair standing (bright = long hair)
+  const tc = cv(), tx = tc.getContext('2d'); tx.fillStyle = '#000'; tx.fillRect(0, 0, N, N);
+  for (let i = 0; i < 26000; i++) { const x = rr() * N, y = rr() * N, v = 60 + rr() * 195; tx.fillStyle = `rgb(${v},${v},${v})`; tx.fillRect(x, y, 1.6, 2.6); }
+  const T = (c, srgb) => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const map = T(ac, true), nor = T(nc, false), tuft = T(tc, false);
+  const furLen = { value: 0.085 };
+  const fur = (layer, layers) => { // layer 0 is the skin under the fur; the rest are shells of hair standing out from it
+    const k = layer / layers, m = new THREE.MeshStandardMaterial({ map, normalMap: nor, normalScale: new THREE.Vector2(1.3, 1.3), roughness: 0.92, metalness: 0, color: 0xffffff });
+    m.onBeforeCompile = (sh) => { sh.uniforms.uShell = { value: k }; sh.uniforms.uLen = furLen; sh.uniforms.uTuft = { value: tuft };
+      sh.vertexShader = 'uniform float uShell; uniform float uLen;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * uShell * uLen; transformed.y -= uShell * uShell * uLen * 0.45;');
+      sh.fragmentShader = 'uniform float uShell; uniform sampler2D uTuft;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          float tf_ = texture2D(uTuft, vMapUv * 3.0).r;
+          if (uShell > 0.0 && tf_ < 0.3 + uShell * 0.68) discard;
+          diffuseColor.rgb *= mix(0.62, 1.06, uShell) * vec3(1.0, 0.99, 0.95);`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          totalEmissiveRadiance += vec3(0.5, 0.62, 0.8) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.0) * 0.16;`); };
+    m.customProgramCacheKey = () => 'polaris-fur' + (layer ? 1 : 0);
+    return m;
+  };
+  const LAYERS = 4;
+  MATS = { fur: Array.from({ length: LAYERS + 1 }, (_, i) => fur(i, LAYERS)), ice: iceMat(),
+    dark: new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.35 }), eye: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.6, 4.2), toneMapped: false }),
+    tooth: new THREE.MeshStandardMaterial({ color: 0xe8e2cf, roughness: 0.4 }), mouth: new THREE.MeshStandardMaterial({ color: 0x3a1418, roughness: 0.6 }) };
+  return MATS;
+}
+
+// ---------------------------------------------------------------- the bear
+let GEO = null;
+function geos() {
+  if (GEO) return GEO;
+  // torso: rump, deep belly, chest, the big shoulder hump of a polar bear, a long thick neck
+  const B = loft([{ z: -1.5, y: 0.0, r: 0.3, sx: 1, sy: 1 }, { z: -1.2, y: 0.05, r: 0.62, sx: 1.02, sy: 1 }, { z: -0.6, y: 0.02, r: 0.74, sx: 1.04, sy: 1.02 }, { z: 0.1, y: -0.02, r: 0.74, sx: 1.0, sy: 1.02 }, { z: 0.7, y: 0.06, r: 0.72, sx: 0.98, sy: 1.08 }, { z: 1.15, y: 0.12, r: 0.6, sx: 0.95, sy: 1.05 }, { z: 1.6, y: 0.08, r: 0.46, sx: 0.95, sy: 1 }, { z: 2.05, y: -0.02, r: 0.38, sx: 0.95, sy: 1 }, { z: 2.3, y: -0.06, r: 0.33, sx: 0.95, sy: 1 }], 40, 22, 5, 1.2);
+  const tail = ball(0.16, [1, 0.9, 1.2], V(0, 0.22, -1.52));
+  // head: broad skull narrowing to a long roman-nosed muzzle
+  const H = loft([{ z: -0.3, y: 0, r: 0.34, sx: 1, sy: 0.95 }, { z: -0.05, y: 0.02, r: 0.37, sx: 1.08, sy: 0.92 }, { z: 0.22, y: 0.0, r: 0.33, sx: 1.02, sy: 0.86 }, { z: 0.48, y: -0.04, r: 0.235, sx: 0.98, sy: 0.84 }, { z: 0.78, y: -0.07, r: 0.185, sx: 1, sy: 0.82 }, { z: 1.0, y: -0.09, r: 0.155, sx: 1, sy: 0.8 }, { z: 1.09, y: -0.1, r: 0.08, sx: 1, sy: 0.8 }], 24, 16, 3, 1.6);
+  const headBits = [H.geo.toNonIndexed()];
+  for (const s of [-1, 1]) { const A = (a) => (s > 0 ? a : Math.PI - a);
+    headBits.push(ball(0.085, [0.9, 1, 0.5], on(H, -0.1, A(0.95), 0.015).p)); // ear, sunk into the skull
+    headBits.push(new THREE.SphereGeometry(0.085, 12, 9).scale(1.5, 0.42, 1.0).rotateZ(-s * 0.5).rotateY(s * 0.3).translate(...on(H, 0.3, A(0.95), 0.045).p.toArray()).toNonIndexed()); // a hard, slanted brow: he glares
+    headBits.push(ball(0.1, [1, 0.8, 1.7], on(H, 0.74, A(-0.35), 0.06).p)); } // lip
+  const J = loft([{ z: 0.0, y: 0, r: 0.16, sx: 1.2, sy: 0.6 }, { z: 0.35, y: -0.02, r: 0.14, sx: 1.1, sy: 0.55 }, { z: 0.68, y: -0.02, r: 0.11, sx: 1, sy: 0.55 }, { z: 0.8, y: -0.01, r: 0.05, sx: 1, sy: 0.6 }], 10, 12, 2, 1.6);
+  const teeth = [], jteeth = [];
+  for (const s of [-1, 1]) { const A = (a) => (s > 0 ? a : Math.PI - a);
+    for (const [z, h, r] of [[0.96, 0.14, 0.03], [0.84, 0.06, 0.02], [0.72, 0.06, 0.02], [0.6, 0.055, 0.02]]) { const q = on(H, z, A(-0.75), 0.03); teeth.push(new THREE.ConeGeometry(r, h + 0.04, 6).rotateX(Math.PI).translate(q.p.x * 0.8, q.p.y - h / 2 + 0.02, q.p.z).toNonIndexed()); }
+    for (const [z, h, r] of [[0.68, 0.12, 0.028], [0.56, 0.05, 0.02], [0.44, 0.05, 0.02]]) { const q = on(J, z, A(0.8), 0.025); jteeth.push(new THREE.ConeGeometry(r, h + 0.03, 6).translate(q.p.x * 0.85, q.p.y + h / 2 - 0.015, q.p.z).toNonIndexed()); } }
+  // legs: massive, pillar-like, with the huge flat paws of a polar bear
+  const leg = (rear) => ({
+    up: limb(rear ? [[-0.3, 0.3, 1, 1.3], [0.0, 0.42, 0.9, 1.45, 0.02], [0.3, 0.4, 0.88, 1.3, 0.05], [0.55, 0.31, 0.95, 1.1, 0.02], [0.74, 0.27, 1, 1]] : [[-0.3, 0.3, 1, 1.2], [0.0, 0.4, 0.9, 1.3], [0.3, 0.36, 0.92, 1.2, 0.02], [0.55, 0.29, 0.97, 1.05], [0.74, 0.26, 1, 1]], 14),
+    low: limb([[-0.16, 0.24, 1, 1], [0.12, 0.275, 0.97, 1.08, -0.02], [0.42, 0.24, 1, 1], [0.6, 0.23, 1.05, 1.05, 0.02], [0.68, 0.22, 1.1, 1.1, 0.03]], 10),
+    paw: mergeGeometries([ball(0.27, [1.05, 0.5, 1.3], V(0, -0.02, 0.12)), ...[-0.17, -0.06, 0.06, 0.17].map((x) => ball(0.085, [1, 0.8, 1.3], V(x, -0.06, 0.42)))]),
+  });
+  // ice. The crest: long spikes fanning up and back from the neck, shoulders and spine; shorter shards down the flanks.
+  const crest = [];
+  let sd = 1;
+  for (let z = 1.75; z > -1.3; z -= 0.17) { const big = Math.exp(-Math.pow((z - 0.85) / 0.75, 2)), nAcross = z > 0 ? 7 : 5;
+    for (let j = 0; j < nAcross; j++) { const a = Math.PI / 2 + (j / (nAcross - 1) - 0.5) * (z > 0.2 ? 2.0 : 1.3) + Math.sin(sd * 3.1) * 0.08, q = on(B, z + Math.sin(sd * 1.3) * 0.05, a, 0.12), up = Math.sin(a);
+      const len = (0.28 + big * 1.25 * (0.55 + 0.45 * up)) * (0.75 + (Math.sin(sd * 7.7) * 0.5 + 0.5) * 0.5);
+      crest.push(shard(q.p, V(q.n.x * 0.9, q.n.y * 0.9 + 0.25, -0.55 - (1 - big) * 0.5), len, 0.05 + len * 0.075, sd)); sd++; } }
+  for (const s of [-1, 1]) for (let z = 1.2; z > -1.2; z -= 0.3) { const q = on(B, z, s > 0 ? 0.15 : Math.PI - 0.15, 0.08); crest.push(shard(q.p, V(q.n.x, 0.25, -0.9), 0.3 + Math.abs(Math.sin(z * 5)) * 0.25, 0.06, sd++)); }
+  const headIce = []; for (const s of [-1, 1]) for (const [z, a, l] of [[-0.2, 1.25, 0.5], [-0.22, 0.75, 0.42], [0.0, 1.45, 0.3]]) { const q = on(H, z, s > 0 ? a : Math.PI - a, 0.06); headIce.push(shard(q.p, V(q.n.x, q.n.y + 0.2, -0.8), l, 0.045, sd++)); }
+  const legIce = (rear) => [shard(V(0, -0.1, -0.3), V(0, 0.35, -1), rear ? 0.45 : 0.4, 0.06, sd++), shard(V(0.12, -0.35, -0.26), V(0.3, 0.2, -1), 0.3, 0.05, sd++), shard(V(-0.12, -0.5, -0.24), V(-0.3, 0.15, -1), 0.24, 0.045, sd++)];
+  const claws = mergeGeometries([-0.17, -0.06, 0.06, 0.17].map((x, i) => shard(V(x, -0.07, 0.5), V(x * 0.4, -0.35, 1), 0.3, 0.035, 40 + i)));
+  GEO = { body: mergeGeometries([B.geo.toNonIndexed(), tail]), head: mergeGeometries(headBits), jaw: J.geo.toNonIndexed(), teeth: mergeGeometries(teeth), jteeth: mergeGeometries(jteeth), front: leg(false), rear: leg(true),
+    crest: mergeGeometries(crest), headIce: mergeGeometries(headIce), legIceF: mergeGeometries(legIce(false)), legIceR: mergeGeometries(legIce(true)), claws,
+    nose: new THREE.SphereGeometry(0.075, 10, 8).scale(1.2, 0.85, 1), eye: new THREE.SphereGeometry(0.048, 10, 8), mouth: new THREE.SphereGeometry(0.1, 8, 6).scale(1, 0.4, 2.2),
+    spike: shard(V(0, 0, 0), V(0, 1, 0), 1, 0.22, 3) };
+  return GEO;
+}
+
+export function buildPolaris() {
+  const G = geos(), M = mats(), root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const all = [];
+  const furry = (parent, geo) => { for (const m of M.fur) { const q = new THREE.Mesh(geo, m); q.castShadow = m === M.fur[0]; q.receiveShadow = true; q.frustumCulled = false; parent.add(q); all.push(q); } };
+  const put = (parent, geo, mat, at) => { const q = new THREE.Mesh(geo, mat); if (at) q.position.copy(at); q.castShadow = true; q.frustumCulled = false; parent.add(q); all.push(q); return q; };
+  furry(body, G.body); put(body, G.crest, M.ice);
+  const neck = new THREE.Group(); neck.position.set(0, -0.04, 2.15); body.add(neck);
+  const head = new THREE.Group(); head.position.set(0, 0.02, 0.2); neck.add(head);
+  furry(head, G.head); put(head, G.headIce, M.ice); put(head, G.teeth, M.tooth); put(head, G.nose, M.dark, V(0, -0.07, 1.08)); put(head, G.mouth, M.mouth, V(0, -0.2, 0.55));
+  for (const s of [-1, 1]) put(head, G.eye, M.eye, V(s * 0.2, 0.115, 0.335));
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.2, 0.22); head.add(jaw); furry(jaw, G.jaw); put(jaw, G.jteeth, M.tooth);
+  const legs = [];
+  for (const [x, y, z, rear] of [[0.44, -0.22, 0.95, 0], [-0.44, -0.22, 0.95, 0], [0.46, -0.2, -0.95, 1], [-0.46, -0.2, -0.95, 1]]) {
+    const L = rear ? G.rear : G.front, hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip); furry(hip, L.up); put(hip, rear ? G.legIceR : G.legIceF, M.ice);
+    const knee = new THREE.Group(); knee.position.set(0, -0.62, 0); hip.add(knee); furry(knee, L.low);
+    const paw = new THREE.Group(); paw.position.set(0, -0.62, 0); knee.add(paw); furry(paw, L.paw); put(paw, G.claws, M.ice);
+    legs.push({ hip, knee, paw, rear: !!rear, s: Math.sign(x) });
+  }
+  return { root, body, neck, head, jaw, legs, all };
+}
+const LEG = 0.62, STANDY = 0.2 + LEG * 2 + 0.12; // body height when he stands square
+
+// Pose. P: { ph gait phase, run 0..1, rear 0..1 (reared up on his hind legs), swL/swR paw swipe 0..1, bite 0..1, leap 0..1 (stretched in the air),
+// lie 0..1 (lying dead), look yaw }
+export function posePolaris(D, P) {
+  const run = P.run || 0, rear = P.rear || 0, lie = P.lie || 0, leap = P.leap || 0, ph = P.ph || 0;
+  const pitch = -rear * 1.05 + Math.sin(ph + 0.9) * 0.1 * run - leap * 0.22 + (P.land || 0) * 0.25;
+  D.body.rotation.set(pitch, 0, lie * 1.35, 'YXZ');
+  // he pivots about his hind hips when he rears, so his hind paws stay planted
+  const hipY = -0.2, hipZ = -0.95, cs = Math.cos(pitch), sn = Math.sin(pitch);
+  const squat = lie * 0.9 + (P.land || 0) * 0.35 + (P.crouch || 0) * 0.3;
+  D.body.position.set(lie * 0.35, (STANDY - hipY) + (hipY * cs - hipZ * sn) - hipY - squat * (STANDY - 0.62) + Math.abs(Math.sin(ph)) * 0.12 * run - lie * 0.1, hipZ - (hipY * sn + hipZ * cs));
+  for (const L of D.legs) {
+    const off = L.rear ? 0 : 2.3, side = L.s > 0 ? 0.3 : 0, sw = Math.sin(ph + off + side), lift = Math.max(0, Math.cos(ph + off + side));
+    let a = -sw * 0.75 * run, b = lift * 0.9 * run + (L.rear ? 0.12 : 0.05);
+    if (L.rear) { a += -pitch * 0.92 + rear * 0.1; b += rear * 0.25; a += leap * 0.95; b += leap * 0.2; } // hind legs: stay under him when he rears, trail behind in a leap
+    else { a += rear * (-0.55) - leap * 1.15; b += rear * 0.9 - leap * 0.5; const s = L.s > 0 ? (P.swR || 0) : (P.swL || 0); a += -s * 1.25 + rear * 0.0; b += -s * 0.75; }
+    a += squat * (L.rear ? 0.9 : -0.8); b += squat * (L.rear ? -1.9 : 1.7) * (L.rear ? 1 : 1);
+    if (L.rear && squat > 0) b = Math.abs(b) * -1 * 0 + (b);
+    L.hip.rotation.set(a, 0, L.s * (0.04 + lie * 0.25 + (L.rear ? 0 : rear * 0.18)));
+    L.knee.rotation.x = L.rear ? Math.abs(b) : -Math.abs(b) * (squat > 0.2 ? -1 : 1) * (L.rear ? 1 : -1);
+    L.paw.rotation.x = -(L.hip.rotation.x + L.knee.rotation.x) - pitch * (L.rear ? 1 : 0.3) + (L.rear ? 0 : (rear + leap) * 0.5);
+  }
+  const bite = P.bite || 0;
+  D.neck.rotation.set(rear * 0.75 - leap * 0.1 + lie * 0.3 + Math.sin(ph + 2) * 0.06 * run + bite * 0.12 - (P.sniff || 0) * 0.3, clamp(P.look || 0, -0.8, 0.8), -lie * 0.4, 'YXZ');
+  D.head.position.z = 0.2 + Math.sin(Math.min(1, bite * 1.4) * Math.PI) * 0.28;
+  D.head.rotation.x = 0.12 + rear * 0.25 - bite * 0.1;
+  D.jaw.rotation.x = (P.jaw || 0) * 0.75 + lie * 0.25;
+}
+
+// ---------------------------------------------------------------- living
+// o: { owner(): {x,y,z} | null, targets(): [{id,x,y,z,h,r,kind}], dur, yaw, hp, hit(kind, target, point) (caster only) } kind: 'claw' | 'bite' | 'pounce'
+export function spawnPolaris(g, o) {
+  const fx = g.fx, scene = g.scene, D = buildPolaris(), root = D.root, G = geos(), M = mats(), dur = o.dur || POLARIS.dur;
+  const ground = (x, z) => g.world.heightAt(x, z);
+  const own0 = o.owner() || { x: 0, y: 0, z: 0 }, yaw0 = o.yaw || 0;
+  const st = { mode: 'arrive', t0: 0, yaw: yaw0, speed: 0, ph: 0, run: 0, rear: 0, swL: 0, swR: 0, bite: 0, jaw: 0, leap: 0, land: 0, lie: 0, look: 0, crouch: 0, sniff: 0, tgt: null, act: null, cd: 0.4, hp: o.hp || POLARIS.hp, hits: 0, breathT: 1, air: 0, done: false, lastC: 1, stuck: 0, side: 1 };
+  root.scale.setScalar(SIZE); root.position.set(own0.x + Math.sin(yaw0) * 5, 0, own0.z + Math.cos(yaw0) * 5); root.position.y = ground(root.position.x, root.position.z); root.rotation.y = yaw0; scene.add(root);
+  const tmp = V(), tmp2 = V();
+  const vol = () => { const c = g.camera.position; return clamp(1.2 - Math.hypot(c.x - root.position.x, c.z - root.position.z) / 70, 0.1, 1); };
+  const near = () => { const c = g.camera.position; return Math.hypot(c.x - root.position.x, c.z - root.position.z); };
+  const chips = (p, n, sp = 1) => { for (let i = 0; i < fx.n(n); i++) { const a = Math.random() * 6.28, r = rnd(2, 8) * sp; fx.shard.emit({ p: [p.x + rnd(-0.3, 0.3), p.y + rnd(-0.3, 0.3), p.z + rnd(-0.3, 0.3)], v: [Math.cos(a) * r, rnd(1, 7) * sp, Math.sin(a) * r], life: rnd(0.5, 1.1), s0: rnd(0.15, 0.45), s1: 0.05, c0: [0.86, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], drag: 2, g: 9, rotV: rnd(-5, 5) }); } };
+  const frost = (p, n, s = 1) => { for (let i = 0; i < n; i++) fx.smoke.emit({ p: [p.x + rnd(-0.4, 0.4) * s, p.y + rnd(-0.2, 0.4) * s, p.z + rnd(-0.4, 0.4) * s], v: [rnd(-1, 1) * s, rnd(0.2, 1.4), rnd(-1, 1) * s], life: rnd(0.6, 1.3), s0: 0.5 * s, s1: 2.2 * s, c0: [0.9, 0.96, 1, 0.42], c1: [0.9, 0.96, 1, 0], drag: 1.5, rotV: rnd(-1, 1) }); };
+  // the ice he bursts out of: a cluster of tall spikes that erupts, stands a moment and shatters
+  const spikes = [];
+  for (let i = 0; i < 11; i++) { const a = i * 0.571 * 6.28, r = i < 3 ? rnd(0.3, 1.2) : rnd(1.6, 3.2), m = new THREE.Mesh(G.spike, M.ice); m.position.set(root.position.x + Math.cos(a) * r, 0, root.position.z + Math.sin(a) * r); m.position.y = ground(m.position.x, m.position.z) - 0.3;
+    m.rotation.set(Math.sin(a) * (0.15 + r * 0.12), i, -Math.cos(a) * (0.15 + r * 0.12)); m.userData.h = (i < 3 ? rnd(3.4, 4.6) : rnd(1.4, 3.0)); m.scale.set(1.3, 0.01, 1.3); m.castShadow = true; scene.add(m); spikes.push(m); }
+  const P0 = root.position.clone();
+  fx.shockwave([P0.x, P0.y, P0.z], 7, 0x9fd8ff, 0.5); fx.flash([P0.x, P0.y + 2, P0.z], 0x9fd0ff, 40, 0.5, 30); frost(V(P0.x, P0.y + 0.5, P0.z), 14, 3); chips(V(P0.x, P0.y + 0.5, P0.z), 30, 1.3);
+  g.audio.play('ice_big', vol()); if (near() < 30) g.shake(0.35);
+
+  const strike = (kind, reach) => { // caster only does damage; everyone sees the ice fly
+    const q = st.tgt; if (!q) return;
+    const d = Math.hypot(q.x - root.position.x, q.z - root.position.z);
+    if (d > reach + (q.r || 0.5)) return;
+    const p = V(q.x, q.y + (q.h || 2) * 0.55, q.z); chips(p, kind === 'bite' ? 10 : 14); frost(p, 3); fx.flash([p.x, p.y, p.z], 0xbfe4ff, 10, 0.15, 8);
+    g.audio.play(kind === 'bite' ? 'ice' : 'swing', vol()); st.hits++;
+    o.hit && o.hit(kind, q, [p.x, p.y, p.z]);
+  };
+  const shatter = () => { // lying dead, he breaks apart into tiny fragments of ice
+    root.updateMatrixWorld(true);
+    for (let i = 0; i < 90; i++) { D.body.localToWorld(tmp.set(rnd(-0.7, 0.7), rnd(-0.6, 0.7), rnd(-1.5, 2.6)));
+      for (let k = 0; k < 2; k++) { const a = Math.random() * 6.28, r = rnd(0.5, 5); fx.shard.emit({ p: [tmp.x, tmp.y, tmp.z], v: [Math.cos(a) * r, rnd(1, 7), Math.sin(a) * r], life: rnd(0.8, 1.9), s0: rnd(0.1, 0.34), s1: 0.03, c0: [0.9, 0.97, 1, 1], c1: [0.6, 0.85, 1, 0], drag: 1.2, g: 10, rotV: rnd(-6, 6) }); }
+      if (i % 3 === 0) fx.glow.emit({ p: [tmp.x, tmp.y, tmp.z], v: [rnd(-1, 1), rnd(0.5, 2.5), rnd(-1, 1)], life: rnd(0.6, 1.4), s0: 0.25, s1: 0.02, c0: [0.7, 0.9, 1, 0.9], c1: [0.4, 0.7, 1, 0] }); }
+    frost(tmp.copy(root.position).setY(root.position.y + 0.8), 16, 3.2);
+    fx.shockwave([root.position.x, root.position.y, root.position.z], 5, 0x9fd8ff, 0.45); fx.flash([root.position.x, root.position.y + 1, root.position.z], 0xa8d8ff, 30, 0.4, 20);
+    g.audio.play('ice_big', vol()); scene.remove(root);
+  };
+
+  const fxh = fx.add({
+    dur: dur + 6,
+    update: (dt, t) => {
+      const own = o.owner(), pos = root.position, O = own || own0;
+      // the ice cluster
+      for (const m of spikes) { const h = m.userData.h; if (t < 1.25) m.scale.y = h * ease(t / 0.28); else if (!m.userData.gone) { m.userData.gone = true; m.visible = false; for (let k = 0; k < 6; k++) chips(tmp.set(m.position.x, m.position.y + h * (k / 6), m.position.z), 3, 0.9); frost(tmp.set(m.position.x, m.position.y + h * 0.4, m.position.z), 2, 1.5); } }
+      if (t >= 1.25 && !st.broke) { st.broke = true; g.audio.play('ice_big', vol()); g.audio.play('ice', vol()); if (near() < 25) g.shake(0.3); }
+      if ((!own || t > dur || st.hp <= 0) && st.mode !== 'die' && st.mode !== 'arrive') { st.mode = 'die'; st.t0 = t; st.act = null; }
+      let sink = 0;
+      if (st.mode === 'arrive') { // up through the ice, reared and roaring, then down on to all fours
+        const e = t;
+        sink = -3.2 * (1 - ease((e - 0.25) / 0.7)); st.rear = e < 1.25 ? ease((e - 0.3) / 0.6) : 1 - ease((e - 1.25) / 0.5); st.jaw = e > 0.7 && e < 1.5 ? 1 : 0;
+        st.land = e > 1.6 ? Math.sin(clamp((e - 1.6) / 0.45, 0, 1) * Math.PI) : 0;
+        if (e > 1.72 && !st.thud) { st.thud = true; fx.shockwave([pos.x, pos.y, pos.z], 4, 0xcfe8ff, 0.35); g.audio.play('quake', vol() * 0.6); if (near() < 20) g.shake(0.25); frost(tmp.set(pos.x, pos.y + 0.3, pos.z), 6, 2); }
+        if (e > 2.1) { st.mode = 'hunt'; st.rear = 0; st.land = 0; }
+      } else if (st.mode === 'die') { // he lies down like a dead bear, then breaks apart
+        const e = t - st.t0; st.speed = 0; st.run += (0 - st.run) * Math.min(1, dt * 6); st.rear = 0; st.swL = st.swR = st.bite = st.leap = 0;
+        st.lie = ease(e / 1.3); st.jaw = st.lie * 0.4;
+        if (e > 2.3 && !st.done) { st.done = true; shatter(); }
+        if (e > 2.4) return false;
+      } else {
+        const A = st.act;
+        if (!A) { let best = null, bd = POLARIS.range; for (const q of o.targets()) { if (q.kind === 'demon') continue; const dOwn = Math.hypot(q.x - O.x, q.z - O.z); if (dOwn > POLARIS.range) continue; const d = Math.hypot(q.x - pos.x, q.z - pos.z); if (d < bd) { bd = d; best = q; } } st.tgt = best; }
+        else if (st.tgt) { const f = o.targets().find((q) => q.id === st.tgt.id); if (f) st.tgt = f; }
+        st.cd -= dt;
+        const q = st.tgt, dO = Math.hypot(O.x - pos.x, O.z - pos.z);
+        let wantYaw = st.yaw, wantSpeed = 0;
+        if (dO > 60 && !A) { const a = Math.random() * 6.28; pos.x = O.x + Math.sin(a) * 5; pos.z = O.z + Math.cos(a) * 5; chips(tmp.set(pos.x, ground(pos.x, pos.z) + 1, pos.z), 20); frost(tmp, 8, 2); }
+        if (A) {
+          A.t += dt; if (q) wantYaw = Math.atan2(q.x - pos.x, q.z - pos.z);
+          if (A.kind === 'swipe') { // rear up, right paw, left paw, drop
+            st.rear = key(A.t, [[0, 0], [0.32, 1], [0.85, 1], [1.15, 0]]); st.swR = key(A.t, [[0.3, 0], [0.42, -0.5], [0.55, 1], [0.8, 0]]); st.swL = key(A.t, [[0.5, 0], [0.62, -0.5], [0.75, 1], [1.0, 0]]); st.jaw = A.t < 0.9 ? 0.8 : 0;
+            if (A.t >= 0.52 && !A.h1) { A.h1 = true; strike('claw', 3.6); } if (A.t >= 0.72 && !A.h2) { A.h2 = true; strike('claw', 3.6); }
+            st.land = A.t > 1.05 ? Math.sin(clamp((A.t - 1.05) / 0.3, 0, 1) * Math.PI) * 0.6 : 0;
+            if (A.t >= 1.35) { st.act = null; st.cd = 0.35; st.rear = st.swL = st.swR = st.land = 0; }
+          } else if (A.kind === 'bite') { // lunge and snap
+            st.bite = key(A.t, [[0, 0], [0.26, 1], [0.5, 0.2], [0.65, 0]]); st.jaw = key(A.t, [[0, 0], [0.18, 1], [0.27, 0], [0.65, 0]]); wantSpeed = A.t < 0.25 ? 4 : 0;
+            if (A.t >= 0.27 && !A.h1) { A.h1 = true; strike('bite', 3.3); }
+            if (A.t >= 0.65) { st.act = null; st.cd = 0.3; st.bite = 0; }
+          } else if (A.kind === 'pounce') { // crouch, leap in a high arc, land on them with his whole weight
+            const T = 0.72;
+            if (A.t < 0.28) { st.crouch = ease(A.t / 0.28); if (q) A.to.set(q.x, 0, q.z); }
+            else if (!A.landed) { const k = clamp((A.t - 0.28) / T, 0, 1); if (!A.from) { A.from = pos.clone(); g.audio.play('swing', vol()); } st.crouch = 0; st.leap = Math.sin(k * Math.PI); st.jaw = 0.9;
+              const back = Math.hypot(A.to.x - A.from.x, A.to.z - A.from.z), stop = Math.max(0, 1 - 1.6 / Math.max(1.6, back));
+              pos.x = A.from.x + (A.to.x - A.from.x) * k * stop; pos.z = A.from.z + (A.to.z - A.from.z) * k * stop; st.air = Math.sin(k * Math.PI) * 2.6;
+              if (k >= 1) { A.landed = A.t; st.air = 0; st.leap = 0; fx.shockwave([pos.x, pos.y, pos.z], POLARIS.pounceR + 1, 0xbfe4ff, 0.4); chips(tmp.set(pos.x, pos.y + 0.6, pos.z), 26, 1.2); frost(tmp, 8, 2.4); g.audio.play('quake', vol() * 0.8); g.audio.play('ice', vol()); if (near() < 22) g.shake(0.35);
+                st.hits++; o.hit && o.hit('pounce', null, [pos.x + Math.sin(st.yaw) * 1.5, pos.y + 0.5, pos.z + Math.cos(st.yaw) * 1.5]); } }
+            else { st.land = Math.sin(clamp((A.t - A.landed) / 0.45, 0, 1) * Math.PI); st.jaw = 0.3; if (A.t - A.landed > 0.45) { st.act = null; st.cd = 0.25; st.land = 0; } }
+          }
+        } else if (q) {
+          const d = Math.hypot(q.x - pos.x, q.z - pos.z), reach = 2.6 + (q.r || 0.5);
+          wantYaw = Math.atan2(q.x - pos.x, q.z - pos.z);
+          if (d < reach && st.cd <= 0 && Math.abs(wrap(wantYaw - st.yaw)) < 0.6) { st.n = (st.n || 0) + 1; st.act = { kind: st.n % 3 === 2 ? 'bite' : 'swipe', t: 0 }; }
+          else if (d > 6 && d < 15 && st.cd <= 0 && Math.abs(wrap(wantYaw - st.yaw)) < 0.4 && (st.pn = (st.pn || 0) + dt) > 0.15) { st.pn = 0; st.act = { kind: 'pounce', t: 0, to: V(q.x, 0, q.z) }; }
+          else if (d >= reach * 0.8) wantSpeed = POLARIS.speed;
+        } else if (dO > 7 || (st.run > 0.3 && dO > 4)) { wantYaw = Math.atan2(O.x - pos.x, O.z - pos.z); wantSpeed = dO > 16 ? POLARIS.speed : 5; }
+        if (wantSpeed > 0 && !(A && A.kind === 'pounce')) { // walls: feel ahead and go round
+          const blocked = (y) => { for (const d of [1.4, 2.8]) { const X = pos.x + Math.sin(y) * d, Z = pos.z + Math.cos(y) * d; if (g.world.solidPoint(X, ground(X, Z) + 1.0, Z, 0.9) || Math.abs(ground(X, Z) - ground(pos.x, pos.z)) > 2.2) return true; } return false; };
+          if (blocked(wantYaw)) { let found = false; for (const off of [0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) { const y = wantYaw + off * st.side; if (!blocked(y)) { wantYaw = y; found = true; if (off < 0) st.side = -st.side; break; } } if (!found) { wantSpeed = 0; st.stuck += dt; } }
+          else st.stuck = Math.max(0, st.stuck - dt);
+          if (st.stuck > 2 && !A) { st.stuck = 0; const a = Math.random() * 6.28; pos.x = O.x + Math.sin(a) * 4; pos.z = O.z + Math.cos(a) * 4; chips(tmp.set(pos.x, ground(pos.x, pos.z) + 1, pos.z), 20); }
+        }
+        st.yaw += clamp(wrap(wantYaw - st.yaw), -5.5 * dt, 5.5 * dt);
+        st.speed += clamp(wantSpeed - st.speed, -22 * dt, 14 * dt);
+        st.run += ((st.speed > 0.4 ? clamp(st.speed / 7, 0.45, 1) : 0) - st.run) * Math.min(1, dt * 6);
+        if (st.speed > 0.05) { pos.x += Math.sin(st.yaw) * st.speed * dt; pos.z += Math.cos(st.yaw) * st.speed * dt; st.ph += st.speed * dt * 1.15; }
+        const c = Math.cos(st.ph);
+        if (st.run > 0.5 && c * st.lastC < 0) { // a light trail of snow off his paws
+          for (let i = 0; i < fx.n(5); i++) fx.smoke.emit({ p: [pos.x + rnd(-0.6, 0.6), pos.y + 0.15, pos.z + rnd(-0.6, 0.6)], v: [rnd(-1, 1) - Math.sin(st.yaw) * 2, rnd(0.6, 2), rnd(-1, 1) - Math.cos(st.yaw) * 2], life: rnd(0.5, 1), s0: 0.3, s1: 1.3, c0: [1, 1, 1, 0.5], c1: [1, 1, 1, 0], drag: 2 });
+          for (let i = 0; i < fx.n(3); i++) fx.glow.emit({ p: [pos.x + rnd(-0.6, 0.6), pos.y + 0.2, pos.z + rnd(-0.6, 0.6)], v: [rnd(-1, 1), rnd(1, 3), rnd(-1, 1)], life: rnd(0.4, 0.9), s0: 0.09, s1: 0.02, c0: [1, 1, 1, 0.9], c1: [0.8, 0.9, 1, 0] });
+          g.audio.play('quake', vol() * 0.12); }
+        st.lastC = c;
+        // frosty breath
+        st.breathT -= dt; if (st.breathT <= 0) { st.breathT = st.run > 0.5 ? 0.45 : 1.6; D.head.localToWorld(tmp.set(0, -0.12, 1.15)); const f = [Math.sin(st.yaw), Math.cos(st.yaw)]; for (let i = 0; i < 4; i++) fx.smoke.emit({ p: [tmp.x, tmp.y, tmp.z], v: [f[0] * rnd(1.5, 3) + rnd(-0.3, 0.3), rnd(-0.2, 0.5), f[1] * rnd(1.5, 3) + rnd(-0.3, 0.3)], life: rnd(0.5, 0.9), s0: 0.18, s1: 1.1, c0: [0.92, 0.97, 1, 0.4], c1: [0.92, 0.97, 1, 0], drag: 2.5 }); }
+        // he can be worn down: anything hostile on top of him chips his health
+        for (const w of o.targets()) { if (w.kind === 'demon') continue; if (Math.hypot(w.x - pos.x, w.z - pos.z) < 2.6 + w.r && Math.abs(w.y - pos.y) < 5) st.hp -= dt * (w.kind === 'boss' ? 90 : w.kind === 'player' ? 60 : 22); }
+        st.look += ((q ? clamp(wrap(Math.atan2(q.x - pos.x, q.z - pos.z) - st.yaw), -0.8, 0.8) : 0) - st.look) * Math.min(1, dt * 6);
+      }
+      if (!st.done) { pos.y = ground(pos.x, pos.z) + sink + st.air * SIZE * 0.6; root.rotation.y = st.yaw; posePolaris(D, st); }
+    },
+    dispose: () => { fxh.done = true; for (const m of spikes) scene.remove(m); if (!st.done) { st.done = true; scene.remove(root); } },
+  });
+  return { root, state: st, fx: fxh, parts: D };
+}

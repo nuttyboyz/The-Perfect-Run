@@ -6,6 +6,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { updateWeaponFlames } from './flameweapon.js';
 import { spawnDragon } from './dragon.js';
 import { spawnGolem, GOLEM } from './golem.js';
+import { spawnPolaris, POLARIS } from './polaris.js';
 import { CONFIG, DUEL, GRAV, HEAL, FLAME, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
@@ -31,6 +32,8 @@ const tmp = v3(), tmp2 = v3();
 // How much of a bullet's damage is left at this distance (data.js `fall`).
 export const rangeK = (wp, d) => { const f = wp.fall; return !f || d <= f[0] ? 1 : d >= f[1] ? f[2] : 1 - (1 - f[2]) * (d - f[0]) / (f[1] - f[0]); };
 export const flashSize = (id) => ({ ak: 0.38, pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
+
+const ORBIT_BLOCKS = 3; // blows one Boulder Orbit rock can take before it crumbles
 
 export class LocalPlayer {
   constructor(game, { ch, sk, cls, weapons, name, clsObj }) {
@@ -849,6 +852,13 @@ export class LocalPlayer {
   // ---------- abilities ----------
   cast(key) {
     const g = this.game;
+    // The Golem's button while he is out: switch him between following you and roaming on his own (Nutty 2026-11-13).
+    if (this.alive && this.cls[key] && this.cls[key].id === 'golem' && this.golem && this.golem.fx && !this.golem.fx.done && this.golem.until > g.now) {
+      const G = this.golem; G.roam = !G.roam; G.setRoam(G.roam);
+      g.emitFx(['gm', G.roam ? 1 : 0]); g.audio.play('earth', 0.5);
+      if (g.player === this) g.ui.toast(G.roam ? 'Golem: roaming free' : 'Golem: following you', 'good', 'golem');
+      return;
+    }
     if (this.cds[key] > 0 || !this.alive) return;
     const ab = this.cls[key];
     const ok = this['ab_' + ab.id] && this['ab_' + ab.id]();
@@ -1682,6 +1692,10 @@ export class LocalPlayer {
         sun.grow(r2, R2); g.audio.play('fire_cast', 0.7);
         g.emitFx(['mg', q10(r2), q10(R2)]);
       }
+    }, (BR) => {
+      // the big bang when it goes: one heavy blast over a wider reach, stronger for every kill it fed on
+      g.areaDamage([c[0], g.world.heightAt(c[0], c[2]) + 1, c[2]], BR, 110 * this.stats.dmg * this.mm('minisun') * (1 + kills * 0.1), { burn: 3, falloff: 0.5, kb: 9 });
+      g.audio.play('inferno'); g.audio.play('fire_cast', 0.9);
     });
     g.audio.play('inferno'); g.audio.play('fire_cast');
     g.emitFx(['ms', ...c.map(q10), q10(r0)]);
@@ -1707,6 +1721,25 @@ export class LocalPlayer {
     g.emitFx(['sl', ...c.map(q10)]);
   }
 
+  // Polaris: an ice bear bursts out of the ground 5 m ahead and fights for 25 s on his own. Claw 55 a paw (two paws a swipe), bite 90,
+  // pounce 130 to everything within 4 m of where he lands. Each hit has a 65% chance to freeze for 2 s. 700 health.
+  ab_polaris() {
+    const g = this.game;
+    if (this.polaris && this.polaris.fx && !this.polaris.fx.done && this.polaris.until > g.now) return false; // one at a time
+    const k = this.stats.dmg * this.mm('polaris'), fr = () => (Math.random() < POLARIS.freeze ? POLARIS.freezeFor : 0);
+    const d = spawnPolaris(g, {
+      dur: POLARIS.dur, yaw: this.yaw,
+      owner: () => (this.alive ? this.pos : null),
+      targets: () => g.targets(),
+      hit: (kind, q, p) => {
+        if (kind === 'pounce') { g.areaDamage(p, POLARIS.pounceR, POLARIS.pounce * k, { kb: 9, freeze: fr(), falloff: 0.3 }); return; }
+        const t = q && g.targets().find((w) => w.id === q.id); if (t) g.damage(t, (kind === 'bite' ? POLARIS.bite : POLARIS.claw) * k, { freeze: fr(), at: p });
+      },
+    });
+    this.polaris = { fx: d.fx, until: g.now + POLARIS.dur, root: d.root, state: d.state, parts: d.parts };
+    g.emitFx(['pb', Math.round(POLARIS.dur * 10), Math.round(this.yaw * 100)]);
+  }
+
   // Golem: a rock golem breaks out of the ground 5 m ahead, rises, then walks with you for 25 s and throws a boulder at the nearest enemy
   // within 40 m every 2.6 s. Each boulder hits everything within 5.5 m of where it lands. He has 800 health; enemies at his feet wear it down.
   ab_golem() {
@@ -1719,7 +1752,7 @@ export class LocalPlayer {
       targets: () => g.targets(),
       hit: (p) => { g.areaDamage(p, GOLEM.radius, dmg, { kb: 12, freeze: 0.8, falloff: 0.3 }); },
     });
-    this.golem = { fx: d.fx, until: g.now + GOLEM.dur, root: d.root, state: d.state, parts: d.parts };
+    this.golem = { fx: d.fx, until: g.now + GOLEM.dur, root: d.root, state: d.state, parts: d.parts, setRoam: d.setRoam, roam: false };
     g.emitFx(['gg', Math.round(GOLEM.dur * 10), Math.round(this.yaw * 100)]);
   }
 
@@ -2082,7 +2115,7 @@ export class LocalPlayer {
     if (souls.length) g.emitFx(['nd', ...souls]);
   }
 
-  // Boulder Orbit: three rocks rise and circle you. Each press throws one at the crosshair; the cooldown starts with the last.
+  // Boulder Orbit: three rocks rise and circle you. While they circle, each blocks ORBIT_BLOCKS incoming attacks and then crumbles. Each press throws one at the crosshair; the cooldown starts with the last.
   ab_orbit() {
     const g = this.game;
     if (!this.rocks || this.rocks.n <= 0 || !this.rocks.fx.alive) {
@@ -2137,7 +2170,7 @@ export class LocalPlayer {
         if (t > 0.1 && (this.onGround || t > 3)) {
           const c = [this.pos.x, this.pos.y, this.pos.z];
           Vault.stomp(g, c);
-          g.areaDamage(c, 11, 190 * this.stats.dmg * this.mm('stomp'), { freeze: 2.2, kb: 9, falloff: 0.3 });
+          g.areaDamage(c, 15, 190 * this.stats.dmg * this.mm('stomp'), { freeze: 2.2, kb: 9, falloff: 0.3 });
           g.shake(0.7); g.audio.play('quake');
           g.emitFx(['bs', ...c.map(q10)]);
           return false;
@@ -2278,6 +2311,24 @@ export class LocalPlayer {
     if (this.tryBlock(amount, src)) return false;
     if (src === 'gv') { this.invulnUntil = 0; this.shield.until = 0; this.endEye(); } // the Gravity Gun's blast on the other duelist is lethal: nothing stops it
     if (this.invulnUntil && g.now < this.invulnUntil) return false;
+    if (src !== 'gv' && this.rocks && this.rocks.n > 0 && this.rocks.fx.alive) {
+      // Boulder Orbit: while the rocks circle you they take every incoming attack (Nutty 2026-11-13).
+      if (g.now - (this.rockBlockT || 0) > 0.12) {
+        this.rockBlockT = g.now;
+        // Each rock stands ORBIT_BLOCKS blows, cracking a little more with each, then crumbles (Nutty 2026-11-13).
+        const R = this.rocks, hit = R.fx.block(g.attackerPos ? g.attackerPos(src) : null, ORBIT_BLOCKS), c = (hit && hit.p) || [this.pos.x, this.pos.y + 1.2, this.pos.z];
+        g.fx.dustBurst(c, 0.45); g.fx.impact(c, [0.75, 0.62, 0.48]); g.audio.play('deflect', 0.55); g.audio.play('earth', 0.25);
+        if (hit && hit.broke) {
+          R.n--; g.emitFx(['bo', R.n, ...c.map((q) => Math.round(q * 10))]); g.audio.play('quake', 0.45); g.shake(0.2);
+          if (R.n <= 0) { // the last one is gone: the cooldown starts, as if it had been thrown
+            this.rocks = null;
+            const key = Object.keys(this.cds).find((k) => this.cls[k] && this.cls[k].id === 'orbit');
+            if (key) { const x = this.stats.ab.orbit; this.cds[key] = (g.duel ? DUEL.cd : this.cls[key].cd) * this.stats.cdr * this.stats.mast[key].cd * (x ? x.cd : 1); }
+          }
+        }
+      }
+      return false;
+    }
     if (this.eyeOn()) {
       // Eye of the Storm: the wind turns the blow aside.
       if (g.now - (this.eyeT || 0) > 0.2) { this.eyeT = g.now; g.fx.impact([this.pos.x, this.pos.y + 1.2, this.pos.z], [0.8, 1, 0.9]); g.audio.play('deflect', 0.6); }

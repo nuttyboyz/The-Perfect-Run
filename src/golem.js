@@ -242,7 +242,15 @@ export function spawnGolem(g, o) {
     update: (dt, t) => {
       const own = o.owner(), pos = root.position;
       if ((!own || t > dur || st.hp <= 0) && !st.done) { st.done = true; crumble(); return false; }
-      const O = own || own0;
+      let O = own || own0;
+      if (st.roam && st.mode !== 'emerge') { // roaming: he goes where the fight is, or wanders on his own, instead of keeping to his summoner
+        const q = st.tgt, far = q && Math.hypot(q.x - pos.x, q.z - pos.z) > 20;
+        if (far) st.wp = { x: q.x, y: 0, z: q.z };
+        else if (!q && (st.seekT = (st.seekT || 0) - dt) <= 0) { st.seekT = 1; st.seek = null; let bd = 95; for (const w of o.targets()) { if (w.kind === 'demon') continue; const d = Math.hypot(w.x - pos.x, w.z - pos.z); if (d < bd) { bd = d; st.seek = { x: w.x, y: 0, z: w.z }; } } if (st.seek) { st.wp = st.seek; st.wpT = 3; } }
+        if (far || q) {} else if (!st.seek) { st.wpT = (st.wpT || 0) - dt; if (!st.wp || st.wpT <= 0 || Math.hypot(st.wp.x - pos.x, st.wp.z - pos.z) < 5) { const a = Math.random() * 6.28, d = 14 + Math.random() * 22; st.wp = { x: pos.x + Math.sin(a) * d, y: 0, z: pos.z + Math.cos(a) * d }; st.wpT = 7; } }
+        else st.wp = { x: pos.x, y: 0, z: pos.z };
+        O = st.wp;
+      }
       let sink = 0;
       if (st.mode === 'emerge') { // up out of the ground hunched, head down, then he straightens to his full height
         const e = t - st.t0, up = ease(e / 1.3);
@@ -256,7 +264,7 @@ export function spawnGolem(g, o) {
         else if (st.tgt) { const f = o.targets().find((q) => q.id === st.tgt.id); if (f) st.tgt = f; }
         st.cd -= dt;
         const dO = Math.hypot(O.x - pos.x, O.z - pos.z);
-        if (dO > 48 && st.thr < 0) { const a = Math.random() * 6.28; startEmerge(O.x + Math.sin(a) * 5, O.z + Math.cos(a) * 5, t); return; } // left far behind: he comes up out of the ground beside his summoner
+        if (!st.roam && dO > 48 && st.thr < 0) { const a = Math.random() * 6.28; startEmerge(O.x + Math.sin(a) * 5, O.z + Math.cos(a) * 5, t); return; } // left far behind: he comes up out of the ground beside his summoner
         let wantYaw = st.yaw, wantSpeed = 0;
         if (st.thr >= 0) { // the throw: stoop, rip a boulder out of the ground, heave it overhead, hurl it
           const was = st.thr; st.thr += dt;
@@ -277,7 +285,8 @@ export function spawnGolem(g, o) {
           let found = true;
           if (blocked(wantYaw)) { found = false; for (const off of [0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) { const y = wantYaw + off * (st.side || 1); if (!blocked(y)) { wantYaw = y; found = true; if (off < 0) st.side = -(st.side || 1); break; } } if (!found) wantSpeed = 0; }
           st.stuck = Math.max(0, (st.stuck || 0) + (!found ? dt : wantYaw !== Math.atan2(O.x - pos.x, O.z - pos.z) ? dt * 0.3 : -dt));
-          if (st.stuck > 2.5 && st.thr < 0) { st.stuck = 0; const a = Math.random() * 6.28; startEmerge(O.x + Math.sin(a) * 4, O.z + Math.cos(a) * 4, t); return; }
+          if (st.stuck > 2.5 && st.roam) { st.stuck = 0; st.wp = null; st.wpT = 0; }
+          else if (st.stuck > 2.5 && st.thr < 0) { st.stuck = 0; const a = Math.random() * 6.28; startEmerge(O.x + Math.sin(a) * 4, O.z + Math.cos(a) * 4, t); return; }
         } else st.stuck = 0;
         st.yaw += clamp(wrap(wantYaw - st.yaw), -2.4 * dt, 2.4 * dt);
         st.speed += clamp(wantSpeed - st.speed, -9 * dt, 5 * dt);
@@ -296,5 +305,5 @@ export function spawnGolem(g, o) {
     },
     dispose: () => { fxh.done = true; if (!st.done) { st.done = true; dropRock(); scene.remove(root); scene.remove(rubble); } },
   });
-  return { root, state: st, fx: fxh, parts: D };
+  return { root, state: st, fx: fxh, parts: D, setRoam(v) { st.roam = !!v; st.wp = null; st.wpT = 0; st.stuck = 0; } };
 }

@@ -196,6 +196,7 @@ export class MenuScene {
       this.focusIdx = -1;
       for (const h of this.heroes) { const sk = this.savedSkin(h.ch.id); if (h.skin !== sk) this.buildHero(h, sk); h.cls = h.baseCls; h.mesh.userData.setWeapon(h.show); h.mesh.visible = true; }
       this.setDay(true);
+      for (const h of this.heroes) h.mesh.visible = false; // the title never shows the characters (setDay does nothing when it is already day, which left them standing in the valley)
       return;
     }
     this.setDay(false);
