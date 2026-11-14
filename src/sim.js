@@ -1,6 +1,7 @@
 // Host-authoritative simulation: enemies, bosses, the Demon Huntress, bought
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
+import { MobNav } from './mobnav.js';
 import { BULLET_TIME, BT_SLOW, BT_IN, BT_OUT, NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
 import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_ONLY, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm , HORDE, SEED_HORDE } from './data.js';
 
@@ -977,6 +978,10 @@ export class HostSim {
     const list = [...this.mobs.values()];
     this.hunting = 0; for (const m of list) if (!m.roam && !m.owner) this.hunting++; // how many are after the players right now (see huntCap)
     const ds = this.dmgScale();
+    // Players camping in or on a building: the walked way to each of them is kept fresh (mobnav.js).
+    if (!this.nav || this.nav.w !== w) this.nav = new MobNav(w);
+    const nav = this.nav;
+    if (!this.duel) { for (const p of players) if (p.alive && !p.out && nav.camping(p.x, p.y, p.z)) nav.want(p.id, p.x, p.y, p.z, this.time); nav.drop(this.time); nav.tick(1.5); }
     for (const m of list) {
       m.px = m.x; m.pz = m.z;
       const base0 = m.base;
@@ -1097,7 +1102,7 @@ export class HostSim {
         if (d < base.range && m.atk <= 0 && m.frozen <= 0) {
           m.atk = base.rate * (0.8 + Math.random() * 0.4);
           m.anim = 1;
-          const y0 = w.heightAt(m.x, m.z) + (base.fly ? m.fy + 0.6 : 1.5);
+          const y0 = w.heightAt(m.x, m.z) + (base.fly ? m.fy + 0.6 : 1.5 + (m.ey || 0));
           const ty = (t.y || w.heightAt(t.x, t.z)) + 1.2;
           const sp2 = base.pspd || 17;
           const L = Math.hypot(dx, ty - y0, dz) || 1;
@@ -1107,7 +1112,7 @@ export class HostSim {
       } else if (base.slam && m.mode === 'slam') {
         sp = 0; m.modeT -= dt;
         if (m.modeT <= 0) m.mode = 'orbit';
-      } else if (d > base.range + 0.5) {
+      } else if (d > base.range + 0.5 || (t.kind === 'p' && m.wy !== undefined && Math.abs(t.y - m.wy) > 2.2)) { // (a floor above or below is not within reach)
         mx = dx / d; mz = dz / d;
         if (base.weave && d > 4) { const wv = Math.sin(this.time * 5 + m.id * 1.7) * 0.7; mx += (-dz / d) * wv; mz += (dx / d) * wv; }
       } else if (m.atk <= 0 && m.frozen <= 0) {
@@ -1123,6 +1128,11 @@ export class HostSim {
           if (dot && t.kind === 'p') this.addDot(t.id, base.dmg * ds * dot.k, dot.n, dot.every, base.burnHit ? 'burn' : 'poison');
         }
       }
+      // A player in a building is reached the way a person would: by the doorway and the stairs, not by pressing on the wall.
+      if (t.kind === 'p' && (mx || mz) && !base.fly && m.mode !== 'leap' && base.radius <= 0.8 && mx * dx + mz * dz > 0 && nav.fields.has(t.id)) {
+        const g = nav.dir(t.id, m.x, m.wy !== undefined ? m.wy : (m.wy0 = w.heightAt(m.x, m.z)), m.z);
+        if (g) { const L = Math.hypot(mx, mz); mx = g[0] * L; mz = g[1] * L; if (!m.base.turn) m.yaw = Math.atan2(mx, mz); }
+      }
       m.x += mx * sp * dt;
       m.z += mz * sp * dt;
     }
@@ -1135,13 +1145,22 @@ export class HostSim {
         const dx = b.x - a.x, dz = b.z - a.z;
         const md = a.base.radius + b.base.radius;
         const d2 = dx * dx + dz * dz;
-        if (d2 < md * md && d2 > 1e-6) {
+        if (d2 < md * md && d2 > 1e-6 && !(a.wy !== undefined && b.wy !== undefined && Math.abs(a.wy - b.wy) > 1.6)) { // (not the one on the floor above)
           const d = Math.sqrt(d2), push = (md - d) * 0.5;
           a.x -= (dx / d) * push; a.z -= (dz / d) * push;
           b.x += (dx / d) * push; b.z += (dz / d) * push;
         }
       }
-      [a.x, a.z] = a.px !== undefined ? w.sweep(a.px, a.pz, a.x, a.z, a.base.radius) : w.collide(a.x, a.z, a.base.radius);
+      // Near a building a ground mob has real height: it walks floors and stairs, passes under what is overhead and drops off edges.
+      if (!a.base.fly && a.mode !== 'leap' && !a.lvy && a.px !== undefined && (a.ey > 0.01 || w.platsAt(a.x, a.z).length > 0)) {
+        const y0 = a.wy !== undefined ? a.wy : w.heightAt(a.px, a.pz);
+        [a.x, a.z] = w.sweep(a.px, a.pz, a.x, a.z, a.base.radius, y0);
+        let sy = w.standY(a.x, a.z, y0); if (sy < y0) sy = Math.max(sy, y0 - 16 * dt);
+        a.wy = sy; a.ey = Math.max(0, sy - w.heightAt(a.x, a.z));
+      } else {
+        [a.x, a.z] = a.px !== undefined ? w.sweep(a.px, a.pz, a.x, a.z, a.base.radius) : w.collide(a.x, a.z, a.base.radius);
+        if (!a.lvy && a.mode !== 'leap') { a.wy = undefined; a.ey = 0; }
+      }
     }
   }
 
@@ -1725,7 +1744,7 @@ export class HostSim {
     for (const x of this.mobs.values()) {
       // 1 frozen, 2 burning, 4 slowed, 8 winding up an ability.
       const flags = (x.frozen > 0 ? 1 : 0) | (x.burn > 0 ? 2 : 0) | (x.slow > 0 ? 4 : 0) | (x.fuse > 0 || x.mode === 'crouch' || x.mode === 'cast' || x.mode === 'slam' || (x.base.pstyle && x.atk > 0 && x.atk < 0.5) ? 8 : 0) | (x.stag > 0 ? 32 : 0) | (x.shield > 0 ? 64 : 0);
-      m.push([x.id, x.ti, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), flags, Math.round(x.yaw * 10), Math.round(x.anim * 9), Math.round((x.fy || 0) * 10), x.mini ? 1 : 0, x.el | 0, x.wi | 0]);
+      m.push([x.id, x.ti, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), flags, Math.round(x.yaw * 10), Math.round(x.anim * 9), Math.round(((x.fy || 0) + (x.ey || 0)) * 10), x.mini ? 1 : 0, x.el | 0, x.wi | 0]);
     }
     const n = [];
     for (const x of this.npcs.values()) n.push([x.id, x.ti, x.owner, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), Math.round(x.yaw * 10), Math.round(x.anim * 9), x.moving ? 1 : 0, x.mt != null ? x.mt + 1 : 0, x.wi | 0]);
