@@ -9,7 +9,7 @@ import { mulberry32 } from './rng.js';
 import { propLibrary } from './props.js';
 import * as TX from './textures.js';
 import { scanMat, groundTex } from './scan.js';
-import { Shell, hall } from './buildkit.js';
+import { Shell, hall, ramp, storeys } from './buildkit.js';
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 const TAU = Math.PI * 2;
@@ -933,11 +933,14 @@ function gableRoof(w, M, x, z, yaw, W, D, yEave, rise, mat) {
 }
 // Steps up to a height: a run of stacked blocks, each about one jump high, climbing along `yaw`.
 function stairs(w, M, x, z, yaw, toH, yBase, mat, { rise = 1.05, depth = 1.3, width = 2.2 } = {}) {
-  const n = Math.max(1, Math.ceil((toH - yBase) / rise)), c = Math.cos(yaw), s = Math.sin(yaw);
+  // Real treads over a walking slope: walked, never jumped (see buildkit.js steps).
+  const H = toH - yBase, run = Math.max(1, Math.ceil(H / rise - 1e-6)) * depth, n = Math.max(1, Math.ceil(H / 0.33 - 1e-6)), d = run / n, r = H / n, c = Math.cos(yaw), s = Math.sin(yaw);
   for (let i = 0; i < n; i++) {
-    const h = Math.min(toH, yBase + rise * (i + 1)) - yBase, d = (i + 0.5) * depth;
-    block(w, M, x + s * d, z + c * d, yaw, width, h, depth, yBase, mat, { uvk: 0.7 });
+    const o = (i + 0.5) * d;
+    block(w, M, x + s * o, z + c * o, yaw, width, r * (i + 1), d, yBase, mat, { uvk: 0.7 });
+    w.platforms[w.platforms.length - 1].shotOnly = true;
   }
+  ramp(w, x, z, yaw, width, run, yBase, toH, { lift: r / 2 });
 }
 // A village house you can walk into: plastered walls with timber corners and frames, an open doorway at the front and one at the
 // side (no doors: nothing blocks an entrance), an earth floor, a gable roof, and steps up the back to the roof.
@@ -1008,8 +1011,9 @@ function buildCastle(w, st, r) {
   // The keep: a tall stone block with a battlemented top, a timber hall beside it, steps to both roofs.
   const [kx, kz] = at(-6, -4);
   // The keep is hollow: a doorway beside the steps and one facing the hall.
-  hall(TS, { x: kx, z: kz, yaw, W: 14, D: 12, H: 12.4, th: 1.4, yb, sink: 1, tk: 0.6, floor: false, roof: 'flat', mats: { wall: M.stone, trim: M.stone, roof: M.stone },
+  const keepAt = hall(TS, { x: kx, z: kz, yaw, W: 14, D: 12, H: 12.4, th: 1.4, yb, sink: 1, tk: 0.6, floor: false, roof: 'flat', mats: { wall: M.stone, trim: M.stone, roof: M.stone },
     doors: [{ side: 'z+', w: 3.2, h: 3.8, off: 4.2 }, { side: 'x+', w: 3.2, h: 3.8 }] });
+  storeys(TS, keepAt, yaw, 5.6, 4.6, [yb + 0.1, yb + 4.2, yb + 8.3], { stone: M.stone, floor: M.wood || M.stone, trim: M.stone }); // two whole upper floors inside, a stair along the wall to each
   for (let i = -6; i <= 6; i += 2) for (const [ex, ez] of [[i, -5.7], [i, 5.7], [-6.7, i], [6.7, i]]) { const [mx, mz] = at(-6 + ex, -4 + ez); block(w, M, mx, mz, yaw, 1.0, 0.9, 1.0, yb + 13, M.stone, { plat: false }); }
   const [sx1, sz1] = at(-6, 3.2); stairs(w, M, sx1, sz1, yaw, yb + 13, yb, M.stone, { width: 2.6, rise: 1.05, depth: 1.1 });
   const [hx, hz] = at(9, 2);

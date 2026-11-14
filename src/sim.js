@@ -2,7 +2,7 @@
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
 import { BULLET_TIME, BT_SLOW, BT_IN, BT_OUT, NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
-import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm } from './data.js';
+import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm , HORDE, SEED_HORDE } from './data.js';
 
 const q10 = (v) => Math.round(v * 10);
 const EVENT_TTL = 1.6;
@@ -44,12 +44,15 @@ export class HostSim {
     this.dots = []; // damage over time on players, from burning and poisonous melee
     this.blasts = []; // bomber explosions waiting to hurt NPCs (players check their own distance)
     this.wells = []; // Gravity Gun wells: pull everything in for GRAV.dur seconds, then blast
+    // Horde Mode: wave number, enemies still to kill, the wave's size, how many have appeared, the break clock, the boss of a boss wave.
+    this.horde = false; this.wave = 0; this.waveLeft = 0; this.waveQuota = 0; this.waveSpawned = 0; this.rest = 0; this.hboss = -1;
   }
 
   // Rebuild from the last snapshot when the previous host disappears.
   static fromSnapshot(game, w) {
     const s = new HostSim(game, { roundLen: w.rl });
     s.phase = w.ph; s.round = w.rd; s.seed = w.sd; s.runSeed = w.rs || 0; s.mu = (w.mu | 0) & MU_MASK; s.tl = w.tl; s.arena = w.ar ?? (w.du ? 0 : -1);
+    if (w.hw) { s.horde = true; s.wave = w.hw[0] | 0; s.waveLeft = w.hw[1] | 0; s.waveQuota = w.hw[2] | 0; s.rest = (w.hw[3] || 0) / 10; s.hboss = w.hw[4] ?? -1; s.round = s.hordeLv(); s.seedDue = false; }
     if (w.du) {
       // A duel carries on under the new host: same arena, clock and winner; a power-up round counts the picks already made.
       s.duel = true; s.roundLen = DUEL.len; s.winner = w.wn || '';
@@ -68,9 +71,11 @@ export class HostSim {
       if (m[9]) { nm.mini = 1; nm.maxHp = maxHp * mini; }
       if (m[8] != null) nm.fy = m[8] / 10;
       if (m[10]) { s.makeElite(nm, m[10]); nm.hp = nm.maxHp * (m[4] / 100); }
+      if (s.horde) { nm.wv = 1; nm.roam = 0; }
       s.mobs.set(m[0], nm);
       s.nextId = Math.max(s.nextId, m[0] + 1);
     }
+    if (s.horde) s.waveSpawned = Math.max(0, s.waveQuota - s.waveLeft) + s.mobs.size;
     if (w.b) { s.spawnBoss(); s.boss.x = w.b[1] / 10; s.boss.z = w.b[2] / 10; s.boss.hp = s.boss.maxHp * (w.b[3] / 1000); }
     if (w.dm) { s.spawnDemon(); s.demon.x = w.dm[0] / 10; s.demon.z = w.dm[1] / 10; if (w.dm[4]) s.demon.hp = s.demon.maxHp * (w.dm[4] / 1000); s.deathDone = true; }
     for (const n of w.n || []) {
@@ -97,9 +102,9 @@ export class HostSim {
   // Enemies start tough and get much tougher every round (health far faster than damage, so fights get longer before they get deadlier).
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
-  hpScale() { return ENEMY_TUNE.hp * 1.5 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1); } // Nutty 2026-11-12 15:11: 1.3x a round; Hard is twice that all the way // // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
-  dmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
-  bossDmgScale() { return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn() * (this.round === 0 && !this.duel ? 0.6 : 1); } // bosses keep their own curve: +20% a round; the first boss hits at 60% (playtest 2026-11-12: it killed a fresh player in seconds)
+  hpScale() { if (this.horde) return ENEMY_TUNE.hp * 1.5 * this.hordeK(); return ENEMY_TUNE.hp * 1.5 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1); } // Nutty 2026-11-12 15:11: 1.3x a round; Hard is twice that all the way // // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
+  dmgScale() { if (this.horde) return ENEMY_TUNE.dmg * 1.2 * this.hordeK() * 0.42 * (this.wave <= 1 ? 0.7 : 1); return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
+  bossDmgScale() { if (this.horde) return ENEMY_TUNE.dmg * 1.2 * this.hordeK() * (this.wave <= HORDE.bossEvery ? 0.6 : 1); return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn() * (this.round === 0 && !this.duel ? 0.6 : 1); } // bosses keep their own curve: +20% a round; the first boss hits at 60% (playtest 2026-11-12: it killed a fresh player in seconds)
   // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
   easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
 
@@ -175,14 +180,95 @@ export class HostSim {
     this.mu = (flags.mu | 0) & MU_MASK; // mutators (see mutators.js)
     this.roundLen = roundLen;
     this.round = 0;
-    this.runSeed = (((Math.random() * 2 ** 31) | 0) & ~3) | (flags.space ? SEED_SPACE : 0) | (flags.hard ? SEED_HARD : 0); // sets this run's stage order and difficulty
+    this.horde = !!flags.horde;
+    if (this.horde) this.roundLen = 0;
+    this.runSeed = (((Math.random() * 2 ** 31) | 0) & ~7) | (flags.space ? SEED_SPACE : 0) | (flags.hard && !this.horde ? SEED_HARD : 0) | (this.horde ? SEED_HORDE : 0); // sets this run's stage order and difficulty
+    if (flags.stage != null && flags.stage >= 0) { // Horde stage vote: draw seeds until this run's map is the chosen one
+      const fl = this.runSeed & 7;
+      for (let i = 0; i < 4000 && stageIdx(this.runSeed, 0) !== flags.stage; i++) this.runSeed = (((Math.random() * 2 ** 31) | 0) & ~7) | fl;
+    }
+    this.wave = 0; this.waveLeft = 0; this.waveQuota = 0; this.waveSpawned = 0; this.hboss = -1; this.rest = 0;
     this.beginRound();
+    if (this.horde) { this.seedDue = false; this.rest = 12; } // a few seconds to look around, then wave 1
+  }
+
+  // ---------- Horde Mode ----------
+  // Endless waves on one map. A wave is a set number of enemies with no clock; when the last one falls there is a break
+  // (HORDE.rest seconds) for chests and the stalls. Every fifth wave is one random boss. Health and damage grow 20% a wave.
+  hordeK() { return Math.pow(HORDE.grow, Math.max(0, this.wave - 1)); }
+  hordeLv() { return Math.min(5, Math.floor(Math.max(0, this.wave - 1) / 3)); } // stands in for the round: tougher kinds, more elites, quicker feet as the waves go on
+  beginWave(w) {
+    this.wave = w; this.round = this.hordeLv(); this.rest = 0;
+    const n = Math.max(1, this.lastPlayers.filter((p) => !p.out).length);
+    if (w % HORDE.bossEvery === 0) {
+      const pool = HORDE.bosses.filter((i) => i !== this.hboss);
+      this.hboss = pool[Math.floor(Math.random() * pool.length)];
+      for (const m of this.mobs.values()) this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti);
+      this.mobs.clear();
+      this.phase = 'boss'; this.waveQuota = this.waveLeft = this.waveSpawned = 1; this.spawnCd = 4;
+      this.waveT0 = this.time;
+      this.spawnBoss();
+      this.ev('msg', 'Wave ' + w + ' · ' + this.boss.def.name);
+    } else {
+      this.waveQuota = this.waveLeft = HORDE.quota(w, n); this.waveSpawned = 0; this.spawnCd = 0.5;
+      this.waveT0 = this.time;
+      this.lineup = this.pickLineup(this.round);
+      this.ev('msg', 'Wave ' + w + ' · ' + this.waveQuota + ' enemies');
+    }
+  }
+  endWave() {
+    for (const m of this.mobs.values()) this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti);
+    this.mobs.clear();
+    this.waveLeft = 0; this.rest = HORDE.rest; this.waveTime = Math.round(this.time - (this.waveT0 || this.time));
+    this.ev('msg', 'Wave ' + this.wave + ' cleared · next wave in ' + HORDE.rest + ' seconds');
+  }
+  hordeTick(dt) {
+    if (this.phase !== 'play') return;
+    if (this.rest > 0) { this.rest -= dt; if (this.rest <= 0) this.beginWave(this.wave + 1); }
+    else if (this.wave > 0 && this.waveLeft <= 0) this.endWave();
+  }
+  // A wave's enemies come at you from just out of sight, all round.
+  hordePoint(players) {
+    const w = this.world, alive = players.filter((p) => p.alive);
+    if (!alive.length) return null;
+    for (let tries = 0; tries < 30; tries++) {
+      const p = alive[Math.floor(Math.random() * alive.length)];
+      const a = Math.random() * Math.PI * 2, dist = 44 + Math.random() * 22;
+      const x = p.x + Math.sin(a) * dist, z = p.z + Math.cos(a) * dist;
+      if (Math.hypot(x, z) > 166) continue;
+      if (w.blocked(x, z, 1) || (w.noPlace && w.noPlace(x, z, 1))) continue;
+      if (players.some((o) => o.alive && Math.hypot(o.x - x, o.z - z) < 38)) continue;
+      return [x, z];
+    }
+    return null;
+  }
+  hordeSpawn(dt, players) {
+    if (this.rest > 0 || this.wave <= 0) return;
+    // Strays: anything left far behind is brought back to the edge of the fight, so a wave can always be finished.
+    this.recycleT = (this.recycleT || 0) - dt;
+    if (this.recycleT <= 0) {
+      this.recycleT = 1.5;
+      const alive = players.filter((p) => p.alive);
+      if (alive.length) for (const m of this.mobs.values()) {
+        let near = 1e9;
+        for (const p of alive) near = Math.min(near, Math.hypot(p.x - m.x, p.z - m.z));
+        if (near < 95) continue;
+        const pt = this.hordePoint(players);
+        if (pt) { m.x = m.hx = m.wx = pt[0]; m.z = m.hz = m.wz = pt[1]; m.roam = 0; }
+      }
+    }
+    this.spawnCd -= dt;
+    const bossWave = this.phase === 'boss'; // a boss wave: the count stays at 1 (the boss) while enemies keep coming without end
+    if (this.spawnCd > 0 || (!bossWave && this.waveSpawned >= this.waveQuota)) return;
+    this.spawnGroup(players, false, 1);
+    if (bossWave) { this.spawnCd = Math.max(1.5, 4 - this.wave * 0.1) * (0.8 + Math.random() * 0.4); return; }
+    this.spawnCd = Math.max(0.5, 2.2 - this.wave * 0.1) * (0.8 + Math.random() * 0.4);
   }
 
   beginRound() {
     this.seed = (Math.random() * 2 ** 31) | 0;
     this.phase = 'play';
-    this.space = stageIdx(this.runSeed, this.round) === 7; // Crash Site Prime: a 10-minute clock, and The Visitor lands when it hits zero
+    this.space = !this.horde && stageIdx(this.runSeed, this.round) === 7; // Crash Site Prime: a 10-minute clock, and The Visitor lands when it hits zero
     this.tl = this.space ? SPACE_LEN : this.roundLen;
     this.tl0 = this.tl;
     this.rt = 0;
@@ -196,7 +282,7 @@ export class HostSim {
     this.spawnCd = 4; this.seedDue = true;
     this.pendingNpcRelocate = true;
     this.lineup = this.pickLineup(this.round);
-    this.ev('msg', 'Round ' + (this.round + 1) + ' · ' + Object.keys(this.lineup).map((t) => MOBS[t].name + 's').join(', '));
+    if (this.horde) this.ev('msg', 'Horde Mode · the first wave is coming'); else this.ev('msg', 'Round ' + (this.round + 1) + ' · ' + Object.keys(this.lineup).map((t) => MOBS[t].name + 's').join(', '));
   }
 
   // ---------- inputs ----------
@@ -363,7 +449,7 @@ export class HostSim {
       this.wells.push({ from, x: x / 10, y: y / 10, z: z / 10, k: Math.max(0.3, Math.min(4, k / 100)), t: 0, bossMoved: 0 });
     } else if (kind === 'crate') {
       this.opened.add(arg | 0);
-    } else if (kind === 'early' && this.phase === 'play' && (this.roundLen <= 0 || this.tl <= 0.5)) {
+    } else if (kind === 'early' && !this.horde && this.phase === 'play' && (this.roundLen <= 0 || this.tl <= 0.5)) {
       this.startBoss(); // no way out: the altar only calls the boss, and only after the round clock has run out
     }
   }
@@ -459,9 +545,9 @@ export class HostSim {
   pickLineup(r) {
     const tierW = [[1, 0.15, 0], [1, 0.6, 0.05], [0.6, 1, 0.3], [0.35, 1, 0.7], [0.2, 0.8, 1], [0.1, 0.6, 1]][Math.min(5, r)];
     // Each stage fields its own tribe (STAGE_MOBS), so no two levels of a run share a lineup. Duels have no stage: the whole roster.
-    const stage = this.duel ? null : BIOMES[stageIdx(this.runSeed, r)];
+    const stage = this.duel ? null : BIOMES[stageIdx(this.runSeed, this.horde ? 0 : r)];
     const types = (stage && STAGE_MOBS[stage.id]) || MOB_TYPES;
-    const pool = types.map((t) => ({ t, w: tierW[MOBS[t].tier - 1] * (MOBS[t].w ?? 1) })).filter((o) => o.w > 0 && !MOBS[o.t].fly && !MOBS[o.t].summoned);
+    const pool = types.map((t) => ({ t, w: tierW[MOBS[t].tier - 1] * (MOBS[t].w ?? 1) })).filter((o) => o.w > 0 && !MOBS[o.t].fly && !MOBS[o.t].summoned && !MOBS[o.t].gone);
     const pick = [];
     const n = Math.min(pool.length, 5 + Math.min(3, Math.floor(r / 2)));
     while (pick.length < n) {
@@ -498,6 +584,7 @@ export class HostSim {
   }
 
   spawnTick(dt, players) {
+    if (this.horde && (this.phase === 'play' || this.phase === 'boss')) return this.hordeSpawn(dt, players);
     if (this.phase !== 'play' && this.phase !== 'demon') return;
     if (this.phase === 'play') {
       // Timed rounds: a champion at 28% and 62% of the clock. Endless rounds: one every ~2.5 minutes.
@@ -551,13 +638,13 @@ export class HostSim {
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {
     const n = players.filter((p) => p.alive).length || 1;
-    const target = Math.round(this.mobBudget(n) * fill);
+    const target = this.horde ? Math.round(HORDE.field(this.wave, n) * (this.phase === 'boss' ? 0.4 : 1)) : Math.round(this.mobBudget(n) * fill);
     // Live budget: small swarmers and summoned minions count for less than a full mob.
     const live = {}, fam = {};
     let load = 0;
     for (const x of this.mobs.values()) { live[x.type] = (live[x.type] || 0) + 1; load += x.base.cost ?? 1; if (x.base.fam) fam[x.base.fam] = (fam[x.base.fam] || 0) + 1; }
     if (load >= target) { this.spawnCd = 1; return false; }
-    const pt = this.pickSpawnPoint(players, wide);
+    const pt = this.horde ? this.hordePoint(players) : this.pickSpawnPoint(players, wide);
     // A group appears, then a lull: a few seconds of walking before the next one. Lulls shrink as rounds go on
     // and when the field is thin, so you are never left with nothing to fight for long.
     const quiet = load < target * 0.5;
@@ -576,7 +663,7 @@ export class HostSim {
     const lim = Math.max(0.34, 1.3 / Math.max(1, Object.keys(this.lineup).length));
     for (const [k, v] of Object.entries(this.lineup)) {
       const B = MOBS[k], c = live[k] || 0;
-      if (B.fly && flyCap) continue;
+      if (B.fly && (flyCap || (this.horde && this.wave <= HORDE.flyFrom - 1))) continue; // Horde: no flyers until wave 7 (Nutty 2026-11-14: melee cannot reach them)
       const cap = this.capOf(B, n);
       if (cap != null && c >= cap) continue;
       if (B.share != null && c >= 2 && (c + 1) > Math.max(B.share, lim * 0.7) * total) continue;
@@ -593,7 +680,7 @@ export class HostSim {
     const pack = B.fly ? 1 + (Math.random() < 0.4 ? 1 : 0)
       : B.pack ? B.pack[0] + Math.floor(Math.random() * (B.pack[1] - B.pack[0] + 1))
       : B.tier === 3 || B.radius >= 1 ? 1 : 1 + Math.floor(Math.random() * 3);
-    const group = Math.min(target - load, this.duel ? 18 : 30, (8 + this.round + n * 2) * (this.duel ? 1 : 2));
+    const group = Math.min(target - load, this.duel ? 18 : 30, (8 + this.round + n * 2) * (this.duel ? 1 : 2), this.horde && this.phase !== 'boss' ? this.waveQuota - this.waveSpawned : 1e9);
     let placed = 0;
     const place = (type, B, count) => {
       for (let i = 0; i < count && load < target && placed < group; i++) {
@@ -602,6 +689,7 @@ export class HostSim {
         const m = this.newMob(type, pt[0] + (Math.random() - 0.5) * 8, pt[1] + (Math.random() - 0.5) * 8);
         [m.x, m.z] = this.world.collide(m.x, m.z, m.base.radius); m.hx = m.wx = m.x; m.hz = m.wz = m.z;
         if (this.eliteOk(B) && Math.random() < ELITE.chance(this.round)) this.makeElite(m, 1 + Math.floor(Math.random() * 4));
+        if (this.horde) { m.roam = 0; if (this.phase !== 'boss') { m.wv = 1; this.waveSpawned++; } } // a wave's enemies come straight for you and count toward the wave
         this.mobs.set(m.id, m);
         live[type] = (live[type] || 0) + 1; load += B.cost ?? 1; placed++;
       }
@@ -617,11 +705,19 @@ export class HostSim {
   }
 
   spawnBoss() {
-    const bi = bossIdx(this.runSeed, this.round), def = BOSSES[bi];
+    const bi = this.horde ? this.hboss : bossIdx(this.runSeed, this.round), def = BOSSES[bi];
     const n = Math.max(1, this.lastPlayers.length);
     // +2,000 health on top for every round cleared so far.
     const hp = (def.flatHp ? def.hp : def.hp * BOSS_HP * (1 + BOSS_GROW * this.round) + BOSS_HP_ROUND * this.round) * (1 + 0.65 * (n - 1)) * (this.hard() && !def.flatHp ? 1.4 : 1);
-    const a = this.world.arena;
+    let a = this.world.arena;
+    if (this.horde) {
+      // A boss wave: it walks in from out of sight, wherever the players are. Its health follows the wave like everything else.
+      const pt = this.hordePoint(this.lastPlayers) || [a.x, a.z];
+      a = { x: pt[0], z: pt[1] };
+      const hh = def.hp * BOSS_HP * this.hordeK() * (1 + 0.65 * (n - 1));
+      this.boss = { idx: bi, def, x: a.x, z: a.z, hp: hh, maxHp: hh, yaw: 0, cd: 3, anim: 0, mode: 'walk', modeT: 0, slow: 0, burn: 0, frozen: 0, atkIdx: 0, cx: 0, cz: 0, melee: 0 };
+      return;
+    }
     this.boss = { idx: bi, def, x: a.x, z: a.z, hp, maxHp: hp, yaw: 0, cd: 3, anim: 0, mode: 'walk', modeT: 0, slow: 0, burn: 0, frozen: 0, atkIdx: 0, cx: 0, cz: 0, melee: 0 };
   }
 
@@ -638,6 +734,7 @@ export class HostSim {
 
   killMob(m, killer) {
     this.mobs.delete(m.id);
+    if (this.horde && m.wv && this.rest <= 0) this.waveLeft = Math.max(0, this.waveLeft - 1);
     const rise = this.canRise(m, killer);
     this.ev('d', m.id, killer, q10(m.x), q10(m.z), m.ti, rise ? 1 : 0);
     if (rise) this.raiseThrall(m, killer);
@@ -748,6 +845,7 @@ export class HostSim {
     this.boss = null;
     for (const m of this.mobs.values()) this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti);
     this.mobs.clear();
+    if (this.horde) { this.phase = 'play'; this.waveLeft = 0; this.rest = HORDE.rest; this.waveTime = Math.round(this.time - (this.waveT0 || this.time)); this.ev('msg', this.lastBossName + ' has fallen · next wave in ' + HORDE.rest + ' seconds'); return; }
     if (this.round === CONFIG.rounds - 1 && !this.duel) {
       // Thermes is down: offer the optional trip to the space map before the run ends.
       this.phase = 'spaceq';
@@ -787,6 +885,7 @@ export class HostSim {
     const worldReady = this.world && this.world.seed === this.seed;
 
     // Phase clock.
+    if (this.horde) this.hordeTick(dt);
     if (this.phase === 'play') {
       this.rt += dt;
       if (this.roundLen > 0) this.tl = Math.max(0, this.tl - dt);
@@ -901,7 +1000,7 @@ export class HostSim {
         else { this.wander(m, dt, t); continue; }
       }
       if (!t) continue;
-      if (!m.mini && !m.owner && t.d > 70 && m.hp >= m.maxHp) { m.roam = 1; m.hx = m.wx = m.x; m.hz = m.wz = m.z; m.wt = 0; continue; } // lost you: back to wandering where it stands
+      if (!this.horde && !m.mini && !m.owner && t.d > 70 && m.hp >= m.maxHp) { m.roam = 1; m.hx = m.wx = m.x; m.hz = m.wz = m.z; m.wt = 0; continue; } // lost you: back to wandering where it stands
       const dx = t.x - m.x, dz = t.z - m.z;
       const d = Math.hypot(dx, dz) || 1;
       const want = Math.atan2(dx, dz);
@@ -935,7 +1034,7 @@ export class HostSim {
         // Bomber: rushes in, stops next to its target and blows up after a short fuse.
         if (m.fuse > 0) {
           sp = 0; m.fuse -= dt;
-          if (m.fuse <= 0) { this.mobs.delete(m.id); this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti); continue; }
+          if (m.fuse <= 0) { this.mobs.delete(m.id); if (this.horde && m.wv) this.waveLeft = Math.max(0, this.waveLeft - 1); this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti); continue; }
         } else if (d > 2.6) { mx = dx / d; mz = dz / d; }
         else if (m.frozen <= 0) this.primeBomb(m);
       } else if (base.leap) {
@@ -1623,7 +1722,8 @@ export class HostSim {
     const dm = this.demon;
     return {
       mu: this.mu | 0, bt: Math.round((this.btK ?? 1) * 100),
-      ph: this.phase, rd: this.round, sd: this.seed, rs: this.runSeed, tl: this.roundLen === 0 && this.phase === 'play' ? 0 : Math.round(this.tl * 10) / 10, rl: this.roundLen,
+      hw: this.horde ? [this.wave, this.waveLeft, this.waveQuota, Math.max(0, Math.round(this.rest * 10)), this.hboss, this.waveTime | 0] : 0,
+      ph: this.phase, rd: this.horde ? 0 : this.round, sd: this.seed, rs: this.runSeed, tl: this.roundLen === 0 && this.phase === 'play' ? 0 : Math.round(this.tl * 10) / 10, rl: this.roundLen,
       m, n,
       b: b ? [b.idx, q10(b.x), q10(b.z), Math.max(1, Math.round((b.hp / b.maxHp) * 1000)), Math.round(b.anim * 9), Math.round(b.yaw * 10), b.mode === 'charge' || b.mode === 'pursuit' || b.mode === 'flurry' ? 1 : b.mode === 'leap' ? 2 : 0, b.mode === 'laser' || b.mode === 'vbeam' ? Math.round(b.ly * 100) : b.mode === 'laser-wind' || b.mode === 'vcharge' ? 9999 : null, b.mode === 'overheat' ? 1 : b.mode === 'axespin' ? 3 : b.ak || 0, b.mode === 'vbeam' ? Math.round(b.ld) : 0] : 0,
       dm: dm ? [q10(dm.x), q10(dm.z), Math.round(dm.yaw * 10), Math.round(dm.anim * 9), Math.max(1, Math.round((dm.hp / dm.maxHp) * 1000))] : 0,

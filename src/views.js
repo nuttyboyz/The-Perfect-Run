@@ -357,8 +357,10 @@ const AXE_CURL = [0.7, 2.0, 3.2], AXE_THUMB = [[0.3, 0.9, 0.3], [0, 0.8, -0.6], 
 const GUN_S = 7, GRIP_FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'], GRIP_CURL = [0.9, 1.5, 1.2];
 const GRIP_U = new THREE.Vector3(), GRIP_L = new THREE.Vector3(), GRIP_W = new THREE.Vector3(), GRIP_1 = new THREE.Vector3(), GRIP_2 = new THREE.Vector3(), GRIP_3 = new THREE.Vector3(), GRIP_D = new THREE.Vector3(), GRIP_MA = new THREE.Matrix4(), GRIP_MB = new THREE.Matrix4();
 function aimBone(bone, child, dir) {
+  if (!bone) return;
   bone.updateWorldMatrix(true, true);
-  bone.getWorldPosition(AIM_A); child.getWorldPosition(AIM_C).sub(AIM_A).normalize();
+  if (child) { bone.getWorldPosition(AIM_A); child.getWorldPosition(AIM_C).sub(AIM_A).normalize(); }
+  else AIM_C.set(0, 1, 0).transformDirection(bone.matrixWorld); // a body with no fingertip bones: a Mixamo bone runs along its own Y
   AIM_Q.setFromUnitVectors(AIM_C, dir);
   bone.getWorldQuaternion(AIM_W).premultiply(AIM_Q);
   bone.parent.getWorldQuaternion(AIM_P).invert();
@@ -561,7 +563,7 @@ export class NpcView {
     this.id = row[0];
     this.type = NPC_TYPES[row[1]];
     this.def = NPCS[this.type];
-    const look = { sellsword: 'veteran', hunter: 'nyx', warden: 'scalefang', medic: 'veteran', cleric: 'bonelord' }[this.type] || 'veteran';
+    const look = { sellsword: 'veteran', hunter: 'kratia', warden: 'scalefang', medic: 'veteran', cleric: 'bonelord' }[this.type] || 'veteran';
     // Zombies (Zombie Staff) are the rotting mob-rig body, not a character avatar.
     // Necromancer thralls are the very enemy that just died, back on its feet with a green ghost-light.
     this.mt = (row[9] | 0) - 1;

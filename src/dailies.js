@@ -1,5 +1,5 @@
 // Daily Challenges: 50 challenges in four tiers. Every day (local midnight) three come up, one Easy, one Medium and a Hard one
-// (an Elite one every third day), and they cycle through the whole list before any repeats. Finishing one pays PP straight away.
+// (an Elite one every third day). A finished one is claimed for PP on the title screen and replaced by another of its tier.
 // Progress is per account (Profile key 'perfectrun.daily') and resets each day. Runs the CPU played count for nothing.
 import { Profile } from './profile.js';
 import { addPP } from './meta.js';
@@ -100,13 +100,34 @@ export function dailiesFor(day = dayNumber()) {
   return out;
 }
 
+// Since 2026-11-14 (Nutty): the three challenges live in a box on the title screen. Finishing one does not pay by itself:
+// it is ticked off and shows a Claim button. Claiming pays the PP and puts a new challenge of the same tier in its place,
+// counted from zero. Each slot keeps its own count: { id, cur, done }.
 let cache = null;
+function fresh(day) { return { day, slots: dailiesFor(day).map((d) => ({ id: d.id, cur: 0, done: 0 })) }; }
 function load() {
   const day = dayNumber();
   if (!cache) { try { cache = JSON.parse(Profile.get(KEY) || 'null'); } catch { cache = null; } }
-  if (!cache || typeof cache !== 'object' || cache.day !== day) cache = { day, p: {}, best: {}, done: {} };
-  cache.p = cache.p || {}; cache.best = cache.best || {}; cache.done = cache.done || {};
+  if (cache && typeof cache === 'object' && cache.day === day && !Array.isArray(cache.slots)) {
+    // A save from before the box: carry today's progress over; anything already paid gets a new challenge.
+    const old = cache; cache = fresh(day);
+    cache.slots = cache.slots.map((s) => { const d = DAILY_BY_ID[s.id]; if (old.done && old.done[d.id]) return { id: reroll(d, cache.slots.map((q) => q.id)), cur: 0, done: 0 };
+      return { id: d.id, cur: Math.min(d.need, d.best ? (old.best || {})[d.best] || 0 : (old.p || {})[d.stat] || 0), done: 0 }; });
+  }
+  if (!cache || typeof cache !== 'object' || cache.day !== day || !Array.isArray(cache.slots)) {
+    // A new day. Anything finished yesterday and never claimed is paid now, so nothing earned is lost.
+    if (cache && Array.isArray(cache.slots)) for (const s of cache.slots) { const d = DAILY_BY_ID[s.id]; if (d && s.done) addPP(DAILY_TIERS[d.tier].pp); }
+    cache = fresh(day);
+    Profile.set(KEY, JSON.stringify(cache));
+  }
+  cache.slots = cache.slots.filter((s) => DAILY_BY_ID[s.id]);
+  if (cache.slots.length !== 3) cache = fresh(day);
   return cache;
+}
+// Another challenge of the same tier: never one that is on the board now, never the one just finished.
+function reroll(d, onBoard) {
+  const pool = DAILIES.filter((q) => q.tier === d.tier && q.id !== d.id && !onBoard.includes(q.id));
+  return (pool[Math.floor(Math.random() * pool.length)] || d).id;
 }
 let saveT = 0;
 function save() {
@@ -120,24 +141,33 @@ export const Dailies = {
   onDone: null, // (daily, pp) => void, set by the game to show the toast
   today() {
     const c = load();
-    return dailiesFor(c.day).map((d) => {
-      const cur = d.best ? c.best[d.best] || 0 : c.p[d.stat] || 0;
-      return { ...d, cur: Math.min(cur, d.need), done: !!c.done[d.id], pp: DAILY_TIERS[d.tier].pp, tierName: DAILY_TIERS[d.tier].name };
-    });
+    return c.slots.map((s, i) => { const d = DAILY_BY_ID[s.id]; return { ...d, slot: i, cur: Math.min(s.cur || 0, d.need), done: !!s.done, pp: DAILY_TIERS[d.tier].pp, tierName: DAILY_TIERS[d.tier].name }; });
   },
-  add(stat, n = 1) { if (!n) return; const c = load(); c.p[stat] = (c.p[stat] || 0) + n; this.check(c, 'stat', stat); save(); },
-  best(stat, v) { const c = load(); if (v > (c.best[stat] || 0)) { c.best[stat] = v; this.check(c, 'best', stat); save(); } },
-  check(c, key, stat) {
-    for (const d of dailiesFor(c.day)) {
-      if (d[key] !== stat || c.done[d.id]) continue;
-      const cur = key === 'best' ? c.best[stat] || 0 : c.p[stat] || 0;
-      if (cur < d.need) continue;
-      c.done[d.id] = 1;
-      const pp = DAILY_TIERS[d.tier].pp;
-      addPP(pp);
-      flush();
-      if (this.onDone) this.onDone(d, pp);
-    }
+  add(stat, n = 1) {
+    if (!n) return; const c = load(); let hit = false;
+    for (const s of c.slots) { const d = DAILY_BY_ID[s.id]; if (d.stat !== stat || s.done) continue; s.cur = (s.cur || 0) + n; hit = true; this.check(s, d); }
+    if (hit) save();
+  },
+  best(stat, v) {
+    const c = load(); let hit = false;
+    for (const s of c.slots) { const d = DAILY_BY_ID[s.id]; if (d.best !== stat || s.done || v <= (s.cur || 0)) continue; s.cur = v; hit = true; this.check(s, d); }
+    if (hit) save();
+  },
+  check(s, d) {
+    if (s.done || (s.cur || 0) < d.need) return;
+    s.done = 1; s.cur = d.need;
+    flush();
+    if (this.onDone) this.onDone(d, DAILY_TIERS[d.tier].pp);
+  },
+  // Claim a finished challenge: pays its PP and swaps in a new one of the same tier. Returns the PP paid (0 if not claimable).
+  claim(slot) {
+    const c = load(), s = c.slots[slot], d = s && DAILY_BY_ID[s.id];
+    if (!d || !s.done) return 0;
+    const pp = DAILY_TIERS[d.tier].pp;
+    addPP(pp);
+    c.slots[slot] = { id: reroll(d, c.slots.map((q) => q.id)), cur: 0, done: 0 };
+    flush();
+    return pp;
   },
   flush,
 };

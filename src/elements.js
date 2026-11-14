@@ -122,6 +122,7 @@ export const hellPitMaterial = () => new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
 
+const _oz = new THREE.Vector3(0, 0, 1), _od = new THREE.Vector3();
 export class Elements {
   constructor(fx, scene) {
     this.fx = fx;
@@ -878,6 +879,13 @@ export class Elements {
         }
         break;
       }
+      case 'Death': // Necromancer: a burst of poison gas (Nutty 2026-11-14), thick yellow-green clouds that roll out and hang low
+        for (let i = 0; i < N * 1.6; i++) {
+          const p = at(Math.random(), rnd(-0.9, 0.9)), g = rnd(0.75, 1);
+          fx.smoke.emit({ p: [p[0], p[1] + rnd(0.15, 1.3), p[2]], v: [ux * rnd(0.5, 4) + rnd(-1.2, 1.2), rnd(0.05, 0.6), uz * rnd(0.5, 4) + rnd(-1.2, 1.2)], life: rnd(1.1, 2), s0: rnd(1, 1.7), s1: rnd(3, 4.4), c0: [0.5 * g, 0.78 * g, 0.16 * g, 0.5], c1: [0.36, 0.6, 0.12, 0], drag: 2.4 });
+          if (i % 3 === 0) fx.glow.emit({ p: [p[0], p[1] + rnd(0.3, 1.2), p[2]], v: [rnd(-0.4, 0.4), rnd(0.1, 0.5), rnd(-0.4, 0.4)], life: rnd(0.5, 0.9), s0: rnd(1.2, 2), s1: rnd(2.2, 3), c0: [0.55, 1, 0.2, 0.1], c1: [0.4, 0.9, 0.1, 0] });
+        }
+        break;
       default: // Wind: a slipstream of long streaks that curl in behind the runner, dust skimming the ground
         for (let i = 0; i < N; i++) {
           const side = Math.random() < 0.5 ? -1 : 1, p = at(Math.random(), side * rnd(0.2, 0.9));
@@ -909,12 +917,14 @@ export class Elements {
               case 'Storm': fx.spark.emit({ p: [p[0], p[1] + rnd(0.1, 0.9), p[2]], v: [rnd(-3, 3), rnd(0, 3), rnd(-3, 3)], life: rnd(0.1, 0.3), s0: 0.26, s1: 0.05, c0: [0.8, 0.9, 1, 1], c1: [0.4, 0.5, 1, 0], drag: 2 });
                 if (Math.random() < 0.4) fx.glow.emit({ p: [p[0], p[1] + 0.25, p[2]], life: 0.25, s0: 0.9, s1: 0.3, c0: [0.55, 0.7, 1, 0.4], c1: [0.3, 0.4, 1, 0] }); break;
               case 'Earth': if (Math.random() < 0.35) fx.smoke.emit({ p: [p[0], p[1] + 0.2, p[2]], v: [rnd(-0.3, 0.3), rnd(0.3, 0.8), rnd(-0.3, 0.3)], life: rnd(0.6, 1), s0: 0.7, s1: 1.8, c0: [0.62, 0.5, 0.36, 0.3], c1: [0.6, 0.5, 0.4, 0], drag: 2 }); break;
+              case 'Death': if (Math.random() < 0.7) { const g = rnd(0.75, 1); fx.smoke.emit({ p: [p[0], p[1] + rnd(0.1, 0.6), p[2]], v: [rnd(-0.5, 0.5), rnd(0.05, 0.35), rnd(-0.5, 0.5)], life: rnd(1, 1.7), s0: rnd(0.9, 1.4), s1: rnd(2.4, 3.2), c0: [0.5 * g, 0.78 * g, 0.16 * g, 0.4], c1: [0.36, 0.6, 0.12, 0], drag: 1.6 }); } break;
               default: fx.streak.emit({ p: [p[0], p[1] + rnd(0.1, 1.2), p[2]], v: [ux * rnd(5, 10) + px * rnd(-4, 4), rnd(0.2, 1.2), uz * rnd(5, 10) + pz * rnd(-4, 4)], life: rnd(0.2, 0.4), s0: rnd(0.7, 1.3), s1: 0.2, c0: [0.85, 1, 0.95, 0.38], c1: [0.8, 1, 0.95, 0], drag: 2.5, rot: Math.atan2(ux, uz) });
             }
           }
           // Storm: little arcs crackle between points on the path.
           if (element === 'Storm' && Math.random() < 0.9 * k) { const s = Math.random(), p = at(s, rnd(-0.4, 0.4)), q = at(Math.min(1, s + rnd(0.05, 0.25)), rnd(-0.4, 0.4)); fx.bolt([p[0], p[1] + rnd(0.1, 0.6), p[2]], [q[0], q[1] + rnd(0.1, 0.8), q[2]], { width: 0.2, dur: 0.12, color: 0xb9d4ff, branches: 1, jag: 0.25 }); }
           if (element === 'Fire' && Math.random() < 0.5 * k) { const p = at(Math.random()); fx.glow.emit({ p: [p[0], p[1] + 0.8, p[2]], v: [0, 1, 0], life: 0.4, s0: 1.4, s1: 2, c0: [1, 0.4, 0.08, 0.12], c1: [1, 0.25, 0.04, 0] }); }
+          if (element === 'Death' && Math.random() < 0.4 * k) { const p = at(Math.random()); fx.glow.emit({ p: [p[0], p[1] + 0.6, p[2]], v: [0, 0.3, 0], life: 0.6, s0: 1.6, s1: 2.6, c0: [0.5, 1, 0.2, 0.08], c1: [0.4, 0.9, 0.1, 0] }); }
         }
         tick += dt;
         if (onTick && k > 0 && tick >= 0.25) { tick -= 0.25; onTick(a, b, k); }
@@ -1451,10 +1461,28 @@ export class Elements {
   }
 
   // ---------------- Enemy / NPC visuals ----------------
-  orb(o, v, { color = [0.4, 1, 0.3], size = 1, dur = 4, onUpdate, gravity = 0 } = {}) {
+  // body: a real projectile model flown in place of the glow (an enemy's bullet, arrow or bolt): { mesh, off, done }. The mesh points
+  // +Z down the flight line; off is where it left the weapon relative to the true path, closed up over the first moments of flight.
+  orb(o, v, { color = [0.4, 1, 0.3], size = 1, dur = 4, onUpdate, gravity = 0, body = null } = {}) {
     const fx = this.fx;
     const pos = new THREE.Vector3(...o), vel = new THREE.Vector3(...v);
     let age = 0;
+    if (body) {
+      const step = (dt) => {
+        age += dt; pos.addScaledVector(vel, dt);
+        const sp = vel.length();
+        if (body.off) body.off.multiplyScalar(Math.exp(-dt * 5));
+        body.mesh.position.copy(pos); if (body.off) body.mesh.position.add(body.off);
+        if (sp > 0.01) body.mesh.quaternion.setFromUnitVectors(_oz, _od.copy(vel).divideScalar(sp));
+        if (this.wall && this.wall(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
+        if (onUpdate && onUpdate(pos, vel) === false) return false;
+        if (pos.y < this.h(pos.x, pos.z)) { fx.impact([pos.x, pos.y + 0.2, pos.z], color); return false; }
+        if (this.wall && this.wall(pos.x - vel.x * dt * 0.5, pos.y - vel.y * dt * 0.5, pos.z - vel.z * dt * 0.5)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
+        if (age > 0.12 && this.solid && this.solid(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
+        if (age >= dur - dt * 1.5) return false;
+      };
+      return fx.add({ dur: dur + 1, update: (dt) => { const r = step(dt); if (r === false) body.done(); return r; } });
+    }
     return fx.add({
       dur,
       update: (dt) => {

@@ -13,6 +13,7 @@ import { makeTerrainMaterial } from './terrain.js';
 import { skyMaterial } from './look.js';
 import { prepStage, buildStageExtras } from './stages.js';
 import { pickLandmarkSites, buildLandmarks } from './landmarks.js';
+import { pickHordeSites, buildHordeWorks } from './hordeworks.js';
 import { rockGeo, softBox, lathe, merge, paint, finish, setColor, noise3, clamp } from './geo.js';
 
 const SIZE = 468;
@@ -29,6 +30,7 @@ export class World {
   constructor(scene, seed, roundIdx, quality = 2, stage = roundIdx % BIOMES.length, opts = {}) {
     this.scene = scene;
     this.duel = !!opts.duel; // Duel Arena: a walled arena, no crates or boards
+    this.horde = !!opts.horde && !this.duel; // Horde Mode: the map is rebuilt with its own big structures (hordeworks.js)
     const na = DUEL_BIOMES.length;
     this.arenaIdx = this.duel ? (((opts.arena | 0) % na) + na) % na : 0; // which of the duel arenas (see DUEL_BIOMES)
     this.seed = seed;
@@ -71,7 +73,7 @@ export class World {
     if (this.duel) this.buildDuelCover();
     if (this.duel && this.arenaIdx) buildDuelScenery(this); // the new arenas' backdrop: buttes, ice crystals, pines
     if (!this.duel) buildStageExtras(this); // water, trees, the crashed UFO...
-    if (!this.duel) buildLandmarks(this);
+    if (!this.duel) { if (this.horde) buildHordeWorks(this); else buildLandmarks(this); }
     this.buildContactShadows();
     this.buildClutter();
     this.buildAmbient();
@@ -196,7 +198,7 @@ export class World {
     if (!this.duel) { // the duel arenas shape their own ground (arenas.js)
       this.flats.push({ x: this.spawn.x, z: this.spawn.z, r: 12, blend: 14, h: this.rawHeight(this.spawn.x, this.spawn.z) });
       this.flats.push({ x: this.arena.x, z: this.arena.z, r: this.arena.r + 2, blend: 16, h: this.rawHeight(this.arena.x, this.arena.z) });
-      pickLandmarkSites(this); // themed walk-in structures, each on its own patch of level ground
+      if (this.horde) pickHordeSites(this); else pickLandmarkSites(this); // themed walk-in structures, each on its own patch of level ground
     }
     this.buildPath();
     const segs = (this.duel ? [150, 200, 260] : [190, 260, 330])[this.quality];
@@ -266,20 +268,23 @@ export class World {
       for (const c of list) {
         const dx = x - c.x, dz = z - c.z;
         const d = Math.hypot(dx, dz), m = c.r + r;
-        if (y !== undefined && y >= c.top) continue; // over the crown of a tree or rock: nothing to push against
+        if (d >= m) continue;
+        if (y !== undefined && c.top !== Infinity) { const q = d > 1e-4 ? Math.min(d, r * 0.8) / d : 0; // judged where the body's leading edge is, against the thing's real shape
+          if (y >= this.propTop(c, d, x - dx * q, z - dz * q) - (c.stand ? 0.35 : 0)) continue; } // high enough to step onto a rock, tomb or stump, or nothing of it is here
         if (d < m && d > 1e-4) { x = c.x + (dx / d) * m; z = c.z + (dz / d) * m; }
       }
     }
     // Platforms block you from the side unless your feet are already high enough to step or land on top.
     if (this.platforms) {
       for (const pf of this.platsAt(x, z)) {
-        if (pf.air || (y !== undefined && y >= pf.top - 0.35)) continue;
+        if (pf.air || pf.shotOnly || (y !== undefined && y >= pf.top - 0.35)) continue;
         if (pf.box) {
           // A box (a building, a wall, a roof): push out through the nearest side, in its own frame.
           if (y !== undefined && pf.base !== undefined && y < pf.base - 0.5) continue; // walking under a raised floor or bridge
           const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), dx = x - pf.x, dz = z - pf.z;
           const lx = dx * c + dz * s, lz = -dx * s + dz * c, ox = pf.hw + r - Math.abs(lx), oz = pf.hd + r - Math.abs(lz);
           if (ox <= 0 || oz <= 0) continue;
+          if (pf.ramp && y !== undefined && y >= this.rampTop(pf, lz) - 0.4) continue; // on the stair, or low enough on it to step up
           let nx = lx, nz = lz;
           if (ox < oz) nx = Math.sign(lx || 1) * (pf.hw + r); else nz = Math.sign(lz || 1) * (pf.hd + r);
           x = pf.x + nx * c - nz * s; z = pf.z + nx * s + nz * c;
@@ -300,14 +305,72 @@ export class World {
     return [x, z];
   }
 
+  // Rocks, tombs, stumps, logs, chests: every prop up to 5 m tall can be stood on (Nutty 2026-11-14). Its top is highest in
+  // the middle and a little lower toward the rim, the way the models are, so you land on the thing and not on air above it.
+  propTop(c, d, x, z) {
+    if (c.stand === undefined) { if (c.gy === undefined) c.gy = this.heightAt(c.x, c.z); c.stand = c.top !== Infinity && c.top - c.gy <= 5 && c.top - c.gy > 0.1; }
+    if (!c.stand) return c.top;
+    if (x !== undefined) { const hm = c.hm === undefined ? this.propMap(c) : c.hm;
+      if (hm) { // the measured top of the model right here (the highest of the four samples round the spot); -Infinity where there is none
+        const n = hm.n, fx = Math.max(0, Math.min(n - 1.001, (x - c.x + c.r) / (2 * c.r) * (n - 1))), fz = Math.max(0, Math.min(n - 1.001, (z - c.z + c.r) / (2 * c.r) * (n - 1)));
+        const i = fx | 0, k = fz | 0; let t = -Infinity;
+        for (const a of [k * n + i, k * n + i + 1, (k + 1) * n + i, (k + 1) * n + i + 1]) { const v = hm.h[a]; if (v > t) t = v; }
+        return t;
+      } }
+    const k = Math.min(1, d / c.r);
+    return c.top - (c.top - c.gy) * 0.28 * k * k;
+  }
+  // The real shape of a standable prop (Nutty 2026-11-14: "certain objects I can't physically stand on, I'm floating over it"): the
+  // first time a body comes to it, rays are dropped on the models standing there and their tops kept in a small grid. A collider is only
+  // a round guess; this is what is actually drawn. null when nothing solid is found (then the rounded guess stays).
+  propMap(c) {
+    c.hm = null;
+    const n = Math.max(7, Math.min(25, Math.ceil((2 * c.r) / 0.22) + 1)), h = new Float32Array(n * n).fill(-Infinity), cap = c.top + 1, cell = (2 * c.r) / (n - 1), x0 = c.x - c.r, z0 = c.z - c.r;
+    const gnd = new Float32Array(n * n); for (let k = 0; k < n; k++) for (let i = 0; i < n; i++) gnd[k * n + i] = this.heightAt(x0 + i * cell, z0 + k * cell) + 0.12;
+    const v = this._pv || (this._pv = new THREE.Vector3()), M = this._pm || (this._pm = new THREE.Matrix4()), sph = this._ps || (this._ps = new THREE.Sphere());
+    let any = false;
+    // every triangle of a model is laid over the grid from above; each grid point keeps the highest surface over it
+    const lay = (geo, mw) => {
+      const P = geo.attributes.position, ix = geo.index, nv = P.count; let W = this._pw; if (!W || W.length < nv * 3) W = this._pw = new Float32Array(nv * 3);
+      for (let a = 0; a < nv; a++) { v.fromBufferAttribute(P, a).applyMatrix4(mw); W[a * 3] = (v.x - x0) / cell; W[a * 3 + 1] = v.y; W[a * 3 + 2] = (v.z - z0) / cell; }
+      const nt = (ix ? ix.count : nv) / 3;
+      for (let t = 0; t < nt; t++) {
+        const a = (ix ? ix.getX(t * 3) : t * 3) * 3, b = (ix ? ix.getX(t * 3 + 1) : t * 3 + 1) * 3, d = (ix ? ix.getX(t * 3 + 2) : t * 3 + 2) * 3;
+        const ax = W[a], az = W[a + 2], bx = W[b], bz = W[b + 2], dx = W[d], dz = W[d + 2];
+        const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, dx))), i1 = Math.min(n - 1, Math.floor(Math.max(ax, bx, dx))); if (i0 > i1) continue;
+        const k0 = Math.max(0, Math.ceil(Math.min(az, bz, dz))), k1 = Math.min(n - 1, Math.floor(Math.max(az, bz, dz))); if (k0 > k1) continue;
+        const det = (bz - dz) * (ax - dx) + (dx - bx) * (az - dz); if (Math.abs(det) < 1e-9) continue;
+        for (let k = k0; k <= k1; k++) for (let i = i0; i <= i1; i++) {
+          const l1 = ((bz - dz) * (i - dx) + (dx - bx) * (k - dz)) / det, l2 = ((dz - az) * (i - dx) + (ax - dx) * (k - dz)) / det, l3 = 1 - l1 - l2;
+          if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue;
+          const y = l1 * W[a + 1] + l2 * W[b + 1] + l3 * W[d + 1], q = k * n + i;
+          if (y <= cap && y > gnd[q] && y > h[q]) { h[q] = y; any = true; }
+        }
+      }
+    };
+    const near = (geo, mw) => { if (!geo.boundingSphere) geo.computeBoundingSphere(); sph.copy(geo.boundingSphere).applyMatrix4(mw);
+      return Math.hypot(sph.center.x - c.x, sph.center.z - c.z) < sph.radius + c.r * 1.42 && sph.center.y - sph.radius < cap && sph.center.y + sph.radius > c.gy; };
+    this.group.traverse((o) => { if (!o.isMesh || o === this.terrain || o === this.sky || !o.visible || o.isSkinnedMesh || o.noStand || !o.geometry.attributes.position) return;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material; if (!m || m.transparent || m.alphaTest > 0 || m.isShaderMaterial || m.depthWrite === false) return;
+      if (o.isInstancedMesh) { for (let q = 0; q < o.count; q++) { o.getMatrixAt(q, M); M.premultiply(o.matrixWorld); if (near(o.geometry, M)) lay(o.geometry, M); } }
+      else if (near(o.geometry, o.matrixWorld)) lay(o.geometry, o.matrixWorld); });
+    return any ? (c.hm = { n, h }) : null;
+  }
+  // How high a stair's walking slope is at local z (see buildkit.js ramp).
+  rampTop(pf, lz) { return Math.min(pf.top, pf.lo + pf.lift + (pf.top - pf.lo) * Math.max(0, Math.min(1, (lz + pf.hd) / (2 * pf.hd)))); }
   // Ground height under a body whose feet are at y, counting jumpable platforms.
   standY(x, z, y) {
     let h = this.heightAt(x, z);
+    { const list = this.grid.get(Math.floor(x / 8) * 1000 + Math.floor(z / 8));
+      if (list) for (const c of list) { if (c.top === Infinity) continue; const d = Math.hypot(x - c.x, z - c.z); if (d >= c.r) continue; const t = this.propTop(c, d, x, z); if (c.stand && y >= t - 0.35) h = Math.max(h, t); } }
     if (this.platforms) for (const pf of this.platsAt(x, z)) {
+      if (pf.shotOnly) continue;
       if (pf.box) {
         const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), dx = x - pf.x, dz = z - pf.z;
         const lx = dx * c + dz * s, lz = -dx * s + dz * c;
-        if (Math.abs(lx) > pf.hw - 0.1 || Math.abs(lz) > pf.hd - 0.1) continue;
+        if (pf.ramp) { if (Math.abs(lx) <= pf.hw && Math.abs(lz) <= pf.hd) { const t = this.rampTop(pf, lz); if (y >= t - 0.4) h = Math.max(h, t); } continue; }
+        const inset = pf.tread ? 0 : 0.1;
+        if (Math.abs(lx) > pf.hw - inset || Math.abs(lz) > pf.hd - inset) continue;
         const top = pf.top - (pf.pitch || 0) * Math.abs(lx); // pitched roofs fall away from the ridge along local x
         if (y >= top - 0.35) h = Math.max(h, top);
         continue;
@@ -326,7 +389,7 @@ export class World {
 
   // Where nothing may be placed (water, the crashed UFO): set by the stage (stages.js).
   noPlace(x, z, r = 0) {
-    if (this.landSites) for (const s of this.landSites) if (Math.hypot(x - s.x, z - s.z) < 14.5 + r) return true; // a landmark building stands here (landmarks.js)
+    if (this.landSites) for (const s of this.landSites) if (Math.hypot(x - s.x, z - s.z) < (s.R ? s.R + 1 : 14.5) + r) return true; // a landmark building stands here (landmarks.js)
     return !!(this.stage && this.stage.noPlace(x, z, r));
   }
 
@@ -401,7 +464,7 @@ export class World {
                   if (o.isBufferGeometry) { if (!o.boundingBox) o.computeBoundingBox(); hi = Math.max(hi, o.boundingBox.max.y); return; }
                   if (o.isMaterial || o.isTexture) return; for (const k of Array.isArray(o) ? o.keys() : Object.keys(o)) walk(o[k], d + 1); };
                 walk(def.parts, 0); walk(def.variants, 0); def._h = hi > 0.05 ? hi : 6; }
-              const c = this.colliders[this.colliders.length - 1]; c.gy = y; c.shot = y + def._h * s + 0.05; c.dome = def._h < 5; } }
+              const c = this.colliders[this.colliders.length - 1]; c.gy = y; c.shot = y + def._h * s + 0.05; c.dome = def._h < 5; if (def._h * s <= 5) c.top = c.shot; } }
           if (def.climb) {
             // A fork high in the trunk you can stand in (see Player.climb).
             const top = y + def.climb * s;
@@ -868,7 +931,7 @@ export class World {
     for (const c of this.colliders) cyl(c.x, c.z, c.r, this.colTop(c), -Infinity);
     if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && !t.soft) cyl(t.x, t.z, t.r, t.top, -Infinity); }
     if (this.platforms) for (const pf of this.platforms) {
-      if (pf.air) continue;
+      if (pf.air || pf.noShot) continue;
       if (!pf.box) { cyl(pf.x, pf.z, pf.r, pf.top - 0.05, pf.base !== undefined ? pf.base - 0.3 : -Infinity); continue; }
       const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = ox - pf.x, rz = oz - pf.z;
       const lx = rx * c + rz * s, lz = -rx * s + rz * c, ldx = dx * c + dz * s, ldz = -dx * s + dz * c;
@@ -908,7 +971,7 @@ export class World {
       const k = c.dome ? Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (y - c.gy) / Math.max(0.1, top - c.gy)), 2))) : 1; // a boulder narrows toward its top
       if (Math.hypot(x - c.x, z - c.z) < c.r * k + r) return true; }
     if (this.platforms) for (const pf of this.platsAt(x, z)) {
-      if (pf.air || y > pf.top - 0.05) continue;
+      if (pf.air || pf.noShot || y > pf.top - 0.05) continue;
       if (pf.box) {
         if (pf.base !== undefined && y < pf.base - 0.3) continue;
         const c = Math.cos(pf.yaw || 0), s = Math.sin(pf.yaw || 0), rx = x - pf.x, rz = z - pf.z;
@@ -1042,6 +1105,7 @@ export class World {
     return c;
   }
 
+  get mapSpan() { return SIZE * 0.9; } // metres across the minimap
   toMap(x, z, S = 220) { return [(x / (SIZE * 0.9) + 0.5) * S, (z / (SIZE * 0.9) + 0.5) * S]; }
 
   update(dt, t) {

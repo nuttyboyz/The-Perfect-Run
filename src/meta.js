@@ -16,7 +16,7 @@ export const META = [
   { id: 'learner', name: 'Quick Learner', icon: '✎', max: 5, base: 70, per: '+12% XP from kills', lore: 'The Archivist has read your story before. She whispers the next page.', apply: (s, r) => (s.xpGain *= 1 + 0.12 * r) },
   { id: 'dashmaster', name: 'Fleet Step', icon: '≡', max: 4, base: 70, per: '+12% dash distance', lore: 'The shortest path between two breaths.', dash: true },
   { id: 'headstart', name: 'Head Start', icon: '◎', max: 5, base: 40, per: '+12 PC at the start of a run', lore: 'The Archivist slips a few coins into your pocket. She will not say where from.', pc: 12 },
-  { id: 'bed', name: 'Spare Bed', icon: '▭', max: 2, base: 90, per: '+1 starting bed', lore: 'Somewhere out there is a warm place with your name on it.', beds: 1 },
+  { id: 'bed', name: 'Another Chance', icon: '✚', max: 2, base: 90, per: '+1 revive every run', lore: 'Death keeps a waiting list. The Archivist keeps losing your page.', beds: 1 }, // id stays 'bed' so ranks already bought carry over
   { id: 'magnet', name: 'Lodestone', icon: '⌖', max: 3, base: 55, per: 'Pickups are drawn from farther away', lore: 'Good things want to find you. Help them.', magnet: 1 },
   { id: 'seeker', name: 'Seeker', icon: '✦', max: 5, base: 100, per: '+20% more Perfect Point shards', lore: 'The crystals of old runs surface where you walk. Walk more.', seeker: 1 },
 ];

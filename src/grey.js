@@ -233,3 +233,58 @@ function stretchHands(mesh, kit) {
   }
   p.needsUpdate = true; mesh.geometry.computeBoundingSphere();
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The new Visitor (Nutty 2026-11-14): the sinewy Mixamo body #10 (m10.glb) in medium grey with huge wet black alien eyes.
+// The body's own scanned texture is turned to grey once (its detail kept, its red gone) and the two eyes, shaped in Blender to
+// lie on the skull and wrap round its sides, are hung on the head bone. Used by the hero, the Crash Site boss and its echo.
+const ALIEN_EYE = { headZ: 1.556, top: 1.767, x: 0.053, h: 0.45, w: 0.047, t: 0.034, tilt: 0.55 }; // metres on the 1.77 m body: centre off the nose line, height up the head (0 = head bone, 1 = crown), half length, half height, slant
+const _greyTex = new WeakMap();
+function greyTexture(src) {
+  if (_greyTex.has(src)) return _greyTex.get(src);
+  let out = src;
+  try {
+    const im = src.image, w = im.width, h = im.height, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h), p = d.data;
+    for (let i = 0; i < p.length; i += 4) { const l = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2], k = Math.max(0, Math.min(1, (l - 38) / 141)), g = 74 + 76 * k; p[i] = g; p[i + 1] = g; p[i + 2] = g + 2; }
+    x.putImageData(d, 0, 0);
+    out = new THREE.CanvasTexture(c); out.flipY = src.flipY; out.colorSpace = src.colorSpace; out.wrapS = src.wrapS; out.wrapT = src.wrapT; out.anisotropy = src.anisotropy; out.channel = src.channel;
+  } catch (e) { console.warn('grey texture failed', e); }
+  _greyTex.set(src, out); return out;
+}
+let _eyeMat = null;
+export function buildAlien(scene) {
+  scene.updateMatrixWorld(true);
+  scene.traverse((o) => { if (!o.isMesh) return; const conv = (m) => { const n = m.clone(); if (n.map) n.map = greyTexture(n.map); else n.color.set(0x8a8d92); if (n.emissiveMap || n.emissive) n.emissive.set(0); n.needsUpdate = true; return n; };
+    o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material); });
+  let head = null; scene.traverse((o) => { if (o.isBone && boneKey(o.name) === 'Head') head = o; });
+  if (!head) return;
+  const hp = head.getWorldPosition(new THREE.Vector3()), k = 1;
+  _eyeMat = _eyeMat || new THREE.MeshPhysicalMaterial({ color: 0x020203, roughness: 0.1, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -60 }); // drawn a hair nearer than the skin, so no grey pokes through the lens
+  // The face under the eyes, as plain triangles in the pose the body is built in, so each lens can be laid exactly on the skin.
+  const U = hp.y / ALIEN_EYE.headZ, tri = [], v = new THREE.Vector3();
+  scene.traverse((o) => { if (!o.isSkinnedMesh) return; const P = o.geometry.attributes.position, ix = o.geometry.index, n = ix ? ix.count : P.count, w = [];
+    for (let i = 0; i < P.count; i++) { o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld); w.push(v.x, v.y, v.z); }
+    for (let i = 0; i < n; i += 3) { const a = ix ? ix.getX(i) : i, b = ix ? ix.getX(i + 1) : i + 1, c = ix ? ix.getX(i + 2) : i + 2;
+      if (w[a * 3 + 1] < hp.y || w[a * 3 + 2] < hp.z - 0.02 * U) continue; tri.push(w[a * 3], w[a * 3 + 1], w[a * 3 + 2], w[b * 3], w[b * 3 + 1], w[b * 3 + 2], w[c * 3], w[c * 3 + 1], w[c * 3 + 2]); } });
+  const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tri), 3));
+  const face = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })), rc = new THREE.Raycaster(), O = new THREE.Vector3(), D = new THREE.Vector3();
+  // Each eye is a big slanted almond drawn straight onto the face: every point is found on the skin itself and lifted a hair (more toward
+  // the middle, for the wet bulge), so the lens follows the brow and cheek and no skin can show through it. (Nutty's approved look, 2026-11-14.)
+  const E = ALIEN_EYE, NS = 20, NT = 8, az = hp.z + 0.03 * U, top = hp.y + (ALIEN_EYE.top - ALIEN_EYE.headZ) * U;
+  for (const sg of [-1, 1]) {
+    const pos = [], idx = [], yc = hp.y + (top - hp.y) * E.h;
+    rc.set(O.set(hp.x + sg * E.x * U, yc, az + 0.5 * U), D.set(0, 0, -1)); const h0 = rc.intersectObject(face, false)[0]; if (!h0) continue;
+    const R = Math.hypot(h0.point.x - hp.x, h0.point.z - az), th0 = Math.atan2(h0.point.x - hp.x, h0.point.z - az), ct = Math.cos(E.tilt), st = Math.sin(E.tilt);
+    for (let a = 0; a <= NS; a++) for (let b = 0; b <= NT; b++) {
+      const s = Math.sin((a / NS - 0.5) * Math.PI), t = (b / NT) * 2 - 1, w = Math.pow(1 - s * s, 0.62); // even rows at the two tips, where the lens narrows
+      const ex = E.w * U * s, ey = E.t * U * w * t, du = ex * ct - ey * st, dv = ex * st + ey * ct, th = th0 + sg * du / R;
+      D.set(Math.sin(th), 0, Math.cos(th)); O.set(hp.x, yc + dv, az).addScaledVector(D, 0.5 * U); rc.set(O, D.negate()); const h = rc.intersectObject(face, false)[0];
+      const c = (0.0025 + 0.011 * w * (1 - t * t)) * U; if (h) pos.push(h.point.x - D.x * c, h.point.y, h.point.z - D.z * c); else pos.push(hp.x - D.x * (R + c), yc + dv, az - D.z * (R + c));
+    }
+    for (let a = 0; a < NS; a++) for (let b = 0; b < NT; b++) { const p0 = a * (NT + 1) + b, p1 = p0 + NT + 1; if (sg > 0) idx.push(p0, p1, p0 + 1, p1, p1 + 1, p0 + 1); else idx.push(p0, p0 + 1, p1, p1, p0 + 1, p1 + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, _eyeMat); m.name = 'alienEye'; scene.add(m); head.attach(m);
+  }
+}

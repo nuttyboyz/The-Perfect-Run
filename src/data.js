@@ -4,9 +4,10 @@ export const CONFIG = {
   maxPlayers: 5,
   rounds: 6,
   voteSeconds: 10,
-  pcPerKill: 2,
+  pcPerKill: 1, // was 2 (Nutty 2026-11-13: three times the enemies made everyone rich)
   pcPerBoss: 300, ppPerBoss: 3,
-  cratePrice: 100, // Nutty 2026-11-12 14:45 (was 30, then 50); game.js price() raises it every round
+  cratePrice: 50, // Normal (Nutty 2026-11-13; was 100); game.js price() raises it every round
+  cratePriceHard: 100, // Hard
   bedPrice: 60,
   baseHp: 100,
   walk: 6.27,
@@ -104,6 +105,19 @@ export const CLASSES = [
 export const CLASS_BY_ID = Object.fromEntries(CLASSES.map((c) => [c.id, c]));
 // Customize (Element page): every cooldown an element owns. Its first three are the ones it starts with; the rest come from the Elemental Vault.
 for (const c of CLASSES) c.pool = [c.q, c.r, c.e, ...(c.more || [])];
+// Horde Mode: a player starts with no element at all (Dash only) and buys cooldowns from any element at the Elements stall.
+export const NO_CLASS = { id: 'none', name: 'No element', element: 'None', color: 0x8a8f98, accent: 0xe8ecf2, css: '#cfd3d8', tagline: '', q: null, r: null, e: null, more: [], pool: [] };
+CLASS_BY_ID.none = NO_CLASS;
+export const AB_CLASS = {}, AB_BY_ID = {};
+for (const c of CLASSES) for (const a of c.pool) { AB_CLASS[a.id] = c.id; AB_BY_ID[a.id] = a; }
+// A mixed set of cooldowns ([q, r, e] ids, null = empty slot). It takes its look (dash, bursts, colour) from the first cooldown carried.
+export function mixClass(ids) {
+  const ab = (ids || []).map((id) => AB_BY_ID[id] || null), first = ab.find(Boolean);
+  const base = first ? CLASS_BY_ID[AB_CLASS[first.id]] : NO_CLASS;
+  return { ...base, q: ab[0] || null, r: ab[1] || null, e: ab[2] || null, mix: true, pool: [] };
+}
+// The elements (class ids) a set of cooldowns belongs to.
+export const elemsOf = (cls) => new Set(['q', 'r', 'e'].map((k) => cls && cls[k] && AB_CLASS[cls[k].id]).filter(Boolean));
 // The element with a player's own three picks ([q, r, e] ids) in its slots. Anything invalid or doubled falls back to the standard three.
 export function classWith(id, abs) {
   const c = CLASS_BY_ID[id];
@@ -307,7 +321,7 @@ export const MOBS = {
   venomfang: { name: 'Venomfang', tier: 2, model: 'grunt', hp: 90, speed: 5.2, dmg: 9, range: 2.0, rate: 0.9, radius: 0.55, height: 1.7, scale: 1.0, color: 0x9ad040, w: 0.9, cap: 4, poisonHit: { n: 5, every: 0.8, k: 0.25 } },
   necro: { name: 'Necromancer', tier: 3, model: 'grunt', hp: 120, speed: 4.2, dmg: 0, range: 30, rate: 1, radius: 0.55, height: 2.0, scale: 1.1, color: 0x7dffb0, w: 0.8, cap: 2, summon: { cd: 7, cap: 4, lo: 12, hi: 20 } },
   boneling: { name: 'Boneling', tier: 1, model: 'runner', hp: 16, speed: 6.6, dmg: 5, range: 1.5, rate: 0.7, radius: 0.35, height: 1.1, scale: 0.6, color: 0xe8e0cc, summoned: true, cost: 0.3 },
-  archer: { name: 'Ashen Archer', tier: 2, model: 'spitter', hp: 70, speed: 4.6, dmg: 17, range: 40, rate: 2.5, radius: 0.55, height: 1.8, scale: 1.0, ranged: true, color: 0x8a7a50, w: 0.9, cap: 3, hold: [15, 26], pspd: 34, pstyle: 2 },
+  archer: { name: 'Ashen Archer', tier: 2, model: 'spitter', hp: 70, speed: 4.6, dmg: 17, range: 40, rate: 2.5, radius: 0.55, height: 1.8, scale: 1.0, ranged: true, color: 0x8a7a50, w: 0.9, cap: 3, hold: [15, 26], pspd: 32, pstyle: 2 },
   // Trolls: big, tough, slow-swinging brawlers that rotate in with (and replace) the Ghoul.
   troll: { name: 'Cave Troll', tier: 2, model: 'brute', hp: 300, speed: 3.6, dmg: 22, range: 2.8, rate: 1.7, radius: 1.0, height: 2.7, scale: 1.55, color: 0x7a6a4a, w: 0.9, cap: 4, regen: 0.02 },
   ogre: { name: 'Ogre Smasher', tier: 3, model: 'brute', hp: 460, speed: 3.2, dmg: 20, range: 3.2, rate: 2.2, radius: 1.25, height: 3.2, scale: 1.9, color: 0x8a5a4a, w: 0.8, cap: 2, slam: { r: 4.6, d: 1.1, dmg: 26, cd: 5 } },
@@ -319,7 +333,7 @@ export const MOBS = {
   // (The hero-built ones, cutthroat, shadow blade and the knights, carry 200k+ vertices each, hence the low caps.)
   bandit: { name: 'Cutthroat', tier: 1, model: 'grunt', hp: 56, speed: 5.8, dmg: 9, range: 2.0, rate: 0.9, radius: 0.5, height: 1.84, scale: 1, color: 0x8a5a3a, w: 1.0, cap: 2, hard: 4, share: 0.2, pack: [1, 2] },
   rifleman: { name: 'Deserter Rifleman', tier: 2, model: 'spitter', hp: 85, speed: 4.6, dmg: 16, range: 42, rate: 2.0, radius: 0.5, height: 1.9, scale: 1, ranged: true, color: 0x8a8a7a, w: 0.9, cap: 3, hold: [16, 28], pspd: 44, pstyle: 2 },
-  assassin: { name: 'Shadow Blade', tier: 2, model: 'runner', hp: 75, speed: 8.0, dmg: 16, range: 2.0, rate: 0.8, radius: 0.45, height: 1.74, scale: 0.95, color: 0x2a2a3a, w: 0.9, cap: 1, hard: 2, leap: { min: 5, max: 14, cd: 5, wind: 0.4, t: 0.5, h: 3.0 } },
+  assassin: { gone: true, name: 'Shadow Blade', tier: 2, model: 'runner', hp: 75, speed: 8.0, dmg: 16, range: 2.0, rate: 0.8, radius: 0.45, height: 1.74, scale: 0.95, color: 0x2a2a3a, w: 0.9, cap: 1, hard: 2, leap: { min: 5, max: 14, cd: 5, wind: 0.4, t: 0.5, h: 3.0 } },
   witch: { name: 'Hedge Witch', tier: 3, model: 'spitter', hp: 150, speed: 4.0, dmg: 19, range: 30, rate: 1.6, radius: 0.5, height: 1.72, scale: 1, ranged: true, color: 0xc040ff, w: 0.8, cap: 2, hold: [14, 24], pspd: 18, pstyle: 1 },
   // Knights (the Frozen Peaks' fallen order): plate-armoured swordsmen with a shield, and the dread knight that smashes the ground.
   knight: { name: 'Knight Errant', tier: 2, model: 'brute', hp: 260, speed: 4.4, dmg: 20, range: 2.6, rate: 1.3, radius: 0.65, height: 2.0, scale: 1.15, color: 0x8896b0, w: 0.9, cap: 1, hard: 3, guard: 0.55, turn: 1.5 },
@@ -339,7 +353,7 @@ export const STAGE_MOBS = {
   desert: ['bandit', 'spitter', 'rifleman', 'pouncer', 'ogre', 'trooper', 'riot'],
   frozen: ['crawler', 'knight', 'bulwark', 'juggernaut', 'dreadknight', 'warmaiden'],
   volcanic: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager', 'riot'],
-  abyss: ['runner', 'assassin', 'hexer', 'witch'],
+  abyss: ['runner', 'hexer', 'witch'],
   springs: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll', 'trooper'],
   space: ['zorp', 'skree', 'gloop', 'lanky', 'stinger', 'brainer', 'warden', 'gorgle'], // Gruk out (Nutty 2026-11-05); Gorgle in (picked 2026-11-05)
   waterfall: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll'],
@@ -421,11 +435,11 @@ export const MOB_TYPES = Object.keys(MOBS);
 // damage and swing speed; ranged ones turn the mob into a shooter that keeps its distance. `gear` is the prop mobrig.js builds.
 export const MOB_ARMS = {
   // soldiers: guns only
-  rifle: { cls: 'soldier', gear: 'arifle', ranged: true, range: 44, rate: 2.0, dmgK: 1.0, hold: [16, 28], pspd: 72, pstyle: 3 },
-  smg: { cls: 'soldier', gear: 'smg', ranged: true, range: 28, rate: 0.75, dmgK: 0.45, hold: [9, 17], pspd: 66, pstyle: 3 },
-  pistol: { cls: 'soldier', gear: 'pistol', ranged: true, range: 30, rate: 1.25, dmgK: 0.65, hold: [10, 18], pspd: 62, pstyle: 3 },
-  shotgun: { cls: 'soldier', gear: 'shotgun', ranged: true, range: 16, rate: 1.9, dmgK: 1.4, hold: [6, 12], pspd: 58, pstyle: 3 },
-  crossbow: { cls: 'human', gear: 'crossbow', ranged: true, range: 40, rate: 2.4, dmgK: 1.3, hold: [14, 24], pspd: 46, pstyle: 2 },
+  rifle: { cls: 'soldier', gear: 'arifle', ranged: true, range: 44, rate: 2.0, dmgK: 1.0, hold: [16, 28], pspd: 60, pstyle: 3 },
+  smg: { cls: 'soldier', gear: 'smg', ranged: true, range: 28, rate: 0.75, dmgK: 0.45, hold: [9, 17], pspd: 56, pstyle: 3 },
+  pistol: { cls: 'soldier', gear: 'pistol', ranged: true, range: 30, rate: 1.25, dmgK: 0.65, hold: [10, 18], pspd: 52, pstyle: 3 },
+  shotgun: { cls: 'soldier', gear: 'shotgun', ranged: true, range: 16, rate: 1.9, dmgK: 1.4, hold: [6, 12], pspd: 48, pstyle: 3 },
+  crossbow: { cls: 'human', gear: 'crossbow', ranged: true, range: 40, rate: 2.4, dmgK: 1.3, hold: [14, 24], pspd: 42, pstyle: 2 },
   // Hand weapons, each modelled for the bodies that carry it (mobarms.js; Nutty 2026-11-13: realistic, made for the enemy, none from the Weapon Wall).
   // swords for the smaller enemies
   arming: { gear: 'w_arming', reach: 0.5, rate: 1.0, dmgK: 1.1 }, falchion: { gear: 'w_falchion', reach: 0.45, rate: 1.05, dmgK: 1.15 },
@@ -450,7 +464,7 @@ export const MOB_ARM_POOL = {
   // the dead: scavenged tools, each body its own kind (the soldier's field kit, the kitchen and the yard, the garage, the officer's belt)
   grunt: ['machete', 'shovel', 'hatchet', 'pipe', 'crowbar'], runner: ['cleaver', 'hatchet', 'bat', 'machete'], shambler: ['bat', 'wrench', 'crowbar', 'fireaxe', 'sledge', 'pipe'], deadcop: ['baton', 'crowbar', 'pistol'],
   // smaller enemies carry swords; the brutes carry axes and long swords
-  goblin: ['scimitar', 'shortsword', 'falchion'], bandit: ['cutlass', 'sabre', 'hatchet'], assassin: ['katana', 'ninjato', 'crossbow'],
+  goblin: ['scimitar', 'shortsword', 'falchion'], bandit: ['cutlass', 'sabre', 'hatchet'],
   knight: ['arming', 'falchion', 'mace', 'waraxe'], warmaiden: ['arming', 'shortsword', 'spear', 'waraxe'],
   troll: ['greataxe', 'battleaxe', 'greatsword'], gobchief: ['longsword', 'battleaxe', 'greataxe'], dreadknight: ['greatsword', 'greataxe', 'warhammer'],
   rifleman: ARMS_OF('soldier'), bulwark: ['pistol', 'smg', 'shotgun'], juggernaut: ['shotgun', 'rifle', 'smg'], trooper: ARMS_OF('soldier'), riot: ARMS_OF('soldier'),
@@ -647,7 +661,7 @@ export const EXTRA_BY_CLASS = {
 export function puInfo(pu, cls) {
   if (pu.kind === 'extra') return EXTRA_BY_CLASS[cls.id] || { name: pu.name, desc: pu.desc };
   if (pu.kind !== 'ability') return { name: pu.name, desc: pu.desc };
-  const nm = pu.key === 'd' ? 'Dash' : cls[pu.key].name;
+  const nm = pu.key === 'd' ? 'Dash' : cls[pu.key] ? cls[pu.key].name : 'Power ' + ({ q: 1, r: 2, e: 3 })[pu.key];
   return pu.mode === 'dmg'
     ? { name: nm + ' Mastery', desc: nm + ' hits ' + (pu.key === 'd' ? '30' : '25') + '% harder' }
     : { name: nm + ' Haste', desc: nm + ' recharges 15% faster' };
@@ -770,18 +784,32 @@ const MASTERY = POWERUPS.filter((p) => p.kind === 'ability').map((p) => p.id);
 // The "one more" cards belong to each element's first cooldown. They are only offered while that cooldown is one of the three equipped.
 const SIGNATURE = { pyre: 'fireball', bastion: 'boulder', gale: 'cyclone', tempest: 'shockwave', necro: 'lifedrain', rime: 'shards' };
 export function hasSignature(cls) { return !!cls && ['q', 'r', 'e'].some((k) => cls[k] && cls[k].id === SIGNATURE[cls.id]); }
-export function levelOffer(cls) {
+// Horde Mode (Nutty 2026-11-14): nothing elemental is offered until an element is carried, and then only for the elements you or a
+// teammate carry. `own` = the class ids carried by the whole party; without it (every other mode) everything is allowed.
+const EL_OF = { fire: 'pyre', frost: 'rime', storm: 'tempest', earth: 'bastion', wind: 'gale' };
+const CAST_PUS = new Set(['eldmg', 'extra', 'wildmagic', 'feast', 'momentum', 'resonance', 'rr_echo']);
+const SLOT_PUS = { rr_qover: 'q', rr_fover: 'r', rr_gover: 'e' };
+export function puOk(pu, cls, own) {
+  if (!own) return true;
+  if (pu.kind === 'abpu') return own.has(pu.cls) && ['q', 'r', 'e'].some((k) => cls && cls[k] && cls[k].id === pu.ab);
+  if (pu.kind === 'element') return own.has(EL_OF[pu.el]);
+  if (pu.kind === 'ability') return pu.key === 'd' || !!(cls && cls[pu.key]);
+  if (SLOT_PUS[pu.id]) return !!(cls && cls[SLOT_PUS[pu.id]]);
+  if (CAST_PUS.has(pu.id)) return !!cls && ['q', 'r', 'e'].some((k) => cls[k]);
+  return true;
+}
+export function levelOffer(cls, own) {
   const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const mine = cls ? shuffle(['q', 'r', 'e'].map((k) => cls[k] && AB_PU_BY_AB[cls[k].id]).filter(Boolean)) : [];
   const el = mine.slice(0, mine.length ? 1 + (Math.random() < 0.5 ? 1 : 0) : 0);
-  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', ...(hasSignature(cls) ? ['extra'] : []), 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS]);
+  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', ...(hasSignature(cls) ? ['extra'] : []), 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS].filter((p) => puOk(p, cls, own)));
   return shuffle([...el, ...pool.slice(0, 10 - el.length)]);
 }
 
 // A reroll: ten different picks drawn from the 30 reroll power-ups, never any that are on screen now.
-export function rerollOffer(current, cls) {
+export function rerollOffer(current, cls, own) {
   const cur = new Set((current || []).map((o) => o.id));
-  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id) && (p.id !== 'rr_echo' || hasSignature(cls)));
+  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id) && (p.id !== 'rr_echo' || hasSignature(cls)) && puOk(p, cls, own));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
   return pool.slice(0, 10);
 }
@@ -805,9 +833,9 @@ export function freshStats() {
 // Each run visits the six stages in its own order, shuffled from the run seed.
 // Bosses are tied to their stage, so a stage always brings its own boss.
 // The last round is always Fear; every other round fights the boss of its stage.
-// The run seed's low bits carry the run's settings so every seat agrees on them: bit 0 = the hidden space map is in the pool, bit 1 = Hard mode.
-export const SEED_SPACE = 1, SEED_HARD = 2;
-export const seedFlags = (seed) => ({ space: ((seed | 0) & SEED_SPACE) !== 0, hard: ((seed | 0) & SEED_HARD) !== 0 });
+// The run seed's low bits carry the run's settings so every seat agrees on them: bit 0 = the hidden space map is in the pool, bit 1 = Hard mode, bit 2 = Horde Mode.
+export const SEED_SPACE = 1, SEED_HARD = 2, SEED_HORDE = 4;
+export const seedFlags = (seed) => ({ space: ((seed | 0) & SEED_SPACE) !== 0, hard: ((seed | 0) & SEED_HARD) !== 0, horde: ((seed | 0) & SEED_HORDE) !== 0 });
 // Stages 0-5 are the original six, 6 the Hot Springs Valley, 7 the space map. Boss indices: stage s fights BOSSES[s] (6 is Fear, so the
 // springs map uses 7 and the space map 8); the last round is always Fear.
 // Which boss each stage brings (BOSSES index per BIOMES index). The four newest maps borrow a boss until they get their own.
@@ -827,6 +855,25 @@ export function stageIdx(runSeed, round) {
   return run[((round % 6) + 6) % 6];
 }
 
+// Horde Mode (Nutty 2026-11-14): endless waves on one map. One weapon and Dash to start; everything else is bought at the four stalls.
+// rest: seconds between waves. grow: health and damage multiply by this every wave. quota: enemies in wave w for n players.
+// field: how many are alive at once. bosses: BOSSES indices a boss wave can draw (never Thermes or The Visitor).
+export const HORDE = {
+  rest: 30, bossEvery: 5, grow: 1.2, pcKill: 2, bossWaveK: 0.5, // bossWaveK: while a boss is up, its extra enemies pay half the coins
+  quota: (w) => 50 * w, // wave 1 is 50 enemies, and every wave adds 50 (Nutty 2026-11-13)
+  field: (w, n) => Math.round(Math.min(150, 30 + 10 * w) * (0.6 + 0.4 * n)),
+  crate: 15, bossPc: 500, flyFrom: 7, // chests are a flat 15 PC; a boss pays 500 PC and one Deity Blessing
+  // Durability: every weapon wears out and must be repaired or replaced at a stall. A gun lasts gunMags magazines, a blade meleeSwings swings.
+  gunMags: 20, gunMinShots: 80, meleeSwings: 400, repair: 0.5,
+  price: { melee: 100, gun: 250, elem: 800, gear: 1000, dash: 500 }, // Nutty 2026-11-14 08:16 (was 300 / 500 / 1000 / 2000)
+  bosses: [9, 10, 11, 12, 13, 14, 5],
+  shops: [
+    { id: 'melee', name: 'Weapons', color: '#e5484d', hex: 0xe5484d, npc: 'Blacksmith' },
+    { id: 'gun', name: 'Guns', color: '#3f86ff', hex: 0x3f86ff, npc: 'Quartermaster' },
+    { id: 'elem', name: 'Elements', color: '#3ecf6a', hex: 0x3ecf6a, npc: 'Sage' },
+    { id: 'gear', name: 'Gear', color: '#a66bff', hex: 0xa66bff, npc: 'Tinkerer' },
+  ],
+};
 // Every character can dash; the burst of power it shows matches their element.
 export const DASH = { cd: 3, dist: 7, t: 0.17, dmg: 30 };
 

@@ -17,9 +17,10 @@ import { assetsReady, whenAssets } from './assets.js';
 import { spawnDragon } from './dragon.js';
 import { spawnGolem } from './golem.js';
 import { spawnPolaris } from './polaris.js';
-import { classWith, FLAME } from './data.js';
+import { classWith, FLAME, MOB_ARM_IDS } from './data.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { igniteFx } from './flameweapon.js';
-import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf } from './data.js';
+import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, STAGE_POOL, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf , HORDE, NO_CLASS, AB_CLASS, AB_BY_ID, mixClass, elemsOf, puOk, loadoutFull as loadoutFull3 } from './data.js';
 import { SoloParty, RoomParty, RoomLobby, BCParty, BCLobby, PeerParty, getRoom, makeCode, PeerSlotLobby } from './net.js';
 import { Audio } from './audio.js';
 import { MenuScene } from './menu.js';
@@ -39,6 +40,8 @@ import { Profile } from './profile.js';
 import { AllyTags } from './allytags.js';
 import { HealthPickups } from './pickups.js';
 import { Unlocks, charUnlocked, gearUnlocked, speedUnlocked } from './unlocks.js';
+import { buildStalls, updateStalls } from './hordeshops.js';
+import { puIconURL } from './puicons.js';
 import { installFog, SUN_OFFSET, buildComposer, applyBiomeLook, healNormals } from './look.js';
 import { addPP, runReward } from './meta.js';
 import { Bot } from './bot.js';
@@ -58,6 +61,9 @@ const LS = {
   get(k, d) { try { const v = devKey(k) ? localStorage.getItem('perfectrun.' + k) : Profile.get('perfectrun.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { if (devKey(k)) localStorage.setItem('perfectrun.' + k, JSON.stringify(v)); else Profile.set('perfectrun.' + k, JSON.stringify(v)); } catch {} },
 };
+
+// A kill pays whole coins. With 1 PC a kill, +30% PC must still count: 1.3 pays 1, and a second coin 3 times in 10.
+const pcRoll = (v) => Math.floor(v) + (Math.random() < v - Math.floor(v) ? 1 : 0);
 
 export class Game {
   // opts: { root (this seat's DOM), seat (1 | 2), pad (gamepad index | 'any' | null), spawnSeat (couch co-op) }
@@ -377,7 +383,7 @@ export class Game {
     }
     LS.set(this.lsKey('skins'), st.skins);
     this.loadout = st.lo;
-    LS.set(this.lsKey('loadout'), { ch: this.loadout.ch, c: this.loadout.c, w: this.loadout.w });
+    LS.set(this.lsKey('loadout'), { ch: this.loadout.ch, c: this.loadout.c, w: this.hordeMode ? [] : this.loadout.w });
     if (this.party) this.party.set({ ch: this.loadout.ch, sk: this.loadout.sk, c: this.loadout.c, wp: this.loadout.w });
     this.menu.show(this.loadout);
   }
@@ -390,6 +396,7 @@ export class Game {
 
   // Customize (Element page): the element this player has picked, with their own three cooldowns in its slots. Remembered per element.
   myClass() {
+    if (this.hordeMode && !this.isBot) return this.player && this.mode === 'game' ? this.player.cls : NO_CLASS; // Horde Mode: no element until one is bought
     if (this.isBot) return CLASS_BY_ID[this.loadout.c];
     if (!this.abPicks) this.abPicks = LS.get(this.lsKey('abils'), {}) || {};
     return classWith(this.loadout.c, this.abPicks[this.loadout.c]);
@@ -403,6 +410,112 @@ export class Game {
     LS.set(this.lsKey('abils'), this.abPicks);
     return true;
   }
+  // Is this loadout ready to play? A run or duel needs three items off the wall; Horde Mode starts with exactly one weapon.
+  loadOk(ids) {
+    if (!this.hordeMode) return loadoutFull3(ids);
+    return Array.isArray(ids) && ids.length === 1 && !!WEAPON_BY_ID[ids[0]] && TIER(WEAPON_BY_ID[ids[0]]) !== 3;
+  }
+  pcKill() { return this.horde ? HORDE.pcKill * (this.phase === 'boss' ? HORDE.bossWaveK : 1) : CONFIG.pcPerKill; } // Horde: the extra enemies of a boss wave pay half (Nutty 2026-11-14)
+  // Horde Mode: the elements carried by the whole party (class ids), for the chest and level-up rule. null in every other mode.
+  hordeOwn() {
+    if (!this.horde) return null;
+    const own = elemsOf(this.player && this.player.cls);
+    if (this.party) for (const q of this.party.peers()) if (!q.me && q.p && Array.isArray(q.p.ha)) for (const id of q.p.ha) if (AB_CLASS[id]) own.add(AB_CLASS[id]);
+    return own;
+  }
+  // What a chest holds, rolled the moment it is opened (r: seeded 0..1).
+  rollCrate(r) {
+    const p = this.player, own = this.hordeOwn();
+    const mine = ['q', 'r', 'e'].map((k) => p.cls[k] && AB_PU_BY_AB[p.cls[k].id]).filter(Boolean);
+    if (mine.length && r() < 0.42) return mine[Math.floor(r() * mine.length)];
+    if (r() < 0.5) {
+      const sp = CRATE_POOL.filter((q) => puOk(q, p.cls, own));
+      let tot = 0; for (const q of sp) tot += q.crate || 1;
+      let x = r() * tot, pu = sp[sp.length - 1];
+      for (const q of sp) { x -= q.crate || 1; if (x <= 0) { pu = q; break; } }
+      return pu;
+    }
+    const rest = POWERUPS.filter((q) => q.kind !== 'special' && puOk(q, p.cls, own));
+    return rest[Math.floor(r() * rest.length)];
+  }
+  // The stall the player is standing at, if any.
+  stallNear(p) {
+    let best = null, bd = 5.2;
+    for (const st of this.stalls || []) { const d = Math.hypot(st.x - p.pos.x, st.z - p.pos.z); if (d < bd && Math.abs(st.y - p.pos.y) < 4) { bd = d; best = st; } }
+    return best;
+  }
+  // Everything a stall sells: { id, name, desc, cost, own, locked }.
+  stallItems(kind) {
+    const p = this.player, cost = HORDE.price[kind];
+    if (kind === 'elem') {
+      const have = new Set(['q', 'r', 'e'].map((k) => p.cls[k] && p.cls[k].id).filter(Boolean));
+      // Every element's dash is sold here too (Nutty 2026-11-14): one at a time, the new one replaces the old.
+      const DD = { Fire: 'A streak of flame that burns what you pass and leaves a burning trail.', Earth: 'A rock slide that crushes what you pass and leaves jagged stone.', Storm: 'A lightning blink that shocks what you pass and leaves crackling arcs.',
+        Frost: 'A sheet of ice that slows what you pass and leaves a freezing trail.', Wind: 'A slipstream that cuts what you pass and leaves slicing wind.', Death: 'A burst of poison gas that chokes what you pass and leaves a toxic cloud.' };
+      return [...CLASSES.map((c) => ({ id: 'dash:' + c.element, name: c.name + ' Dash', desc: DD[c.element] || '', group: 'Dashes', css: '#e8ecf2', cost: HORDE.price.dash, own: p.dashEl === c.element })),
+        ...CLASSES.flatMap((c) => c.pool.map((ab) => ({ id: ab.id, name: ab.name, desc: ab.desc, group: c.name, css: c.css, cost, own: have.has(ab.id) })))];
+    }
+    const t = kind === 'melee' ? 1 : kind === 'gun' ? 2 : 3;
+    return WEAPONS.filter((w) => TIER(w) === t).map((w) => {
+      const i = p.weapons.indexOf(w.id), worn = i >= 0 && p.dur && t !== 3 && p.dur[i] < 0.995;
+      return { id: w.id, name: w.name, desc: w.desc || w.how || '', cost: worn ? Math.round(cost * HORDE.repair) : cost, own: i >= 0 && !worn, repair: worn, dur: i >= 0 && p.dur ? p.dur[i] : 1, locked: !gearUnlocked(w.id) };
+    });
+  }
+  // Buy `id` at the stall that is open. slot: which carried item it replaces when every slot is full (0-2); returns 'slot' when one is needed.
+  hordeBuy(id, slot = -1) {
+    const p = this.player, kind = this.hshop;
+    if (!this.horde || !kind || !p || !p.alive) return false;
+    const it = this.stallItems(kind).find((x) => x.id === id);
+    if (!it || it.own || it.locked) { this.audio.play('deny'); return false; }
+    if (p.pc < it.cost) { this.audio.play('deny'); this.ui.toast('Not enough PC', 'bad'); return false; }
+    let gone = null;
+    if (it.repair) { // a worn or broken weapon you carry: good as new, with a full magazine
+      const i = p.weapons.indexOf(id);
+      p.dur[i] = 1; p.ammo[i] = p.magOf ? p.magOf(WEAPON_BY_ID[id]) : WEAPON_BY_ID[id].mag || 0;
+      if (p.heldId() === 'bare') p.swap(i);
+      p.model.userData.setWeapon(p.heldId());
+      p.pc -= it.cost; this.audio.play('buy'); this.ui.toast(it.name + ' repaired', 'good'); this.ui.shop(true);
+      return true;
+    }
+    if (id.startsWith('dash:')) { gone = p.dashEl ? (CLASSES.find((c) => c.element === p.dashEl) || {}).name + ' Dash' : null; p.dashEl = id.slice(5); }
+    else if (kind === 'elem') {
+      const ids = ['q', 'r', 'e'].map((k) => (p.cls[k] ? p.cls[k].id : null));
+      let i = ids.indexOf(null);
+      if (i < 0) { if (slot < 0 || slot > 2) return 'slot'; i = slot; gone = AB_BY_ID[ids[i]].name; }
+      ids[i] = id;
+      p.setAbils(ids);
+      this.party.set({ ha: ids.filter(Boolean), c: p.cls.id });
+      this.ui.hudAbilities();
+      this.rerollChests();
+    } else {
+      let ids = [...p.weapons];
+      if (ids.length < 3) ids.push(id);
+      else { if (slot < 0 || slot > 2) return 'slot'; gone = WEAPON_BY_ID[ids[slot]].name; ids[slot] = id; }
+      const ws = ids.filter((w) => TIER(WEAPON_BY_ID[w]) !== 3), gs = ids.filter((w) => TIER(WEAPON_BY_ID[w]) === 3);
+      ids = [...ws, ...gs]; // weapons first, gear after
+      p.setWeapons(ids, id);
+      this.loadout.w = ids;
+      this.party.set({ wp: ids });
+    }
+    p.pc -= it.cost;
+    this.audio.play('buy');
+    this.ui.toast(it.name + ' bought' + (gone ? ' · replaces ' + gone : ''), 'good');
+    this.ui.shop(true);
+    return true;
+  }
+  // After a trip to the Elements stall, a power-up still waiting over an opened chest is rolled again so it fits what you carry now.
+  rerollChests() {
+    const p = this.player, own = this.hordeOwn();
+    for (const e of this.chests.list || []) {
+      if (e.taken || !e.pu || !e.icon) continue;
+      if (puOk(e.pu, p.cls, own) && e.pu.kind !== 'abpu') continue;
+      if (e.pu.kind === 'abpu' && ['q', 'r', 'e'].some((k) => p.cls[k] && p.cls[k].id === e.pu.ab)) continue;
+      e.pu = this.rollCrate(Math.random);
+      const tex = new THREE.TextureLoader().load(puIconURL(e.pu)); tex.colorSpace = THREE.SRGBColorSpace;
+      e.icon.material.map = tex; e.icon.material.needsUpdate = true;
+    }
+  }
+
   // Healing Rain over `c`: everyone sees the storm; each runner standing under it mends themselves (6% of full health a second). toxic(): the caster's rain hurts enemies.
   healRain(c, heals, toxic) {
     Vault.rain(this, c, 7, 12, () => {
@@ -582,12 +695,14 @@ export class Game {
     const prev = LS.get(this.lsKey('loadout'), {});
     // Character and element carry over; the weapon wall always starts empty.
     // The second couch seat starts on a different character and element so the two players look different on screen.
-    const dflt = this.seat === 2 ? { ch: 'nyx', c: 'tempest' } : { ch: 'veteran', c: 'pyre' };
+    const dflt = this.seat === 2 ? { ch: 'kiri', c: 'tempest' } : { ch: 'veteran', c: 'pyre' };
     this.loadout = { ch: CHAR_BY_ID[prev.ch] && charUnlocked(prev.ch) ? prev.ch : dflt.ch, c: CLASS_BY_ID[prev.c] ? prev.c : dflt.c, w: [] };
     this.loadout.sk = this.skinFor(this.loadout.ch);
     this.lobbyStep = 1;
     this.ready = false;
     this.cdAt = null;
+    this.horde = false; this.hw = null; this.hshop = null;
+    if (this.hordeMode) this.hSaved = this.loadout.c; // the element for ordinary runs is kept; Horde Mode carries none
     if (this.isBot) this.botLoadout();
     this.party.set({ jt: this.party.mine.jt || Date.now(), n: this.myName, ch: this.loadout.ch, sk: this.loadout.sk, c: this.loadout.c, wp: this.loadout.w, rdy: this.isBot ? 1 : 0, cd: 0, host: this.isHost ? 1 : 0, ig: 0 });
     if (this.isHost) this.party.set({ lb: this.lbInfo() });
@@ -634,7 +749,7 @@ export class Game {
     }
     if (patch.ch && patch.sk == null) patch.sk = this.skinFor(patch.ch); // switching character: use that character's remembered skin
     Object.assign(this.loadout, patch);
-    LS.set(this.lsKey('loadout'), { ch: this.loadout.ch, c: this.loadout.c, w: this.loadout.w });
+    LS.set(this.lsKey('loadout'), { ch: this.loadout.ch, c: this.loadout.c, w: this.hordeMode ? [] : this.loadout.w });
     this.party.set({ ch: this.loadout.ch, sk: this.loadout.sk, c: this.loadout.c, wp: this.loadout.w });
     if (this.ready && (patch.w || (this.party.kind === 'local' && (patch.ch || patch.c || patch.sk)))) this.setReady(false);
     this.menu.show(this.loadout);
@@ -642,7 +757,7 @@ export class Game {
 
   setReady(r) { this.ready = r; this.party.set({ rdy: r ? 1 : 0 }); }
 
-  lbInfo() { return { code: this.partyCode, rl: this.settings.roundLen, dm: this.duelMode ? 1 : 0, hd: this.settings.hard ? 1 : 0, pub: this.partyPublic === false ? 0 : 1, mu: this.settings.mu & MU_MASK }; }
+  lbInfo() { return { code: this.partyCode, rl: this.settings.roundLen, hm: this.hordeMode ? 1 : 0, dm: this.duelMode ? 1 : 0, hd: this.settings.hard ? 1 : 0, pub: this.partyPublic === false ? 0 : 1, mu: this.settings.mu & MU_MASK }; }
   setPublic(on) { this.partyPublic = !!on; if (this.isHost && this.party) this.party.set({ lb: this.lbInfo() }); }
 
   // Quickplay: join a random open public party (co-op first, not full); if none is open, host a public one for others to find.
@@ -682,6 +797,7 @@ export class Game {
     this.party = null;
     this.sim = null;
     this.isHost = false;
+    this.hordeMode = false; this.horde = false; this.hw = null; this.hshop = null; this.stalls = null;
     this.lobbyHooked = false;
     this.myW = this.lastW = this.syncedW = null; this.snapT = 0;
     this.brain = null;
@@ -712,11 +828,51 @@ export class Game {
       if (this._dv) return; // the stage vote is already open
       if (!this.bot) { this.duelVoteOpen(); return; } // two players: both pick a stage first
       this.sim.startDuel(this.duelStage ?? -1); // versus the CPU: the stage was picked before the fighters
-    } else this.sim.startRun(this.settings.roundLen === 0 ? 0 : 10 * 60, { space: Unlocks.has('space'), hard: !!this.settings.hard, mu: this.settings.mu & MU_MASK });
+    } else this.sim.startRun(this.settings.roundLen === 0 ? 0 : 10 * 60, { space: Unlocks.has('space'), hard: !!this.settings.hard, mu: this.settings.mu & MU_MASK, horde: !!this.hordeMode, stage: this.hordeMode ? this.hordeStage() : -1 });
     this.sim.lastPlayers = this.lobbyMembers().map((p) => ({ id: p.id }));
     const k = this.party && this.party.kind;
     SPEED.n = 1; // every run starts at normal speed; T or D-pad down cycles it once Game speed is unlocked
     this.party.set({ w: this.sim.snapshot() });
+  }
+
+  // ---------------- Horde stage vote ----------------
+  // Everyone taps a map on the last select page ('hv' in their presence: a BIOMES index, -1 = Random). When the host
+  // starts, the map with the most votes wins; a tie is drawn between the tied maps; nobody voting means a random map.
+  // An enemy's shot is the real thing its weapon fires (Nutty 2026-11-14): a brass bullet with a hot tracer, an arrow or a crossbow
+  // bolt, ten times life size so it is easy to see coming. It leaves from the weapon's own muzzle, with a flash and a report for guns.
+  mobShot(style, x, y, z, vx, vy, vz) {
+    const P = this.shotPool || (this.shotPool = { made: {}, free: { b: [], a: [], c: [] } });
+    const sp = Math.hypot(vx, vy, vz), kind = style === 3 ? 'b' : sp > 38 ? 'c' : 'a';
+    if (!P.made[kind]) {
+      const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.6, ...o });
+      const part = (g, m) => new THREE.Mesh(g, m);
+      const cy = (r0, r1, l, z0) => new THREE.CylinderGeometry(r1, r0, l, 10).rotateX(Math.PI / 2).translate(0, 0, z0 + l / 2);
+      if (kind === 'b') P.made.b = [[cy(0.055, 0.055, 0.2, -0.1), std(0xc9983a, { emissive: 0x7a4a10, emissiveIntensity: 0.45, metalness: 0.9, roughness: 0.3 })], [cy(0.055, 0.008, 0.16, 0.1), std(0xb8683a, { emissive: 0x7a3a10, emissiveIntensity: 0.45, metalness: 0.9, roughness: 0.3 })],
+        [cy(0.003, 0.028, 2.2, -2.3), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.3, 0.95, 0.5), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })]];
+      else { const L = kind === 'a' ? 1.7 : 1.1, R = kind === 'a' ? 0.03 : 0.04, fl = new THREE.BoxGeometry(0.012, 0.2, 0.36).translate(0, 0.1, -L / 2 + 0.24);
+        P.made[kind] = [[cy(R, R, L, -L / 2), std(kind === 'a' ? 0x8a6238 : 0x4a3a2c, { metalness: 0, roughness: 0.8, emissive: 0x2a1a08, emissiveIntensity: 1 })], [cy(R * 2.6, 0.006, 0.3, L / 2), std(0x9aa0aa, { emissive: 0x16181c, emissiveIntensity: 1 })],
+          [mergeGeometries([fl.clone(), fl.clone().rotateZ(2.094), fl.clone().rotateZ(4.189)]), std(kind === 'a' ? 0xd8d2c0 : 0x9a2a22, { metalness: 0, roughness: 0.9, side: THREE.DoubleSide, emissive: kind === 'a' ? 0x3a3830 : 0x3a0c08, emissiveIntensity: 1 })]]; }
+      P.build = (k) => { const g = new THREE.Group(); for (const [geo, m] of P.made[k]) { const q = part(geo, m); q.frustumCulled = false; g.add(q); } return g; };
+    }
+    const mesh = P.free[kind].pop() || P.build(kind); mesh.visible = true; this.scene.add(mesh);
+    // the nearest enemy that carries a shooter's weapon is the one who fired: start at its muzzle
+    let best = null, bd = 9; for (const v of this.views.mobs.values()) { if (!v.rig || !v.rig.muz) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } }
+    const off = new THREE.Vector3(), m = this._ms || (this._ms = new THREE.Vector3());
+    if (best && best.rig.muzzleWorld(m)) { off.set(m.x - x, m.y - y, m.z - z); if (off.lengthSq() > 9) off.set(0, 0, 0); }
+    const o = [x + off.x, y + off.y, z + off.z], vol = this.distVol(x, z);
+    if (style === 3) { this.fx.muzzle(o, [vx / sp, vy / sp, vz / sp], undefined, 0.5);
+      const arm = best && best.wi ? MOB_ARM_IDS[best.wi - 1] : 'rifle'; this.audio.play({ rifle: 'shot_ar', smg: 'shot_smg', pistol: 'shot_pistol', shotgun: 'shot_shotgun' }[arm] || 'shot_ar', vol * 0.55);
+    } else this.audio.play('shot_crossbow', vol * (kind === 'c' ? 0.7 : 0.5));
+    return { mesh, off, done: () => { mesh.visible = false; this.scene.remove(mesh); P.free[kind].push(mesh); } };
+  }
+  hordeVote(i) { if (this.party) this.party.set({ hv: i | 0 }); }
+  hordeStage() {
+    const n = {}, pool = STAGE_POOL;
+    for (const m of this.lobbyMembers()) { const v = m.p.hv; if (v != null && v >= 0 && pool.includes(v)) n[v] = (n[v] || 0) + 1; }
+    const ks = Object.keys(n).map(Number);
+    if (!ks.length) return pool[Math.floor(Math.random() * pool.length)];
+    const top = Math.max(...ks.map((k) => n[k])), best = ks.filter((k) => n[k] === top);
+    return best[Math.floor(Math.random() * best.length)];
   }
 
   // ---------------- Duel stage vote (two players, couch or online) ----------------
@@ -780,7 +936,10 @@ export class Game {
     clearInterval(this.lobbyTimer);
     if (this.lobby && this.isHost) this.lobby.advertise(null);
     this.ui.showGame();
-    this.player = new LocalPlayer(this, { ch: this.loadout.ch, sk: this.loadout.sk, cls: this.loadout.c, clsObj: this.myClass(), weapons: this.loadout.w, name: this.myName });
+    { const hw = this.hostPeer(this.party.peers()); if (!this.isHost && hw && hw.p.w && hw.p.w.hw) this.hordeMode = true; }
+    this.player = null;
+    this.player = new LocalPlayer(this, { ch: this.loadout.ch, sk: this.loadout.sk, cls: this.hordeMode ? 'none' : this.loadout.c, clsObj: this.hordeMode ? mixClass([null, null, null]) : this.myClass(), weapons: this.loadout.w, name: this.myName });
+    if (this.hordeMode) { this.party.set({ ha: [], c: 'none', hs: 0 }); this.player.dur = this.player.weapons.map(() => 1); this.player.dashEl = null; this.waveBase = { k: 0, pc: 0 }; this._hsWave = 0; }
     this.hits = []; this.reqs = []; this.fxOut = [];
     this.lastEv = 0; this.epoch = null;
     this.myW = this.lastW = this.syncedW = null; this.snapT = 0;
@@ -869,8 +1028,44 @@ export class Game {
     this.input.wheel = 0;
   }
 
+  // The minimap picture (Nutty 2026-11-13: "a very detailed 2d version of the map itself"): the real scene drawn straight down from
+  // above, once, into a small picture. Enemies, players and effects are left out; fog is switched off for the shot.
+  snapMinimap() {
+    const w = this.world, R = this.renderer; if (!w || !w.mapSpan) return;
+    const N = 512, H = w.mapSpan / 2;
+    const rt = (this._mapRT = this._mapRT || new THREE.WebGLRenderTarget(N, N, { depthBuffer: true }));
+    const cam = (this._mapCam = this._mapCam || new THREE.OrthographicCamera(-H, H, H, -H, 1, 1600));
+    cam.left = -H; cam.right = H; cam.top = H; cam.bottom = -H; cam.position.set(0, 700, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0); cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    const hide = [];
+    const off = (o) => { if (o && o.visible) { o.visible = false; hide.push(o); } };
+    if (this.player) off(this.player.model);
+    for (const k of ['mobs', 'npcs', 'players']) if (this.views[k]) for (const v of this.views[k].values()) off(v.model || v.group || (v.rig && v.rig.root));
+    if (this.views.boss) off(this.views.boss.model || this.views.boss.group);
+    if (w.sky) off(w.sky); if (w.clouds) off(w.clouds);
+    this.scene.traverse((o) => { if (o.isPoints || o.isSprite) off(o); }); // no smoke, fire or sparks in the picture
+    const fog = this.scene.fog, bg = this.scene.background, prev = R.getRenderTarget(), sh = R.shadowMap.autoUpdate;
+    this.scene.fog = null; R.shadowMap.autoUpdate = false;
+    try {
+      R.setRenderTarget(rt); R.clear(); R.render(this.scene, cam);
+      const px = new Uint8Array(N * N * 4); R.readRenderTargetPixels(rt, 0, 0, N, N, px);
+      const c = this._mapCv || (this._mapCv = document.createElement('canvas')); c.width = c.height = N;
+      const ctx = c.getContext('2d'), img = ctx.createImageData(N, N), d = img.data;
+      // linear light to screen colours (the target is not tone-mapped), lifted a little so the map reads at a glance
+      // a dark map (the forest, the graveyard) is lifted until it reads as clearly as a bright one
+      let sum = 0, cnt = 0; for (let i = 0; i < px.length; i += 64) { sum += px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11; cnt++; }
+      const gain = Math.max(1, Math.min(4, 62 / Math.max(4, sum / cnt)));
+      const lut = Uint8ClampedArray.from({ length: 256 }, (_, i) => Math.pow(Math.min(1, (i / 255) * gain), 1 / 2.2) * 255);
+      for (let y = 0; y < N; y++) { const src = (N - 1 - y) * N * 4, dst = y * N * 4; for (let x = 0; x < N * 4; x += 4) { d[dst + x] = lut[px[src + x]]; d[dst + x + 1] = lut[px[src + x + 1]]; d[dst + x + 2] = lut[px[src + x + 2]]; d[dst + x + 3] = 255; } }
+      ctx.putImageData(img, 0, 0);
+      this.ui.minimapBase(c);
+    } catch (e) { /* keep the drawn map */ }
+    R.setRenderTarget(prev); this.scene.fog = fog; this.scene.background = bg; R.shadowMap.autoUpdate = sh;
+    for (const o of hide) o.visible = true;
+  }
+
   render(scene, camera) {
     if (this.headless) return;
+    if (this.mapShots && scene === this.scene && this.mode === 'game' && performance.now() > this.mapShots[0]) { this.mapShots.shift(); if (!this.mapShots.length) this.mapShots = null; this.snapMinimap(); }
     if (this.gov) this.gov.beforeRender();
     // Behind a scope your own body and gun are left out of the picture (scope.js), so nothing can block the glass.
     const me = this.scope && this.scope.zoomed && scene === this.scene && this.player ? this.player.model : null, was = me && me.visible;
@@ -928,7 +1123,7 @@ export class Game {
       this.party.set({ w: this.sim.snapshot() });
       if (this.sim.phase !== 'lobby' && this.waitAssets()) this.enterGame();
       else if (this.party.kind === 'local') this.couchCountdown();
-    } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && loadoutFull(this.loadout.w) && (this.ready || !this.ui.flipOn())) {
+    } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && this.loadOk(this.loadout.w) && (this.ready || !this.ui.flipOn())) {
       if (this.waitAssets()) this.enterGame(); // a late joiner goes in when they press Ready Up on the Element page
     }
   }
@@ -936,7 +1131,7 @@ export class Game {
   // Couch lobby: once every seat is armed and ready the run starts after a short, cancellable countdown.
   couchCountdown() {
     const ms = this.lobbyMembers();
-    const ok = ms.length >= (this.couch ? 2 : 1) && ms.every((m) => m.p.rdy && loadoutFull(m.p.wp));
+    const ok = ms.length >= (this.couch ? 2 : 1) && ms.every((m) => m.p.rdy && this.loadOk(m.p.wp));
     let left = 0;
     if (this._dv) { if (!ok) this.duelVoteCancel(); this.cdAt = null; if (this.party.mine.cd) this.party.set({ cd: 0 }); return; } // stage vote in progress
     if (ok) {
@@ -1015,7 +1210,7 @@ export class Game {
       const uiBlocking = this.shopOpen || this.blessOpen || this.phase === 'spaceq' || (this.elemOpen && this.elemStops());
       const inp = this.brain && !uiBlocking && (!this.duel || this.phase === 'duel') ? this.brain.step(dt) : uiBlocking || !this.inputLive() || (this.duel && this.phase !== 'duel') ? this.frozenInput() : this.input;
       if (this.phase === 'vote' && !p.out) this.voteKeys();
-      if (this.phase === 'bless' && this.blessOpen) this.blessKeys();
+      if ((this.phase === 'bless' || this.horde) && this.blessOpen) this.blessKeys();
       if (this.phase === 'spaceq' && this.isHost) { if (this.input.pressed.has('Digit1')) this.answerSpace(true); else if (this.input.pressed.has('Digit2')) this.answerSpace(false); }
       p.update(dt, inp);
       this.interactions();
@@ -1042,6 +1237,7 @@ export class Game {
     if (!this.headless) { this.ui.updateHud(dt); this.allyTags.update(); }
     this.pickups.update(vdt);
     this.chests.update(vdt);
+    if (this.stalls && this.player) updateStalls(this.stalls, this.player, vdt, this.now);
     this.muFx.update(vdt);
     this.render(this.scene, this.camera);
   }
@@ -1127,7 +1323,27 @@ export class Game {
     if (MU.on && this.runStats) this.runStats.mutated = true; // a mutator run counts toward nothing
     this.duel = !!w.du; this.dp = w.dp || 0; this.dpt = w.pt || 0; this.duelWinner = w.wn || '';
     this.duelArena = this.duel ? (((w.ar | 0) % DUEL_BIOMES.length) + DUEL_BIOMES.length) % DUEL_BIOMES.length : 0; // which Duel Arena the host picked for this match
+    { // Horde Mode: wave, enemies left, wave size, break clock, boss
+      const was = this.hw ? this.hw[0] : 0;
+      this.horde = !!w.hw; this.hw = w.hw || null;
+      if (this.horde && this.hw[0] !== was) this.onWave(this.hw[0], was);
+    }
     if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) this.loadRound(w.sd, w.rd);
+    if (this.horde && this.player) { // the break has just begun: every player posts their wave numbers, and the summary goes up
+      const rest = this.hw[3] > 0 && this.hw[0] > 0;
+      if (rest && this._hsWave !== this.hw[0]) {
+        this._hsWave = this.hw[0];
+        const b = this.waveBase || { k: 0, pc: 0 }, p = this.player;
+        this.party.set({ hs: [this.hw[0], p.totalKills - b.k, this.runStats.pcEarned - b.pc, p.pc] });
+        this.ui.waveSummary(this.hw[0]);
+        if (!p.alive || p.out) { // the wave is beaten: everyone who fell is back on their feet, next to a teammate
+          const mate = [...this.views.players.values()].find((v) => v.alive);
+          if (mate) p.placeAt(mate.pos.x + 1.5, mate.pos.z + 1.5);
+          p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null;
+          this.ui.toast('Wave beaten. You are back in the fight.', 'good');
+        }
+      }
+    }
     this.round = w.rd;
     if (w.ph === 'play' && MU.on && this.round !== this._muRound) { this._muRound = this.round; this.ui.mutatorBanner(muList(MU.on), this.round === 0 ? 5 : 0); this.audio.play('mu_sting', 0.8); }
     if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) Dailies.best('round', this.round + 1); }
@@ -1210,7 +1426,7 @@ export class Game {
     this.muFx.clearRound();
     this.chests.clear((pu) => { if (this.player) this.player.takePowerup(pu); }); // a power-up left in a chest is yours anyway
     this.hitSrc = new Map();
-    this.world = new World(this.scene, seed, rd, this.q, this.duel ? DUEL.stage : (this.forceStage ?? stageIdx(this.runSeed, rd)), { duel: this.duel, arena: this.duelArena });
+    this.world = new World(this.scene, seed, rd, this.q, this.duel ? DUEL.stage : (this.forceStage ?? stageIdx(this.runSeed, rd)), { duel: this.duel, arena: this.duelArena, horde: !this.duel && seedFlags(this.runSeed).horde });
     this.fx.heightAt = (x, z) => this.world.heightAt(x, z);
     const b = this.world.biome;
     this.scene.fog.color.set(b.fog);
@@ -1246,8 +1462,12 @@ export class Game {
       this.runStats.roundsCleared = rd;
     }
     p.bedPos = null;
+    p.cratesOpened = 0; // the 20% a chest adds to the next one starts over every round (Nutty 2026-11-13), so each round affords about 5 to 10
+    this.stalls = null;
+    if (this.horde && !this.duel) { try { this.stalls = buildStalls(this); } catch (e) { console.warn('stalls failed', e); } }
     this.ui.minimapBase(this.world.minimap);
-    if (this.duel) this.ui.banner('Duel Arena', b.name); else this.ui.banner(rd >= CONFIG.rounds ? 'Bonus round' : 'Round ' + (rd + 1) + ' of ' + CONFIG.rounds, b.name);
+    this.mapShots = this.duel || this.headless ? null : [performance.now() + 1200, performance.now() + 6500]; // the minimap is a picture of the map itself, taken from above (twice: the second catches late-loading scenery)
+    if (this.duel) this.ui.banner('Duel Arena', b.name); else if (this.horde) this.ui.banner('Horde Mode', b.name); else this.ui.banner(rd >= CONFIG.rounds ? 'Bonus round' : 'Round ' + (rd + 1) + ' of ' + CONFIG.rounds, b.name);
     this.audio.play('round');
     // Braziers burn at camp.
     for (const br of this.world.braziers) this.brazier(br);
@@ -1282,8 +1502,9 @@ export class Game {
         const [, , x, y, z, vx, vy, vz, dmg, style] = e;
         const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(style === 4 ? 0x3aa0ff : style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet, 4: the Visitor's bursting plasma
         let hit = false, back = false, held = null;
+        const body = style === 2 || style === 3 ? this.mobShot(style, x / 10, y / 10, z / 10, vx / 10, vy / 10, vz / 10) : null;
         this.el.orb([x / 10, y / 10, z / 10], [vx / 10, vy / 10, vz / 10], {
-          color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
+          body, color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
           onUpdate: (pos, vel) => {
             if (hit || !p.alive) return;
             { // Absolute Zero: a shot inside the frozen air hangs where it is until the cold lets go.
@@ -1366,7 +1587,7 @@ export class Game {
         }
         if (p && p.supperUntil > this.now) p.supperFeed([X, y + 1, Z]); // Last Supper: every death feeds the Necromancer
         if (killer === me) {
-          const pcGain = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed)); // PC bonuses stop at double
+          const pcGain = pcRoll(this.pcKill() * Math.min(2, p.stats.greed)); // PC bonuses stop at double
           p.totalKills++;
           this.countKill(id, v);
           this.pickups.dropCoins(X, Z, pcGain); // the PC drops as a coin where it died: walk over it
@@ -1390,7 +1611,7 @@ export class Game {
         this.fx.explosion([X, this.world.heightAt(X, Z) + 1.5, Z], 1.6);
         this.audio.play('explode', this.distVol(X, Z));
         if (killer === me) p.addXp(XP.mini);
-        if (p.alive || !p.out) this.pickups.dropCoins(X, Z, CONFIG.pcPerKill * MINI.pcMul, 6);
+        if (p.alive || !p.out) this.pickups.dropCoins(X, Z, this.pcKill() * MINI.pcMul, 6);
         this.ui.toast('Champion down. Grab the health pickups.', 'good');
         break;
       }
@@ -1401,7 +1622,7 @@ export class Game {
         if (K) {
           this.fx.explosion([X, this.world.heightAt(X, Z) + 1.2, Z], 0.9);
           for (let i = 0; i < 18; i++) this.fx.glow.emit({ p: [X, this.world.heightAt(X, Z) + 1.2, Z], v: [(Math.random() - 0.5) * 9, Math.random() * 6, (Math.random() - 0.5) * 9], life: 0.7, s0: 0.8, s1: 0.1, c0: [...K.color, 1], c1: [...K.color, 0] });
-          if (killer === me) { const pc = Math.round(CONFIG.pcPerKill * Math.min(2, p.stats.greed) * ELITE.pcMul); this.pickups.dropCoins(X, Z, pc, 3); } // no message: the gold coins on the ground say it
+          if (killer === me) { const pc = pcRoll(this.pcKill() * Math.min(2, p.stats.greed) * ELITE.pcMul); this.pickups.dropCoins(X, Z, pc, 3); } // no message: the gold coins on the ground say it
         }
         break;
       }
@@ -1444,6 +1665,12 @@ export class Game {
         this.fx.shockwave([X, y, Z], 20, 0xffe0a0, 1.2);
         this.audio.play('explode');
         this.shake(0.8);
+        if (this.horde) { // Horde Mode: a boss pays 500 PC and one Deity Blessing, nothing else
+          if (p.alive || !p.out) { p.pc += HORDE.bossPc; this.runStats.pcEarned += HORDE.bossPc; this.ui.coinPop(HORDE.bossPc); this.timers.push({ t: 2.2, fn: () => { if (this.horde && this.player && !this.blessOpen) this.offerBlessings(); } }); }
+          this.runStats.bosses++;
+          this.ui.banner('Boss defeated', '+' + HORDE.bossPc + ' PC · choose a Deity Blessing' + (killer === me ? ' · Final blow!' : ''));
+          break;
+        }
         if (p.alive || !p.out) {
           p.pc += CONFIG.pcPerBoss;
           this.runStats.pcEarned += CONFIG.pcPerBoss;
@@ -1680,14 +1907,25 @@ export class Game {
     return v ? [v.pos.x, v.pos.y + 1.4, v.pos.z] : null;
   }
 
+  // Horde Mode: a new wave has begun.
+  onWave(n, was) {
+    if (n <= 0) return;
+    const boss = n % HORDE.bossEvery === 0;
+    if (!boss) { this.ui.banner('Wave ' + n, this.hw[2] + ' enemies'); this.audio.play('round'); }
+    if (this.runStats) this.runStats.wave = n;
+    const p = this.player;
+    this.ui.waveSummary(null);
+    if (p) this.waveBase = { k: p.totalKills, pc: this.runStats.pcEarned };
+  }
+
   onPhase(ph, prev) {
     const p = this.player;
     this.ui.phase(ph, prev);
     if (ph === 'vote') { this.myVote = null; this.audio.play('round'); }
     if (ph === 'boss') {
       this.audio.play('roar');
-      const def = BOSSES[bossIdx(this.runSeed, this.round)];
-      this.ui.banner(def.name, this.round >= CONFIG.rounds ? 'Bonus boss' : 'Round ' + (this.round + 1) + ' boss');
+      const def = BOSSES[this.horde && this.hw ? this.hw[4] : bossIdx(this.runSeed, this.round)] || BOSSES[0];
+      this.ui.banner(def.name, this.horde ? 'Wave ' + this.hw[0] + ' boss' : this.round >= CONFIG.rounds ? 'Bonus boss' : 'Round ' + (this.round + 1) + ' boss');
     }
     if (this.seat !== 2 && ph === 'play') this.audio.startRunMusic(stageIdx(this.runSeed, this.round)); // each stage has its own song
     if (ph === 'spaceq') {
@@ -1947,7 +2185,7 @@ export class Game {
       case 'ts': this.el.strike(P(0)[0], P(0)[2], 1.8); this.audio.play('thunder', vol); break;
       case 'df': this.el.frostNova(P(0), 11); this.audio.play('ice_big', vol); break;
       case 'wv': this.el.stormVeil(() => [v.pos.x, v.pos.y, v.pos.z], () => [Math.sin(v.yaw), Math.cos(v.yaw)], 20, 3); this.audio.play('howl', vol); break;
-      case 'dh': this.el.dash((CLASSES[a[0]] || CLASSES[0]).element, [a[1] / 10, a[2] / 10, a[3] / 10], [a[4] / 10, a[5] / 10, a[6] / 10]); break;
+      case 'dh': this.el.dash((CLASSES[a[0]] || NO_CLASS).element, [a[1] / 10, a[2] / 10, a[3] / 10], [a[4] / 10, a[5] / 10, a[6] / 10]); break;
       case 'wr': this.el.cyclone(P(0), D(3), 5, 6); this.audio.play('cyclone', vol); break;
       case 'die': this.fx.dustBurst([v.pos.x, v.pos.y, v.pos.z], 0.8); if (v.eyeFx) { v.eyeFx.end(); v.eyeFx = null; } break;
       case 'bld': this.fx.playerBlood(P(0), D(3), a[6] / 10); break;
@@ -2304,11 +2542,19 @@ export class Game {
     let yaw = p.yaw, pitch = p.pitch;
     if (p.out) {
       // Spectate a living teammate.
-      const alive = [...this.views.players.values()].filter((v) => v.model.visible);
-      const v = alive[(this.spectateIdx || 0) % Math.max(1, alive.length)];
-      if (v) { px = v.pos.x; py = v.pos.y; pz = v.pos.z; yaw = v.yaw; pitch = 0.25; }
-      if (this.input.mouseClicked) this.spectateIdx = (this.spectateIdx || 0) + 1;
-    }
+      // The camera rides behind them and looks where they look. Click / R2 = next player, right click / L2 = previous.
+      const alive = [...this.views.players.values()].filter((v) => v.alive).sort((a, b) => (a.id < b.id ? -1 : 1));
+      const n = alive.length;
+      if (n) {
+        let i = alive.findIndex((v) => v.id === this.specId);
+        if (i < 0) i = 0;
+        if (this.input.mouseClicked) i = (i + 1) % n;
+        if (this.input.rightClicked) i = (i + n - 1) % n;
+        const v = alive[i];
+        this.specId = v.id; this.spec = { name: v.name, hp: v.hp, mh: v.mh, n };
+        px = v.pos.x; py = v.pos.y; pz = v.pos.z; yaw = v.yaw; pitch = Math.max(-0.5, Math.min(0.9, (v.pitch || 0) + 0.12));
+      } else this.spec = null;
+    } else if (this.spec) this.spec = null;
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const dx = Math.sin(yaw) * cp, dy = -sp, dz = Math.cos(yaw) * cp;
     const rig = p.model.userData.rig;
@@ -2457,6 +2703,12 @@ export class Game {
       if (this.input.pressed.has('KeyE')) p.startClimb(tree);
       return;
     }
+    { const st = this.stallNear(p);
+      if (st && !crateNear) {
+        this.ui.prompt(this.ui.ctlB('use') + ' Shop · ' + st.shop.name);
+        if (this.input.pressed.has('KeyE')) { this.hshop = st.shop.id; this.toggleShop(true); }
+        return;
+      } }
     let near = null, nd = 2.8;
     for (const c of this.world.crates) {
       if (c.opened) continue;
@@ -2468,7 +2720,7 @@ export class Game {
       if (this.input.pressed.has('KeyE')) this.openCrate(near);
     }
     const a = this.world.arena;
-    const atAltar = !near && this.phase === 'play' && Math.hypot(a.x - p.pos.x, a.z - p.pos.z) < 7;
+    const atAltar = !near && !this.horde && this.phase === 'play' && Math.hypot(a.x - p.pos.x, a.z - p.pos.z) < 7;
     // The altar only ever summons the boss, and only once the round clock has run out. Hold E to call it.
     if (atAltar && !this.endless && this.tl > 0) {
       const t = Math.ceil(this.tl), mm = Math.floor(t / 60), ss = t % 60;
@@ -2493,20 +2745,8 @@ export class Game {
     p.cratesOpened = (p.cratesOpened || 0) + 1;
     if (this.dailyOn()) Dailies.add('crates');
     const r = mulberry32((this.world.seed ^ (c.id * 7919) ^ (this.hitSeq + this.reqSeq * 31)) >>> 0);
-    // Half of all crates hold a special power-up (a new effect), the rest are a stat or mastery.
-    let pu;
-    // Elemental power-ups (Nutty 2026-11-12): about four chests in ten hold one for a cooldown you are carrying, marked with its element's symbol.
-    const mine = ['q', 'r', 'e'].map((k) => p.cls[k] && AB_PU_BY_AB[p.cls[k].id]).filter(Boolean);
-    if (mine.length && r() < 0.42) pu = mine[Math.floor(r() * mine.length)];
-    else if (r() < 0.5) {
-      const sp = CRATE_POOL;
-      let tot = 0; for (const q of sp) tot += q.crate || 1;
-      let x = r() * tot; pu = sp[sp.length - 1];
-      for (const q of sp) { x -= q.crate || 1; if (x <= 0) { pu = q; break; } }
-    } else {
-      const rest = POWERUPS.filter((q) => q.kind !== 'special');
-      pu = rest[Math.floor(r() * rest.length)];
-    }
+    // About four chests in ten hold an elemental power-up for a cooldown you carry; of the rest, half hold a special and half a stat or mastery (rollCrate).
+    const pu = this.rollCrate(r);
     // The power-up isn't handed over yet: it rises out of the chest and waits for you to grab it.
     this.request('crate', c.id);
     this.openCrateVisual(c, pu);
@@ -2524,7 +2764,9 @@ export class Game {
   // ---------------- shop ----------------
   toggleShop(force) {
     if (this.duel) return;
-    const open = force ?? !this.shopOpen;
+    let open = force ?? !this.shopOpen;
+    if (this.horde && open && !this.hshop) { const st = this.player && this.stallNear(this.player); if (st) this.hshop = st.shop.id; else { this.ui.toast('Shops are the four stalls on the map: look for the carts', ''); open = false; } }
+    if (!open) this.hshop = null;
     this.shopOpen = open;
     this.ui.shop(open);
     if (open) { this.unlockPointer(); }
@@ -2533,22 +2775,22 @@ export class Game {
 
   // Everything you can buy gets 10% dearer with each round.
   // Crates also get 3% dearer with every one you open this run, so a build grows over the whole run instead of all at once.
-  cratePrice() { return Math.round(this.price(CONFIG.cratePrice) * (1 + 0.06 * (this.player ? this.player.cratesOpened || 0 : 0))); }
+  // Normal chests start at 50 PC, Hard at 100 PC (Nutty 2026-11-13); both go up 50% a round and 20% for every chest opened that round (shop items keep the 30% a round).
+  cratePrice() { if (this.horde) return HORDE.crate; return Math.round((!this.horde && seedFlags(this.runSeed).hard ? CONFIG.cratePriceHard : CONFIG.cratePrice) * Math.pow(1.5, this.round || 0) * (1 + 0.2 * (this.player ? this.player.cratesOpened || 0 : 0))); }
   price(base) { return Math.round(base * Math.pow(1.3, this.round || 0)); } // prices keep pace with what a round pays
 
   buy(item) {
     const p = this.player;
-    const cost = this.price(item === 'bed' ? CONFIG.bedPrice : NPCS[item] ? NPCS[item].cost : 0);
+    const cost = this.price(NPCS[item] ? NPCS[item].cost : 0); // beds are gone (Nutty 2026-11-13)
     if (!cost) return;
-    if (!p.alive && item !== 'bed') return;
+    if (!p.alive) return;
     if (p.pc < cost) { this.audio.play('deny'); this.ui.toast('Not enough PC', 'bad'); return; }
-    if (item !== 'bed') {
+    {
       const mine = [...this.views.npcs.values()].filter((v) => this.lastW && (this.lastW.n || []).some((r) => r[0] === v.id && r[2] === this.party.myId));
       if (mine.length >= 3) { this.ui.toast('You can lead up to 3 NPCs', 'bad'); this.audio.play('deny'); return; }
     }
     p.pc -= cost;
-    if (item === 'bed') { p.beds++; this.ui.toast('Bed bought. Beds: ' + p.beds, 'good'); }
-    else { this.request('npc', item); this.ui.toast(NPCS[item].name + ' hired', 'good'); }
+    { this.request('npc', item); this.ui.toast(NPCS[item].name + ' hired', 'good'); }
     this.audio.play('buy');
     this.ui.shop(true);
   }
@@ -2723,7 +2965,7 @@ export class Game {
     this.elemKind = kind;
     this.elemSel = 0;
     // Duel: five different power-ups drawn at random, fresh for every pick.
-    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer(this.player && this.player.cls);
+    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer(this.player && this.player.cls, this.hordeOwn());
     this.audio.play('bless');
     if (!this.headless) this.ui.elem(this.elemOpts, this.player, !this.elemStops(), kind);
     if (this.elemStops() && !this.headless) this.unlockPointer();
@@ -2748,7 +2990,7 @@ export class Game {
     if (!this.elemOpen || this.elemKind !== 'elem' || !p) return;
     if (!(p.rerolls > 0)) { this.ui.toast('No rerolls. Find the dice lying around the map', 'bad'); this.audio.play('deny'); return; }
     p.rerolls--;
-    this.elemOpts = rerollOffer(this.elemOpts, p.cls);
+    this.elemOpts = rerollOffer(this.elemOpts, p.cls, this.hordeOwn());
     this.elemSel = this.elemSel >= this.elemOpts.length ? this.elemOpts.length : 0; // rolled from the Roll button: stay on it
     this.audio.play('bless');
     this.ui.elem(this.elemOpts, p, !this.elemStops(), 'elem');
@@ -2810,6 +3052,19 @@ export class Game {
   // ---------------- end of run ----------------
   endRun(win) {
     const p = this.player;
+    if (this.horde) {
+      // Horde Mode keeps its own record (best wave) and leaves the run records and unlock goals alone.
+      const wave = (this.hw && this.hw[0]) || (this.runStats && this.runStats.wave) || 1;
+      const r = this.records; r.hordeBest = Math.max(r.hordeBest || 0, wave); LS.set('records', r);
+      const cpu = !!this.runStats.cpuUsed;
+      const reward = runReward({ win: false, round: Math.max(1, Math.ceil(wave / HORDE.bossEvery)), kills: p.totalKills, bosses: this.runStats.bosses || 0 });
+      if (this.seat === 1 && !cpu) { addPP(reward); this.runStats.pp = (this.runStats.pp || 0) + reward; }
+      const stats = { horde: true, wave, pp: this.runStats.pp, win: false, round: wave, kills: p.totalKills, pc: this.runStats.pcEarned, dmg: Math.round(p.damageDealt), deaths: p.deaths || 0, blessings: [], cls: p.cls.name, time: Math.round((performance.now() - this.runStats.start) / 1000), records: r };
+      if (this.brain && this.brain.mode === 'run') { stats.cpu = this.brain.report(); window.__cpuReport = stats.cpu; }
+      if (this.seat !== 2) this.audio.stopMusic();
+      this.timers.push({ t: 2.5, fn: () => { this.unlockPointer(); this.ui.summary(stats); if (this.seat !== 2) this.audio.startLobbyMusic(); } });
+      return;
+    }
     const roundsReached = (this.round || 0) + 1;
     const mutated = !!this.runStats.mutated;
     const r = mutated ? { ...this.records } : this.records; // a mutator run leaves the records alone

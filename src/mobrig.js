@@ -71,7 +71,7 @@ export const MOB_LOOKS = {
   wasp: { file: 'm29.glb', tposeArms: true, h: 2.8, hunch: 0.35, bulk: 0.95, fly: true, wings: { membrane: 0xffb830, bone: 0x2a1a00, span: 1.1, alpha: 0.8 } }, // #29 striped alien
   // The Hot Springs Valley's boss and the hidden space map's boss, The Visitor (boss rigs are boss + BOSSES index).
   boss7: { file: 'gus.glb', tposeArms: true, h: 8.6, hunch: 0.3, bulk: 1.0, slam: true, hands: 0x9aff6a }, // old Mossback body retired (goblin body removed 2026-11-05)
-  boss8: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 2, h: 10.5, hunch: 0.1, bulk: 1.15, aim: true, float: 2.4 }, // floats; views.js puts the weapon wall's own Alien Blaster in its hand (Nutty 2026-11-11)
+  boss8: { file: 'm10.glb', tposeArms: true, build: 'alien', h: 10.5, hunch: 0.08, bulk: 1.0, aim: true, float: 2.4 }, // Nutty 2026-11-14: the new Visitor (Mixamo #10, grey, black eyes); // floats; views.js puts the weapon wall's own Alien Blaster in its hand (Nutty 2026-11-11)
   // Mixamo bosses (Nutty 2026-11-05): the characters' own textures, scaled up to boss height.
   boss9: { file: 'warlord.glb', tposeArms: true, h: 8.0, hunch: 0.12, bulk: 1.0, slam: true, hands: 0x9a3aff },
   boss10: { file: 'archmage.glb', tposeArms: true, h: 7.6, hunch: 0.1, bulk: 1.0, slam: true, hands: 0xff5ad0 },
@@ -161,8 +161,11 @@ function rv(bone, pitch, twist, roll) {
   rotVec(bone, AXS[0] * pitch + AXS[3] * twist + AXS[6] * roll, AXS[1] * pitch + AXS[4] * twist + AXS[7] * roll, AXS[2] * pitch + AXS[5] * twist + AXS[8] * roll);
 }
 const { smoothstep: ss, clamp } = THREE.MathUtils;
+const _bw = Array.from({ length: 8 }, () => new THREE.Vector3());
+const _ik = Array.from({ length: 8 }, () => new THREE.Vector3()), _iq = Array.from({ length: 6 }, () => new THREE.Quaternion());
 const TAU = Math.PI * 2;
 // Attack/hit timing helpers.
+export const BOWP = [0.3, 0.03, 0.12, -0.55, -0.75, 0.1, 0.06];
 const wrapPi = (d) => d - TAU * Math.round(d / TAU);
 
 // Walk/run stride of a template, measured once from its own clips: how fast the
@@ -575,7 +578,30 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     geo.scale(s, s, s);
     geo.applyMatrix4(M).applyMatrix4(toT);
     const m = new THREE.Mesh(geo, mat(matKey));
-    scene.add(m); b.attach(m);
+    scene.add(m); b.attach(m); return m;
+  };
+  // An empty marker glued to a bone (the muzzle, the fore-grip): p in the same space bp() works in.
+  const mark = (bone, name, p) => { const b = bones.get(bone); if (!b) return; const m = new THREE.Object3D(); m.name = name; m.position.copy(p).applyMatrix4(toT); scene.add(m); b.attach(m); };
+  // The closed fist of a hand, from its own finger bones: d along the fingers, k along the knuckles (little finger to index), pn out of
+  // the palm, palm = the middle of the grip (relative to the wrist). null on a body without finger bones.
+  const fist = (sd) => {
+    const g = (n) => bones.get(sd + 'Hand' + n); if (!g('Middle1') || !g('Index1') || !g('Pinky1')) return null;
+    const H = bp(sd + 'Hand'), M = bp(sd + 'HandMiddle1'), d = M.clone().sub(H).normalize();
+    const k = bp(sd + 'HandIndex1').sub(bp(sd + 'HandPinky1')); k.addScaledVector(d, -k.dot(d)).normalize();
+    const pn = V().crossVectors(k, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1);
+    return { H, d, k, pn, palm: H.clone().lerp(M, 0.82).addScaledVector(pn, 0.034 * s).sub(H) };
+  };
+  // A gun in the right fist (Nutty 2026-11-14: "make their guns fit inside their hands, gripped"). parts are built barrel along -Y,
+  // sights +Z, pistol grip toward -Z; grip = the middle of the pistol grip, which lands in the palm with the fingers wrapped round it;
+  // muz = the barrel tip, fore = where the other hand holds it (markers the rig reads).
+  const gunPut = (parts, grip, muz, fore) => {
+    const F = fist('Right'); let fr, o;
+    if (F) { fr = { u: F.d.clone().negate(), f: F.k }; const x = V().crossVectors(fr.u, fr.f).normalize(); o = [F.palm.dot(x) / s - grip[0], F.palm.dot(fr.u) / s - grip[1], F.palm.dot(fr.f) / s - grip[2]]; }
+    else { fr = limb('RightHand', 'RightForeArm'); o = [0, 0, 0.04]; }
+    for (const [mk, geo] of parts) put('RightHand', mk, geo, o, fr);
+    const x = V().crossVectors(fr.u, fr.f).normalize(), at = (q) => bp('RightHand').addScaledVector(x, (o[0] + q[0]) * s).addScaledVector(fr.u, (o[1] + q[1]) * s).addScaledVector(fr.f, (o[2] + q[2]) * s);
+    mark('RightHand', 'muzzle', at(muz)); if (fore) mark('RightHand', 'foregrip', at(fore));
+    mark('RightHand', 'breech', at([muz[0], grip[1], muz[2]])); mark('RightHand', 'gunup', at([muz[0], grip[1], muz[2] + 0.3]));
   };
   const cyl = (r0, r1, h, seg = 10) => new THREE.CylinderGeometry(r1, r0, h, seg);
   const cone = (r, h, seg = 8) => new THREE.ConeGeometry(r, h, seg);
@@ -628,10 +654,24 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       put('RightHand', 'glowC', ball(0.07).translate(0, 1.44, 0), [0, 0, 0.05], fr);
     },
     // Archer: a recurve bow in the left hand and a quiver of arrows.
+    // Gripped at its handle in the left fist: the stave runs along the knuckles, the belly faces down the arm, the string toward the archer.
+    // Two strings (drawn and loose) and a nocked arrow, switched by the rig as it draws and looses.
     bow() {
-      const fr = limb('LeftHand', 'LeftForeArm');
-      const pts = []; for (let i = 0; i <= 10; i++) { const t = i / 10 * 2 - 1; pts.push(V(0, t * 0.62, 0.3 * (1 - t * t))); }
-      put('LeftHand', 'wood', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.024, 6), cyl(0.006, 0.006, 1.24, 4).translate(0, 0, 0)]), [0, 0.3, 0.02], fr);
+      const F = fist('Left'); let fr, o;
+      if (F) { fr = { u: F.k, f: F.d }; const x = V().crossVectors(fr.u, fr.f).normalize(); o = [F.palm.dot(x) / s, F.palm.dot(fr.u) / s, F.palm.dot(fr.f) / s + 0.02]; }
+      else { fr = limb('LeftHand', 'LeftForeArm'); o = [0, 0.0, 0.06]; }
+      const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12 * 2 - 1; pts.push(V(0, t * 0.74, -0.34 * t * t)); }
+      const line = (a, b, r = 0.005) => { const d = b.clone().sub(a), g = cyl(r, r, d.length(), 4); g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d.clone().normalize())); const c = a.clone().add(b).multiplyScalar(0.5); return g.translate(c.x, c.y, c.z); };
+      const top = V(0, 0.74, -0.34), bot = V(0, -0.74, -0.34), pull = V(0, 0, -0.66);
+      put('LeftHand', 'wood', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.022, 6), cone(0.02, 0.07, 6).translate(0, 0.76, -0.35), cone(0.02, 0.07, 6).rotateX(Math.PI).translate(0, -0.76, -0.35)]), o, fr);
+      put('LeftHand', 'rag', cyl(0.03, 0.03, 0.17, 8), o, fr);
+      const sd = put('LeftHand', 'bone', merge([line(top, pull), line(bot, pull)]), o, fr); if (sd) sd.name = 'strDrawn';
+      const sl = put('LeftHand', 'bone', line(top, bot), o, fr); if (sl) { sl.name = 'strLoose'; sl.visible = false; }
+      const ar = put('LeftHand', 'wood', merge([cyl(0.009, 0.009, 0.8, 5).rotateX(Math.PI / 2).translate(0.03, 0.02, -0.26), new THREE.BoxGeometry(0.002, 0.06, 0.12).translate(0.03, 0.02, -0.6), new THREE.BoxGeometry(0.06, 0.002, 0.12).translate(0.03, 0.02, -0.6)]), o, fr); if (ar) ar.name = 'nock';
+      const ah = put('LeftHand', 'steel', cone(0.022, 0.08, 4).rotateX(Math.PI / 2).translate(0.03, 0.02, 0.18), o, fr); if (ah) ah.name = 'nockHead';
+      const x = V().crossVectors(fr.u, fr.f).normalize();
+      mark('LeftHand', 'pull', bp('LeftHand').addScaledVector(x, (o[0] + 0.03) * s).addScaledVector(fr.u, (o[1] + 0.02) * s).addScaledVector(fr.f, (o[2] - 0.66) * s));
+      mark('LeftHand', 'muzzle', bp('LeftHand').addScaledVector(x, o[0] * s).addScaledVector(fr.u, o[1] * s).addScaledVector(fr.f, (o[2] + 0.2) * s));
     },
     quiver() {
       put('Spine2', 'wood', merge([cyl(0.075, 0.085, 0.55, 8).translate(0, 0.0, 0), cone(0.04, 0.12, 4).translate(0.02, 0.34, 0), cone(0.04, 0.12, 4).translate(-0.03, 0.31, 0.03)]), [0.1, 0.02, -0.26], ID, [0.0, 0.0, -0.35]);
@@ -690,30 +730,30 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     },
     // ---- Mob weapons (MOB_ARMS). Guns point along -u: forward once the forearm is raised to hip-fire; stock along the forearm. ----
     arifle() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'gun', merge([new THREE.BoxGeometry(0.055, 0.5, 0.1).translate(0, -0.16, 0.03), cyl(0.016, 0.016, 0.42, 8).translate(0, -0.6, 0.05), new THREE.BoxGeometry(0.03, 0.06, 0.05).translate(0, -0.36, 0.1)]), [0, 0, 0.04], fr);
-      put('RightHand', 'poly', merge([new THREE.BoxGeometry(0.05, 0.08, 0.17).rotateX(0.25).translate(0, -0.24, -0.1), new THREE.BoxGeometry(0.045, 0.3, 0.08).translate(0, 0.2, 0.0), new THREE.BoxGeometry(0.04, 0.05, 0.1).rotateX(-0.3).translate(0, -0.02, -0.06)]), [0, 0, 0.04], fr);
+      gunPut([['gun', merge([new THREE.BoxGeometry(0.055, 0.5, 0.1).translate(0, -0.16, 0.03), cyl(0.016, 0.016, 0.42, 8).translate(0, -0.6, 0.05), new THREE.BoxGeometry(0.03, 0.06, 0.05).translate(0, -0.36, 0.1), cyl(0.022, 0.022, 0.07, 8).translate(0, -0.8, 0.05)])],
+        ['poly', merge([new THREE.BoxGeometry(0.05, 0.08, 0.17).rotateX(0.25).translate(0, -0.24, -0.1), new THREE.BoxGeometry(0.045, 0.3, 0.08).translate(0, 0.2, 0.0), new THREE.BoxGeometry(0.04, 0.05, 0.13).rotateX(-0.3).translate(0, -0.02, -0.075), new THREE.BoxGeometry(0.06, 0.22, 0.05).translate(0, -0.47, 0.0)])]],
+        [0, -0.02, -0.075], [0, -0.84, 0.05], [0, -0.47, -0.07]);
     },
     smg() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'gun', merge([new THREE.BoxGeometry(0.05, 0.34, 0.09).translate(0, -0.1, 0.03), cyl(0.014, 0.014, 0.16, 8).translate(0, -0.34, 0.05)]), [0, 0, 0.04], fr);
-      put('RightHand', 'poly', merge([new THREE.BoxGeometry(0.04, 0.06, 0.22).translate(0, -0.14, -0.13), new THREE.BoxGeometry(0.04, 0.05, 0.1).rotateX(-0.3).translate(0, 0.0, -0.06), new THREE.BoxGeometry(0.03, 0.2, 0.03).translate(0, 0.14, 0.04)]), [0, 0, 0.04], fr);
+      gunPut([['gun', merge([new THREE.BoxGeometry(0.05, 0.34, 0.09).translate(0, -0.1, 0.03), cyl(0.014, 0.014, 0.16, 8).translate(0, -0.34, 0.05)])],
+        ['poly', merge([new THREE.BoxGeometry(0.04, 0.06, 0.22).translate(0, -0.14, -0.13), new THREE.BoxGeometry(0.04, 0.05, 0.13).rotateX(-0.3).translate(0, 0.0, -0.075), new THREE.BoxGeometry(0.03, 0.2, 0.03).translate(0, 0.14, 0.04)])]],
+        [0, 0.0, -0.075], [0, -0.43, 0.05], [0, -0.24, -0.07]);
     },
     pistol() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'gun', merge([new THREE.BoxGeometry(0.035, 0.22, 0.05).translate(0, -0.1, 0.06), cyl(0.009, 0.009, 0.03, 6).translate(0, -0.22, 0.07)]), [0, 0, 0.04], fr);
-      put('RightHand', 'poly', new THREE.BoxGeometry(0.034, 0.055, 0.12).rotateX(-0.25).translate(0, -0.02, 0.0), [0, 0, 0.04], fr);
+      gunPut([['gun', merge([new THREE.BoxGeometry(0.035, 0.22, 0.05).translate(0, -0.1, 0.075), cyl(0.009, 0.009, 0.03, 6).translate(0, -0.22, 0.085)])],
+        ['poly', new THREE.BoxGeometry(0.034, 0.055, 0.14).rotateX(-0.25).translate(0, -0.02, 0.0)]],
+        [0, -0.02, 0.0], [0, -0.24, 0.085], null);
     },
     shotgun() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'gun', merge([cyl(0.02, 0.02, 0.62, 8).translate(0, -0.52, 0.06), cyl(0.015, 0.015, 0.5, 8).translate(0, -0.48, 0.025), new THREE.BoxGeometry(0.055, 0.28, 0.08).translate(0, -0.08, 0.04)]), [0, 0, 0.04], fr);
-      put('RightHand', 'wood', merge([cyl(0.032, 0.032, 0.2, 8).translate(0, -0.5, 0.03), new THREE.BoxGeometry(0.05, 0.34, 0.09).translate(0, 0.2, -0.01), new THREE.BoxGeometry(0.04, 0.06, 0.1).rotateX(-0.3).translate(0, 0.02, -0.05)]), [0, 0, 0.04], fr);
+      gunPut([['gun', merge([cyl(0.02, 0.02, 0.62, 8).translate(0, -0.52, 0.06), cyl(0.015, 0.015, 0.5, 8).translate(0, -0.48, 0.025), new THREE.BoxGeometry(0.055, 0.28, 0.08).translate(0, -0.08, 0.04)])],
+        ['wood', merge([cyl(0.032, 0.032, 0.2, 8).translate(0, -0.5, 0.03), new THREE.BoxGeometry(0.05, 0.34, 0.09).translate(0, 0.2, -0.01), new THREE.BoxGeometry(0.04, 0.05, 0.13).rotateX(-0.3).translate(0, 0.02, -0.065)])]],
+        [0, 0.02, -0.065], [0, -0.84, 0.06], [0, -0.5, -0.05]);
     },
     crossbow() {
-      const fr = limb('RightHand', 'RightForeArm');
       const pts = []; for (let i = 0; i <= 8; i++) { const t = i / 8 * 2 - 1; pts.push(V(t * 0.36, -0.5 + 0.09 * (1 - t * t), 0.05)); }
-      put('RightHand', 'wood', merge([new THREE.BoxGeometry(0.05, 0.62, 0.06).translate(0, -0.22, 0.04), new THREE.BoxGeometry(0.045, 0.22, 0.08).translate(0, 0.16, 0.0)]), [0, 0, 0.04], fr);
-      put('RightHand', 'iron', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.016, 6), new THREE.BoxGeometry(0.72, 0.006, 0.006).translate(0, -0.33, 0.06), new THREE.BoxGeometry(0.012, 0.36, 0.012).translate(0, -0.3, 0.08)]), [0, 0, 0.04], fr);
+      gunPut([['wood', merge([new THREE.BoxGeometry(0.05, 0.62, 0.06).translate(0, -0.22, 0.04), new THREE.BoxGeometry(0.045, 0.22, 0.08).translate(0, 0.16, 0.0), new THREE.BoxGeometry(0.04, 0.05, 0.13).rotateX(-0.3).translate(0, 0.0, -0.05)])],
+        ['iron', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.016, 6), new THREE.BoxGeometry(0.72, 0.006, 0.006).translate(0, -0.33, 0.06), new THREE.BoxGeometry(0.012, 0.36, 0.012).translate(0, -0.3, 0.08)])]],
+        [0, 0.0, -0.05], [0, -0.55, 0.08], [0, -0.36, -0.04]);
     },
     // The Visitor's Alien Blaster, boss sized: a glossy organic pistol with a red emitter crystal between two prongs. Points along -u like the guns.
     ablaster() {
@@ -796,7 +836,7 @@ function mobTemplate(kind) {
   if (!look) return null;
   const def = { id: 'mob_' + kind, file: look.file, tposeArms: look.tposeArms, build: look.build, design: look.design, body: look.body, lizard: look.lizard, eye: look.eye, height: look.h };
   const tpl = getTemplate(def);
-  if (tpl) { if (look.rot) rotDress(tpl, look); dress(tpl, look); if (look.gear) buildGear(tpl, look, MOB_ARM_POOL[kind] ? look.gear.filter((n) => !WEAPON_GEAR.has(n)) : look.gear); collapse(tpl.scene); }
+  if (tpl) { if (look.rot) rotDress(tpl, look); dress(tpl, look); if (look.gear) buildGear(tpl, look, MOB_ARM_POOL[kind] ? look.gear.filter((n) => !WEAPON_GEAR.has(n)) : look.gear.filter((n) => n !== 'bow')); collapse(tpl.scene); }
   tplCache.set(kind, tpl);
   return tpl;
 }
@@ -839,20 +879,75 @@ let _wingGeo = {};
 export class MobRig {
   // Close the right hand into a fist round a grip: each finger joint is turned toward the palm about the knuckle line, the thumb
   // folds over. The axes come from the hand's own bones in the rest pose, so it works on every rig. Held every frame in update().
-  gripHand() {
-    const B = bonesOf(this.model), H = B.get('RightHand'), g = (n) => B.get('RightHand' + n);
+  gripHand(sd = 'Right') {
+    const B = bonesOf(this.model), H = B.get(sd + 'Hand'), g = (n) => B.get(sd + 'Hand' + n);
     if (!H || !g('Middle1') || !g('Index1') || !g('Pinky1')) return;
     this.model.updateMatrixWorld(true);
     const wp = (b) => b.getWorldPosition(new THREE.Vector3());
     const d = wp(g('Middle1')).sub(wp(H)).normalize(), k = wp(g('Index1')).sub(wp(g('Pinky1'))); k.addScaledVector(d, -k.dot(d)).normalize();
-    const pn = new THREE.Vector3().crossVectors(k, d).normalize(), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
-    this.grip = [];
+    const pn = new THREE.Vector3().crossVectors(k, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
+    this.grip = this.grip || [];
     const turn = (b, ax, ang) => { if (!b) return; const la = ax.clone().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
       this.grip.push([b, b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(la, ang))]); };
     for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) [1.2, 1.35, 0.9].forEach((ang, j) => turn(g(f + (j + 1)), axis, ang));
     const t1 = g('Thumb1'), t2 = g('Thumb2');
     if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang)); }
     for (const [b, q] of this.grip) b.quaternion.copy(q);
+  }
+  // Where this mob's shot leaves its weapon (world space); false when it carries nothing that shoots.
+  muzzleWorld(out) { if (!this.muz) return false; this.muz.getWorldPosition(out); return true; }
+  // Two-bone reach: bend the elbow (F) to the right length, then swing the whole arm (U) so the wrist (H) lands just short of G (world).
+  reach(U, F, H, G, pad) {
+    const S = _ik[0].setFromMatrixPosition(U.matrixWorld), E = _ik[1].setFromMatrixPosition(F.matrixWorld), W = _ik[2].setFromMatrixPosition(H.matrixWorld);
+    const a = S.distanceTo(E), b = E.distanceTo(W), tv = _ik[4].copy(G).sub(S), c = clamp(tv.length() - pad, Math.abs(a - b) + 0.02, a + b - 0.01);
+    const es = _ik[5].copy(S).sub(E), ew = _ik[6].copy(W).sub(E), th0 = es.angleTo(ew), th1 = Math.acos(clamp((a * a + b * b - c * c) / (2 * a * b), -1, 1));
+    const ax = _ik[7].crossVectors(es, ew); if (ax.lengthSq() < 1e-8) return; ax.normalize();
+    const R1 = _iq[0].setFromAxisAngle(ax, th1 - th0), W2 = ew.applyQuaternion(R1).add(E).sub(S).normalize(), R2 = _iq[1].setFromUnitVectors(W2, tv.normalize());
+    const Uw = U.getWorldQuaternion(_iq[2]), Fw = F.getWorldQuaternion(_iq[3]), Pw = U.parent.getWorldQuaternion(_iq[4]);
+    F.quaternion.copy(_iq[5].copy(Uw).invert()).multiply(R1).multiply(Fw);
+    U.quaternion.copy(Pw.invert()).multiply(R2).multiply(Uw);
+  }
+  // Every body holds its gun the same true way (Nutty 2026-11-14: "all the enemies' weapons face the correct way"): the forearm is turned
+  // until the barrel points dead ahead (lifted by the kick of a shot) and rolled until the sights are on top.
+  aimGun(kick) {
+    const F = this.bn.rfa; if (!F || !this.muz || !this.breech || !this.gup) return;
+    this.pivot.updateMatrixWorld(true);
+    const fw = _bw[0].set(AXS[6], AXS[7], AXS[8]), up = _bw[2].set(AXS[3], AXS[4], AXS[5]);
+    const br = _bw[1].setFromMatrixPosition(this.breech.matrixWorld), bd = _bw[3].setFromMatrixPosition(this.muz.matrixWorld).sub(br).normalize();
+    const want = _bw[4].copy(fw).addScaledVector(up, 0.02 + 0.3 * kick).normalize();
+    this.turnBone(F, _iq[0].setFromUnitVectors(bd, want));
+    const gu = _bw[5].setFromMatrixPosition(this.gup.matrixWorld).sub(_bw[1].setFromMatrixPosition(this.breech.matrixWorld)); gu.addScaledVector(want, -gu.dot(want)).normalize();
+    const t = _bw[3].copy(up).addScaledVector(want, -up.dot(want)).normalize();
+    this.turnBone(F, _iq[0].setFromAxisAngle(want, Math.atan2(want.dot(_bw[6].crossVectors(gu, t)), gu.dot(t))));
+  }
+  // The left hand goes to the gun's fore-grip.
+  reachLeft() {
+    const N = this.bn, H = this.b.get('LeftHand'); if (!N.lua || !N.lfa || !H || !this.fore) return;
+    this.pivot.updateMatrixWorld(true);
+    this.reach(N.lua, N.lfa, H, _ik[3].setFromMatrixPosition(this.fore.matrixWorld), 0.07 * this.h);
+  }
+  // Turn a bone (in world space) by R, or so that its child lies along dir.
+  turnBone(b, R) { const Pw = b.parent.getWorldQuaternion(_iq[4]), Bw = b.getWorldQuaternion(_iq[3]); b.quaternion.copy(Pw.invert()).multiply(R).multiply(Bw); b.updateWorldMatrix(false, true); }
+  aimBone(b, child, dir) { const c = _bw[6].setFromMatrixPosition(child.matrixWorld).sub(_bw[7].setFromMatrixPosition(b.matrixWorld)).normalize(); this.turnBone(b, _iq[0].setFromUnitVectors(c, dir)); }
+  // An archer at full draw: the bow arm straight out at the target with the stave upright, the string hand on the drawn string.
+  // rel 1 = just loosed (the hand flies back off the string), kick = the bow arm's jump.
+  bowPose(rel, kick) {
+    const N = this.bn, b = this.b, LH = b.get('LeftHand'), RH = b.get('RightHand'); if (!N.lua || !N.lfa || !LH) return;
+    const fw = _bw[0].set(AXS[6], AXS[7], AXS[8]), lf = _bw[1].set(AXS[0], AXS[1], AXS[2]), up = _bw[2].set(AXS[3], AXS[4], AXS[5]);
+    this.pivot.updateMatrixWorld(true);
+    const dir = _bw[3].copy(fw).addScaledVector(lf, BOWP[0]).addScaledVector(up, BOWP[1] + 0.08 * kick).normalize();
+    this.aimBone(N.lua, N.lfa, dir); this.aimBone(N.lfa, LH, dir);
+    const i1 = b.get('LeftHandIndex1'), p1 = b.get('LeftHandPinky1');
+    if (i1 && p1) { // roll the straight arm until the knuckle line (the stave) stands upright
+      const k = _bw[4].setFromMatrixPosition(i1.matrixWorld).sub(_bw[5].setFromMatrixPosition(p1.matrixWorld)); k.addScaledVector(dir, -k.dot(dir)).normalize();
+      const t = _bw[5].copy(up).addScaledVector(lf, BOWP[2]); t.addScaledVector(dir, -t.dot(dir)).normalize();
+      this.turnBone(N.lua, _iq[0].setFromAxisAngle(dir, Math.atan2(dir.dot(_bw[6].crossVectors(k, t)), k.dot(t))));
+    }
+    if (this.pull && N.rua && N.rfa && RH) {
+      this.aimBone(N.rua, N.rfa, _bw[4].copy(fw).multiplyScalar(BOWP[3]).addScaledVector(lf, BOWP[4]).addScaledVector(up, BOWP[5]).normalize());
+      const G = _bw[5].setFromMatrixPosition(this.pull.matrixWorld).addScaledVector(fw, -0.32 * this.h * rel).addScaledVector(up, -0.1 * this.h * rel);
+      this.reach(N.rua, N.rfa, RH, G, BOWP[6] * this.h);
+    }
   }
   constructor(kind) {
     this.kind = kind;
@@ -861,7 +956,8 @@ export class MobRig {
     this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged } : { ...(MOB_LOOKS[kb] || {}) };
     // Whoever holds a weapon strikes with it (Nutty 2026-11-13: sword carriers were smashing down with both fists). A mob given a melee
     // weapon, or whose own kit has one, swings the weapon hand: big "slam" bodies use the one-handed overhead cleave, the rest the cross cut.
-    { const own = (this.look.gear || []).some((q) => !['fists', 'tower', 'robe', 'shield', 'staff'].includes(q));
+    { const own = (this.look.gear || []).some((q) => !['fists', 'tower', 'robe', 'shield', 'staff', 'bow', 'quiver'].includes(q));
+      if (!A && (this.look.gear || []).includes('bow')) this.look.bow = true;
       if ((A && !A.ranged) || (!A && own && !this.look.cast)) { this.look.oneHand = true; this.look.cast = false; } }
     const tpl = mobTemplate(kb);
     this.root = new THREE.Group();
@@ -869,7 +965,12 @@ export class MobRig {
     if (!tpl) return;
     this.model = SkeletonUtils.clone(tpl.scene);
     if (A || this.look.oneHand) this.gripHand(); // the weapon hand closes round what it holds (worked out before the weapon is hung on it)
+    if (this.look.bow) this.gripHand('Left');
     if (A) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, [A.gear], SHARED_MATS);
+    if (this.look.bow) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, ['bow'], SHARED_MATS);
+    this.muz = this.model.getObjectByName('muzzle') || null; this.fore = this.model.getObjectByName('foregrip') || null; this.pull = this.model.getObjectByName('pull') || null; this.breech = this.model.getObjectByName('breech') || null; this.gup = this.model.getObjectByName('gunup') || null;
+    if (this.fore) this.gripHand('Left');
+    if (this.look.bow) this.bowBits = ['strDrawn', 'strLoose', 'nock', 'nockHead'].map((n) => this.model.getObjectByName(n));
     this.model.rotation.y = tpl.yaw;
     const bulk = this.look.bulk || 1;
     this.model.scale.set(tpl.scale * bulk, tpl.scale, tpl.scale * bulk);
@@ -903,7 +1004,7 @@ export class MobRig {
     this.pP = 0; this.pB = 0;
     this.tail = []; this.model.traverse((o) => { if (/^tail_\d+$/.test(o.name)) this.tail[+o.name.slice(5)] = o; });
     if (this.tail.length) { this.model.userData.tail = this.tail; this.model.userData.tailBase = this.tail.map((s) => s.rotation.x); }
-    this.atkDur = this.look.slam ? 1.25 : this.look.cast ? 0.7 : this.look.aim ? 0.35 : 0.5; // slams land near the 1.2 s ground telegraph
+    this.atkDur = this.look.slam ? 1.25 : this.look.cast ? 0.7 : this.look.aim ? 0.35 : this.look.bow ? 1.1 : 0.5; // slams land near the 1.2 s ground telegraph
     this.hover = !!(this.look.fly || this.look.float);
     const g = (k) => this.b.get(k) || null;
     this.bn = { sp: g('Spine'), sp1: g('Spine1'), sp2: g('Spine2'), neck: g('Neck'), head: g('Head'), lsh: g('LeftShoulder'), rsh: g('RightShoulder'),
@@ -1110,6 +1211,10 @@ export class MobRig {
         pulse = Math.sin(Math.PI * ss(u, 0.48, 0.66));
         sp2 = -0.25 * castLift * (1 - ss(u, 0.45, 0.55)) + 0.3 * pulse; headP = 0.12 * pulse;
         lunge = this.h * (-0.04 * castLift + 0.08 * pulse);
+      } else if (L.bow) {
+        // Loosed: the bow arm jumps, the string hand flies back; then a new arrow is drawn (the hold pose below is the full draw).
+        const k = Math.sin(Math.PI * ss(u, 0, 0.3)) * (1 - ss(u, 0.3, 1));
+        sp2 = -0.05 * k; foreBend = 1 - ss(u, 0.55, 1); armRaise = k;
       } else if (L.aim) {
         // A shot: the gun kicks up and back, the shoulders take it.
         const k = Math.sin(Math.PI * ss(u, 0, 0.35)) * (1 - ss(u, 0.35, 1));
@@ -1158,15 +1263,22 @@ export class MobRig {
         const lift = castLift, ang = -1.35 * lift - 0.35 * pulse, yw = 0.35 * lift;
         rv(N.lua, ang, -yw, 0); rv(N.rua, ang, yw, 0);
         rv(N.lfa, -0.3 * lift, 0, 0); rv(N.rfa, -0.3 * lift, 0, 0);
-      } else if (!L.aim) {
+      } else if (!L.aim && !L.bow) {
         rv(N.rua, -armRaise, armSweep, 0); rv(N.rfa, foreBend, 0, 0); rv(N.lua, -armRaise * 0.5, armSweep * 0.4, 0);
       }
     }
     // Shooters hold their gun at the hip, pointed ahead, the other hand on the fore-grip; foreBend carries the recoil.
     if (L.aim && !frozen) {
       const k = u >= 0 ? foreBend : 0;
-      rv(N.rua, -0.3 - 0.15 * k, 0.2, 0); rv(N.rfa, -1.45 - 0.3 * k, 0, 0);
-      rv(N.lua, -0.7, -0.5, 0); rv(N.lfa, -1.25, 0, 0);
+      rv(N.rua, -0.3 - 0.15 * k, 0.2, 0); rv(N.rfa, -1.22 - 0.3 * k, 0, 0);
+      if (this.lod < 2) this.aimGun(k);
+      if (this.fore) { rv(N.lua, -0.7, -0.5, 0); rv(N.lfa, -1.25, 0, 0); if (this.lod < 2) this.reachLeft(); }
+    }
+    // Archers stand at full draw: bow arm straight out, string hand at the cheek. Loosing lets the hand fly back, then it draws again.
+    if (L.bow && !frozen) {
+      const rel = u >= 0 ? foreBend : 0, kick = u >= 0 ? armRaise : 0; // rel 1 just loosed -> 0 drawn again
+      this.bowPose(rel, kick);
+      const B = this.bowBits; if (B) { const drawn = rel < 0.25; if (B[0]) B[0].visible = drawn; if (B[1]) B[1].visible = !drawn; if (B[2]) B[2].visible = drawn; if (B[3]) B[3].visible = drawn; }
     }
     // Zombies: arms hang out in front, uneven and swaying (one higher, one drooping), the head lolls to one side, and the gait is a
     // limp: one leg stiff and dragging, a hitch and a hip drop on every step on it, the whole body lurching.

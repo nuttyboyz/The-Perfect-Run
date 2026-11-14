@@ -22,17 +22,15 @@ import { buildReaper, makeReaperScythe } from './reaper.js';
 import { buildKnight } from './knight.js';
 import { buildNinja } from './ninja.js';
 import { buildCorsair } from './corsair.js';
-import { buildGrey } from './grey.js';
+import { buildGrey, buildAlien } from './grey.js';
 import { buildThermes } from './thermes.js';
 
 export const CHARACTERS = [
-  { id: 'grey', name: 'The Visitor', role: 'Grey', blurb: 'Smooth grey skin, a head too big for its neck and two black eyes that never blink. It does not say where it is from. Light, quick and unsettling.', file: 'veteran.glb', tposeArms: true, build: 'grey', height: 1.64, bulk: 0.95, stats: { hp: 0.92, speed: 1.1 } },
+  { id: 'grey', name: 'The Visitor', role: 'Grey', blurb: 'Sinewy grey skin and two huge black eyes that never blink. It does not say where it is from. Light, quick and unsettling.', file: 'm10.glb', tposeArms: true, build: 'alien', height: 1.9, grip: { curl: 1.3, palm: 0.012 }, stats: { hp: 0.92, speed: 1.1 } }, // Nutty 2026-11-14: Mixamo #10 in medium grey, replaces the old drawn grey
   { id: 'veteran', name: 'Blitz', role: 'Tank', blurb: 'Black-ops plate from boots to visor and a habit of walking straight through the firefight. His bullets heal teammates.', file: 'blitz.glb', tposeArms: true, height: 1.97, bulk: 1.05, healShots: true, stats: { hp: 1.25, speed: 0.95 } }, // was The Veteran (Nutty 2026-11-05: Mixamo #2, renamed Blitz)
   { id: 'bonelord', name: 'Bonelord', role: 'Skeleton', blurb: 'A soldier\'s skeleton that refused to stay buried.', file: 'xbot.glb', build: 'skeleton', height: 1.86, stats: { hp: 0.9, speed: 1.08 } },
   { id: 'scalefang', name: 'Scalefang', role: 'Lizard', blurb: 'Cold-blooded hunter from the swamps. Tail and all.', file: 'xbot.glb', build: 'reptilian', height: 1.9, stats: { hp: 1.1, speed: 1.0 } },
-  { id: 'nyx', name: 'Nyx', role: 'Huntress', blurb: 'White hair, red eyes, and a very short temper.', file: 'michelle.glb', height: 1.72, stats: { hp: 0.95, speed: 1.06 } },
   { id: 'ironwood', name: 'Ironwood', role: 'Super Soldier', blurb: 'Moss-green power armour, a visor that never blinks and exactly one plan: stand in front of everyone else.', file: 'soldier.glb', build: 'ironwood', height: 1.9, bulk: 1.1, stats: { hp: 1.2, speed: 0.96 } },
-  { id: 'gigachad', name: 'Giga Tyrone', role: 'Absolute Unit', blurb: 'Jaw first, questions never. Tyrone has won every staring contest, handshake and argument with gravity, and he never skips leg day.', file: 'xbot.glb', build: 'chad', armPose: { out: 0.2, fwd: 0.14, bend: 0.3 }, height: 1.96, stats: { hp: 1.15, speed: 1.0 } },
   { id: 'ragmon', name: 'Ragmon', role: 'Blank', blurb: 'A faceless figure with no past and nothing to hide behind. Nobody knows what Ragmon is. Ragmon does not know either.', file: 'ragmon.glb', tposeArms: true, height: 1.8, stats: { hp: 1.0, speed: 1.03 } }, // Nutty 2026-11-05: Mixamo #27
   { id: 'kratia', name: 'Kratia', role: 'Duelist', blurb: 'A red combat suit, silver hair and no patience for anyone slower than her. She hits first and keeps moving.', file: 'kratia.glb', tposeArms: true, height: 1.75, stats: { hp: 0.95, speed: 1.08 } }, // Nutty 2026-11-05: Mixamo #22
   { id: 'selena', name: 'Selena', role: 'Rogue', blurb: 'Hooded, cloaked in black leather and gone before the bodies hit the floor. Quiet, quick and hard to pin down.', file: 'selena.glb', tposeArms: true, height: 1.72, stats: { hp: 0.92, speed: 1.1 } }, // Nutty 2026-11-05: Mixamo #15
@@ -200,6 +198,7 @@ export function getTemplate(def, skinId) {
   else if (def.build === 'ninja') buildNinja(scene, design ? { ...skin, design } : skin);
   else if (def.build === 'corsair') buildCorsair(scene, design ? { ...skin, design } : skin);
   else if (def.build === 'grey') buildGrey(scene, design ? { ...skin, design } : skin);
+  else if (def.build === 'alien') buildAlien(scene);
   else if (def.build === 'thermes') buildThermes(scene, skin);
   skinBodyMaterials(scene, def, skin);
   if (def.id === 'veteran' && def.file === 'veteran.glb') buildVeteranGear(scene, skin.gear);
@@ -735,7 +734,8 @@ export class CharacterRig {
     const upper = B.get(sd + 'Arm'), lower = B.get(sd + 'ForeArm'), hand = B.get(sd + 'Hand');
     if (!upper || !lower || !hand || !rest) return;
     const fN = f.clone().normalize(), pN = p.clone().normalize();
-    const wrist = point.clone().addScaledVector(fN, -rest.len * 0.75).addScaledVector(pN, -0.025 * h);
+    const fit = this.def && this.def.grip; if (fit) curl *= fit.curl; // a body with long thin fingers closes them further and holds its palm nearer the grip
+    const wrist = point.clone().addScaledVector(fN, -rest.len * 0.75).addScaledVector(pN, -(fit ? fit.palm : 0.025) * h);
     const sh = upper.getWorldPosition(new THREE.Vector3());
     const pole = sh.clone().add(V(0, -0.6, -0.15)).addScaledVector(outward, 0.5);
     twoBoneIK(upper, lower, hand, wrist, pole);
@@ -827,8 +827,16 @@ export function flushSwipes(model, fx) {
   r.swipeOut.length = 0;
 }
 
+// The four Horde shop owners (Nutty 2026-11-14, from the numbered Mixamo sheets: #43 Uriel, #21 the soldier, #40 Peasant Girl, #20 Elvis).
+// Not playable: they only stand behind their counters (hordeshops.js).
+export const KEEPER_DEFS = {
+  keepMelee: { id: 'keepMelee', name: 'Blacksmith', file: 'm43.glb', tposeArms: true, height: 2.0 },
+  keepGun: { id: 'keepGun', name: 'Quartermaster', file: 'm21.glb', tposeArms: true, height: 1.9 },
+  keepElem: { id: 'keepElem', name: 'Sage', file: 'm40.glb', tposeArms: true, height: 1.72 },
+  keepGear: { id: 'keepGear', name: 'Tinkerer', file: 'king.glb', tposeArms: true, height: 1.85 },
+};
 export function makeCharacter(id, skin) {
-  const def = id === 'death' ? DEATH_DEF : (CHAR_BY_ID[id] || CHAR_BY_ID.veteran);
+  const def = id === 'death' ? DEATH_DEF : (KEEPER_DEFS[id] || CHAR_BY_ID[id] || CHAR_BY_ID.veteran);
   return new CharacterRig(def, { skin });
 }
 

@@ -25,7 +25,6 @@ export const ACTIONS = [
   { id: 'w1', name: 'Weapon 1', padName: 'Previous Weapon', key: 'Digit1', btn: 14, hint: 'Swap weapon' },
   { id: 'w2', name: 'Weapon 2', padName: 'Next Weapon', key: 'Digit2', btn: 15, hint: 'Swap weapon' },
   { id: 'w3', name: 'Weapon 3', key: 'Digit3', kfix: ['Wheel'], kbOnly: true, hint: 'Swap weapon (the wheel cycles too)' },
-  { id: 'bed', name: 'Place Bed', key: 'KeyB', pcombo: [6, 11], hint: 'Put down your respawn bed' },
   { id: 'camera', name: 'First / Third Person', key: 'KeyV', btn: 11, hint: 'Switch the camera view' },
   { id: 'shop', name: 'Shop', key: 'Tab', btn: 8, hint: 'Open the shop' },
   { id: 'speed', name: 'Game Speed', key: 'KeyT', btn: 13, hint: 'Solo and couch runs, once unlocked' },

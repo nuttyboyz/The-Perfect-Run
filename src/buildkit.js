@@ -82,7 +82,7 @@ export function hall(S, { x, z, yaw = 0, W, D, H, th = 1, yb, doors = [], mats, 
     S.block(mats.roof || trim, W + 1.0, 0.6, D + 1.0, x, yb + H, z, yaw, { under: true });
     // A low parapet round the roof.
     for (const [lx, lz, pw, pd] of [[0, D / 2 + 0.3, W + 1.0, 0.4], [0, -D / 2 - 0.3, W + 1.0, 0.4], [W / 2 + 0.3, 0, 0.4, D + 0.2], [-W / 2 - 0.3, 0, 0.4, D + 0.2]]) { const [px, pz] = at(lx, lz); S.box(trim, pw, 0.5, pd, px, yb + H + 0.6, pz, yaw); }
-  } else {
+  } else if (roof === 'gable') {
     const half = W / 2 + 0.7, slope = Math.hypot(half, rise), ang = Math.atan2(rise, half), len = D + 2 * over + 0.8;
     S.box(trim, W + 0.8, 0.5, D + 2 * over + 0.4, x, yb + H, z, yaw); // entablature under the roof
     S.solid(W + 0.8, 0.5, D + 2 * over + 0.4, x, yb + H, z, yaw, { under: true });
@@ -112,11 +112,41 @@ export function column(S, mat, x, z, r, h, yb) {
   if (S.w.duel) S.w.solids.push({ t: 'c', x, z, r, top: yb + h });
 }
 
-// Steps up to a height: stacked blocks, each one jump high, climbing along +local z of `yaw` from (x, z).
-export function steps(S, mat, x, z, yaw, toH, yb, { rise = 1.0, depth = 1.5, width = 2.6 } = {}) {
-  const n = Math.max(1, Math.ceil((toH - yb) / rise)), c = Math.cos(yaw), s = Math.sin(yaw);
+// The walking surface of a stair: one slope from lo to hi, climbing along +local z of `yaw` from its foot at (x, z). You walk
+// straight up and down it with no jumping (World.collide / standY read `ramp`). Shots ignore it: they stop on the treads.
+export function ramp(w, x, z, yaw, width, run, lo, hi, { under = false, lift = 0.16 } = {}) {
+  w.platforms.push({ box: true, x: x + Math.sin(yaw) * run / 2, z: z + Math.cos(yaw) * run / 2, hw: width / 2, hd: run / 2, yaw: -yaw, top: hi, lo, lift, ramp: true, base: under ? lo : undefined, noShot: true, bld: false });
+}
+
+// A stair up to a height, climbing along +local z of `yaw` from (x, z): real treads (a third of a metre each) over a walking
+// slope, so it is walked, never jumped (Nutty 2026-11-14). rise and depth only set how long the whole stair runs.
+// under: the stair stands on an upper floor (you can walk beneath that floor). sink: carry the treads below yb on sloping ground.
+export function steps(S, mat, x, z, yaw, toH, yb, { rise = 1.0, depth = 1.5, width = 2.6, under = false, sink = 0 } = {}) {
+  const run = Math.max(1, Math.ceil((toH - yb) / rise - 1e-6)) * depth, n = Math.max(1, Math.ceil((toH - yb) / 0.33 - 1e-6)), d = run / n, r = (toH - yb) / n;
+  const c = Math.cos(yaw), s = Math.sin(yaw), y0 = yb - sink, P = S.w.platforms;
   for (let i = 0; i < n; i++) {
-    const h = Math.min(toH, yb + rise * (i + 1)) - yb, d = (i + 0.5) * depth;
-    S.block(mat, width, h, depth, x + s * d, yb, z + c * d, yaw, { bld: false });
+    const o = (i + 0.5) * d;
+    S.block(mat, width, yb + r * (i + 1) - y0, d, x + s * o, y0, z + c * o, yaw, { bld: false, under, uvk: 0.35 });
+    P[P.length - 1].shotOnly = true;
+  }
+  ramp(S.w, x, z, yaw, width, run, yb, toH, { under, lift: r / 2 });
+}
+
+// Floors for a building with more than one storey (Nutty 2026-11-14: every storey has a floor). levels: the height of each
+// floor from the ground up. Each storey gets a stair along a side wall (they alternate sides) and the floor above is whole
+// except for the stairwell the stair comes up through. Ix, Iz: half the inside of the building; at: its local-to-world.
+export function storeys(S, at, yaw, Ix, Iz, levels, mats, { sw = 1.7 } = {}) {
+  const sx = Ix - sw / 2 - 0.05;
+  for (let f = 0; f + 1 < levels.length; f++) {
+    const side = f % 2 === 0 ? -1 : 1, y0 = levels[f], y1 = levels[f + 1], n = Math.ceil((y1 - y0) / 0.33 - 1e-6), run = n * 0.55, h = run / 2;
+    const [fx, fz] = at(side * sx, side * h);
+    steps(S, mats.stone || mats.trim || mats.wall, fx, fz, yaw + (side < 0 ? 0 : Math.PI), y1, y0, { rise: 0.33, depth: 0.55, width: sw, under: f > 0, sink: f ? 0 : 1.8 });
+    const fm = (f + 2 === levels.length && mats.roof) || mats.floor || mats.trim || mats.wall;
+    const slab = (lx, lz, W, D) => { if (D < 0.2) return; const [x, z] = at(lx, lz); S.block(fm, W, 0.4, D, x, y1 - 0.4, z, yaw, { under: true, uvk: 0.3 }); };
+    const fw = 2 * Ix - sw + 0.2;
+    slab(-side * (Ix - fw / 2), 0, fw, 2 * Iz); // the floor
+    slab(side * (sx - 0.3), -side * (h + Iz) / 2, sw + 0.6, Iz - h); // the landing at the head of the stair
+    const p = Math.max(0, ((y1 - 0.4 - y0) - 2.4) / (y1 - y0) * run); // the floor carries on over the foot of the stair, as far as there is headroom
+    slab(side * (sx - 0.3), side * (Iz + h - p) / 2, sw + 0.6, Iz - h + p);
   }
 }

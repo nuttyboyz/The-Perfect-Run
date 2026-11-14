@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadScan } from './scan.js';
 
 const cache = new Map();
-export const ASSET_FILES = ['veteran.glb', 'xbot.glb', 'clown.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'runeSword.glb', 'frostAxe.glb', 'moltenDagger.glb', 'blitz.glb', 'warlord.glb', 'archmage.glb', 'flayed.glb', 'rotgut.glb', 'king.glb', 'aldric.glb', 'ragmon.glb', 'gus.glb', 'surgeon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb', 'm12.glb', 'm13.glb', 'm16.glb', 'm17.glb', 'm21.glb', 'm04.glb', 'm07.glb', 'm14.glb', 'm11.glb', 'm10.glb', 'm19.glb', 'm03.glb', 'm05.glb', 'm23.glb', 'm06.glb', 'm18.glb', 'm29.glb'];
+export const ASSET_FILES = ['veteran.glb', 'xbot.glb', 'clown.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'blitz.glb', 'warlord.glb', 'archmage.glb', 'flayed.glb', 'rotgut.glb', 'king.glb', 'aldric.glb', 'ragmon.glb', 'gus.glb', 'surgeon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb', 'm12.glb', 'm13.glb', 'm16.glb', 'm17.glb', 'm21.glb', 'm04.glb', 'm07.glb', 'm14.glb', 'm11.glb', 'm10.glb', 'm19.glb', 'm03.glb', 'm05.glb', 'm23.glb', 'm06.glb', 'm18.glb', 'm29.glb', 'm43.glb', 'm40.glb'];
 
 function b64ToBytes(b64) {
   const bin = atob(b64);
@@ -41,7 +41,7 @@ export function toGLB(json) {
 
 // What the menus need (the playable characters and the weapon models) loads before the title screen. Everything else (enemies and
 // bosses, about two thirds of the download) streams in behind the menu, a few files at a time, and a run waits for it only if it must.
-const FIRST = new Set(['veteran.glb', 'xbot.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'runeSword.glb', 'frostAxe.glb', 'moltenDagger.glb', 'blitz.glb', 'aldric.glb', 'ragmon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb']);
+const FIRST = new Set(['m10.glb', 'veteran.glb', 'xbot.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'blitz.glb', 'aldric.glb', 'ragmon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb']);
 let restDone = false, restP = Promise.resolve();
 export const assetsReady = () => restDone;
 export const whenAssets = () => restP;

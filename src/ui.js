@@ -4,8 +4,9 @@ import { renderPShop, gemURL } from './metashop.js';
 import { MUTATORS, muOn, BOTTOMLESS } from './mutators.js';
 import { getMeta } from './meta.js';
 import { Profile } from './profile.js';
-import { DUEL_BIOMES, clipName } from './data.js';
-import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, NPCS, NPC_TYPES, BIOMES, BOSSES, DASH, DUEL, POWERUP_BY_ID, puInfo, TIER, splitLoadout, loadoutFull } from './data.js';
+import { DUEL_BIOMES, clipName, STAGE_POOL } from './data.js';
+import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, NPCS, NPC_TYPES, BIOMES, BOSSES, DASH, DUEL, POWERUP_BY_ID, puInfo, TIER, splitLoadout, loadoutFull, HORDE } from './data.js';
+import { shopSvg, SHOP_ICON } from './hordeshops.js';
 import { JET } from './jetpack.js';
 import { WING } from './wings.js';
 import { charUnlocked, LOCKED_CHARACTERS, gearUnlocked, GEAR_GOALS, EXTRA_GOALS, Unlocks } from './unlocks.js';
@@ -48,7 +49,7 @@ export function helpRows(L) {
   return [
     [c.move, 'Move'], [c.look, 'Aim'], [c.fire, 'Attack'], [c.sprint, pad ? 'Sprint (press the stick)' : 'Sprint'], [c.jump, 'Jump · with the Jetpack equipped: double-tap to fly · with Web Swing equipped: press again in the air and hold'], [c.dash, 'Dash'],
     [c.ab1 + ' · ' + c.ab2, 'Element abilities'], [c.ult, 'Ultimate'], [c.aim, 'Aim down sights, or block with a shield'],
-    pad ? [c.prev + ' ' + c.nxt, 'Swap weapon'] : ['1 2 3 / ' + c.next, 'Swap weapon'], [c.reload, 'Reload'], [c.use, 'Open crate · ride the skateboard · use the altar (hold)'], [c.bed, 'Place bed'],
+    pad ? [c.prev + ' ' + c.nxt, 'Swap weapon'] : ['1 2 3 / ' + c.next, 'Swap weapon'], [c.reload, 'Reload'], [c.use, 'Open crate · ride the skateboard · use the altar (hold)'], 
     [c.shop, 'Shop'], [c.camera, 'First / third person'], [c.speed, 'Game speed (solo and couch)'], ...([[c.cpu, 'CPU Run: hand the run to the CPU, and the same again to take it back']]), [c.pause, 'Menu'],
   ];
 }
@@ -219,7 +220,21 @@ export class UI {
     flip();
   }
   // Main menu: Daily Challenges shows how many of today's three are done.
-  dailyTitle() { const el = this.$('#title-daily'); if (el) { try { el.textContent = Dailies.today().filter((d) => d.done).length + '/3'; } catch {} } }
+  // The Daily Challenges box on the title screen (top right): live progress; a finished one is crossed out with a green
+  // tick and a Claim button; claiming pays the PP and brings in a new challenge of the same tier.
+  dailyTitle() {
+    const box = this.$('#db-list'); if (!box) return;
+    let list; try { list = Dailies.today(); } catch { return; }
+    const html = list.map((d) => {
+      const pct = Math.round(100 * d.cur / Math.max(1, d.need));
+      return `<div class="db-row${d.done ? ' done' : ''}"><i class="db-tick">${d.done ? '✓' : ''}</i><div class="db-main"><div class="db-text"><span class="ul-tag t${d.tier}">${d.tierName}</span><em>${esc(d.text)}</em></div>` +
+        (d.done ? '' : `<div class="db-bar"><i style="width:${pct}%"></i></div>`) + `</div>` +
+        (d.done ? `<button type="button" class="db-claim" data-s="${d.slot}">Claim ${d.pp} PP</button>` : `<span class="db-num">${d.cur.toLocaleString()} / ${d.need.toLocaleString()}<small>${d.pp} PP</small></span>`) + '</div>';
+    }).join('');
+    if (box._h !== html) { box._h = html; box.innerHTML = html; }
+    const ms = msToReset(), t = 'New in ' + Math.floor(ms / 3600000) + 'h ' + (Math.floor(ms / 60000) % 60) + 'm';
+    const rs = this.$('#db-reset'); if (rs.textContent !== t) rs.textContent = t;
+  }
   screen(id) {
     if (id === 's-title') this.dailyTitle();
     // Menus and lobbies never show the run's "You are out" / "You died" overlay.
@@ -277,6 +292,14 @@ export class UI {
     requestAnimationFrame(this.ringPlace);
   }
 
+  // The Host / Private choice, worded for a run or for Horde Mode.
+  playScreen() {
+    const h = !!this.game.hordeMode;
+    this.$('#play-host b').textContent = h ? 'Host a Horde' : 'Host a Run';
+    this.$('#play-private b').textContent = h ? 'Private Horde' : 'Private Game';
+    this.screen('s-play');
+  }
+
   // ---------------- title ----------------
   bindTitle() {
     const g = this.game;
@@ -293,9 +316,12 @@ export class UI {
     name.readOnly = g.seat === 1 && !!Profile.playName();
     name.addEventListener('change', () => { g.settings.name = name.value.trim().slice(0, 16) || g.settings.name; name.value = g.settings.name; g.saveSettings(); });
     this.$('#btn-couch').style.display = g.seat === 1 ? '' : 'none';
-    this.$('#btn-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.startLocal(); };
+    this.$('#btn-couch').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.hordeMode = false; g.startLocal(); };
     this.$('#btn-duel').style.display = g.seat === 1 ? '' : 'none';
-    this.$('#btn-duel').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-duel'); };
+    this.$('#btn-duel').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.hordeMode = false; this.screen('s-duel'); };
+    // Horde Mode: endless waves. The same Host / Private choice as a run, then one weapon and straight in.
+    this.$('#btn-horde').style.display = g.seat === 1 ? '' : 'none';
+    this.$('#btn-horde').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.hordeMode = true; this.playScreen(); };
     this.$('#duel-cpu').onclick = () => { // versus the CPU: pick the stage first, then the fighters
       g.audio.unlock(); g.audio.play('ui');
       const box = this.$('#ds-cpu');
@@ -325,13 +351,14 @@ export class UI {
     this.$('#do-go').onclick = () => this.join(this.$('#do-code').value, 's-donline');
     this.$('#do-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.join(this.$('#do-code').value, 's-donline'); });
     this.wireFireRing();
-    this.$('#btn-solo').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; this.screen('s-play'); };
+    this.$('#btn-solo').onclick = () => { g.audio.unlock(); g.audio.play('ui'); g.duelMode = false; g.hordeMode = false; this.playScreen(); };
     // Host a Run = an open game Quickplay can fill. Private Game = yours alone until you hand out the code.
     // With no connection either one still starts, as a plain solo run.
     const create = async (pub) => {
       g.audio.play('ui'); g.duelMode = false;
+      const horde = !!g.hordeMode; // leaving a party clears it; keep the choice made on the title
       this.busy(pub ? 'Opening your run…' : 'Setting up your game…');
-      try { await g.createParty(pub); } catch (e) { g.playSolo(); if (pub) this.toast('Could not get online, so this is a solo run.', 'bad'); }
+      try { g.hordeMode = horde; await g.createParty(pub); } catch (e) { g.hordeMode = horde; g.playSolo(); if (pub) this.toast('Could not get online, so this is a solo run.', 'bad'); }
       this.busy(null);
     };
     this.$('#play-host').onclick = () => create(true);
@@ -346,12 +373,13 @@ export class UI {
       this.busy(null);
     };
     this.$('#btn-join').onclick = () => {
-      g.audio.unlock(); g.audio.play('ui'); this.screen('s-join');
+      g.audio.unlock(); g.audio.play('ui'); g.hordeMode = false; this.screen('s-join');
     };
     this.$('#btn-pshop').onclick = () => { g.audio.unlock(); g.audio.play('ui'); this.screen('s-pshop'); renderPShop(this); };
     this.$('#btn-unlocks').onclick = () => { g.audio.play('ui'); this.screen('s-unlocks'); this.renderUnlocks(); };
-    this.$('#btn-daily').onclick = () => { g.audio.play('ui'); this.screen('s-daily'); this.renderDaily(); };
-    if (g.seat === 1 && !g.isBot) Dailies.onDone = (d, pp) => { this.toast('Daily Challenge done: ' + d.text + ' · +' + pp + ' PP', 'good'); g.audio.play('crate', 0.7); };
+    this.$('#db-list').onclick = (e) => { const b = e.target.closest('.db-claim'); if (!b) return; const pp = Dailies.claim(+b.dataset.s); if (pp) { g.audio.play('crate', 0.7); this.toast('+' + pp + ' PP claimed. New challenge added.', 'good'); this.$('#title-pp').textContent = getMeta().pp.toLocaleString(); } this.dailyTitle(); };
+    setInterval(() => { if (this.$('#s-title').classList.contains('on')) this.dailyTitle(); }, 1000); // the box is live: progress, ticks and the reset clock
+    if (g.seat === 1 && !g.isBot) Dailies.onDone = (d, pp) => { this.toast('Daily Challenge done: ' + d.text + ' · claim ' + pp + ' PP on the title screen', 'good'); g.audio.play('crate', 0.7); };
     this.$('#btn-help').onclick = () => { g.audio.play('ui'); this.screen('s-help'); };
     this.$('#btn-settings').onclick = () => { g.audio.play('ui'); this.openSettings('s-title'); };
     this.$$('.fs-toggle').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.toggleFullscreen(); }));
@@ -579,7 +607,7 @@ export class UI {
     // a seat that gets pulled back to the lobby by the host never pressed the summary button itself.
     for (const id of ['#summary', '#dead', '#duelend', '#vote', '#bless', '#shop', '#bossbar', '#waiting']) { const e = this.$(id); if (e) e.classList.remove('on'); }
     const solo = g.party.kind === 'solo' || g.party.kind === 'local';
-    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : g.duelMode ? (g.party.kind === 'local' ? 'Local duel' : 'Duel party ' + g.partyCode) : g.party.kind === 'local' ? 'Local co-op' : solo ? 'Solo run' : 'Party ' + g.partyCode;
+    this.$('#lobby-title').textContent = g.hordeMode ? 'Horde Mode' + (g.party.kind === 'solo' || !g.partyCode ? '' : ' · party ' + g.partyCode) : g.bot ? 'Duel Arena · versus the CPU' : g.duelMode ? (g.party.kind === 'local' ? 'Local duel' : 'Duel party ' + g.partyCode) : g.party.kind === 'local' ? 'Local co-op' : solo ? 'Solo run' : 'Party ' + g.partyCode;
     this.$('#invite').style.display = solo ? 'none' : '';
     this.$('#invite-code').textContent = g.partyCode || '';
     this.$('#invite-copy').onclick = () => {
@@ -681,6 +709,13 @@ export class UI {
     this.$$('.wcard').forEach((b) => (b.onclick = () => {
       g.audio.play('ui');
       const id = b.dataset.w, wd = WEAPON_BY_ID[id];
+      if (g.hordeMode) { // Horde Mode: one weapon, and picking another swaps it
+        if (TIER(wd) === 3) return;
+        const w1 = g.loadout.w[0] === id ? [] : [id];
+        g.setLoadout({ w: w1 }); this.renderLobby();
+        if (w1.length && g.pad.active) setFocus(this.root, this.$('#btn-ready'));
+        return;
+      }
       let { ws, gears } = splitLoadout(g.loadout.w);
       const list = TIER(wd) === 3 ? gears : ws;
       if (list.includes(id)) { const out = list.filter((x) => x !== id); if (TIER(wd) === 3) gears = out; else ws = out; }
@@ -714,7 +749,7 @@ export class UI {
     if (!this._muClose) { this._muClose = (e) => { if (!muField.contains(e.target)) muField.classList.remove('open'); }; document.addEventListener('pointerdown', this._muClose); }
     this.$('#btn-ready').onclick = () => {
       g.audio.play('ui');
-      if (!loadoutFull(g.loadout.w)) { g.lobbyStep = 2; this.setFlip(2, true); this.renderLobby(); this.toast('Take 3 items off the wall first (any mix, weapons are optional)', 'bad'); return; }
+      if (!g.loadOk(g.loadout.w)) { g.lobbyStep = 2; this.setFlip(2, true); this.renderLobby(); this.toast(g.hordeMode ? 'Pick one weapon off the wall first' : 'Take 3 items off the wall first (any mix, weapons are optional)', 'bad'); return; }
       if (this.cpuFlow() && !g.ready && !this.cpuDone) { // versus the CPU: first your fighter, then the CPU's
         if (!g._cpuPick) { g.cpuPickBegin(); this.flipStep = 1; this.$('#s-lobby').classList.remove('flip-rev'); this.renderLobby(); return; }
         g.cpuPickEnd(true); this.cpuDone = true;
@@ -808,6 +843,13 @@ export class UI {
     this.clipNext = next;
     next();
   }
+  // The select's pages in order (data-flip values: 1 Character, 2 Weapons, 3 Element, 4 Run options and Mutators).
+  // Horde Mode has no Element page; only the host gets the Mutators page, everyone else readies up on the weapon wall.
+  flipPages() {
+    const g = this.game;
+    if (g.hordeMode) return this.lateJoin() ? [1, 2] : g.isHost ? [1, 2, 4, 5] : [1, 2, 5]; // 5 = Stage select with the vote; Start Horde / Ready Up sits at the bottom of it
+    return g.duelMode || this.lateJoin() ? [1, 2, 3] : [1, 2, 3, 4];
+  }
   flipSync(duel) {
     if (!FLIP_LOBBY) return;
     const g = this.game, root = this.$('#s-lobby'), A = this._arc, on = !!(A && A.on);
@@ -815,7 +857,7 @@ export class UI {
     if (!on) return;
     if (!this._flip) {
       const mk = (cls, html) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; A.el.appendChild(d); return d; };
-      const steps = mk('flip-steps', ['Character', 'Weapons', 'Element', 'Mutators'].map((n, i) => `<button type="button" class="flip-step" data-s="${i + 1}"><b>${i + 1}</b><span>${n}</span></button>`).join('<i></i>'));
+      const steps = mk('flip-steps', ['Character', 'Weapons', 'Element', 'Mutators', 'Stage'].map((n, i) => `<button type="button" class="flip-step" data-s="${i + 1}"><b>${i + 1}</b><span>${n}</span></button>`).join('<i></i>'));
       const SIMPLE = { bighead: 'Everyone gets a giant head. Headshots are easy.', jackpot: 'Every 20th kill explodes into gold.', pinata: 'Enemies burst into confetti and candy that heals you.', bottomless: 'Never reload. Your guns never run out.', necro: 'Enemies you kill rise and fight for you for 10 seconds.', bullettime: 'Hold aim to slow the world. You stay fast and can hang in the air.', lowgrav: 'Moon jumps and floaty falls.' };
       const fin = mk('flip-final', `<h3 class="arc-h">Run options</h3><div class="flip-opts"></div>
         <div class="flip-muhead"><h3 class="arc-h">Mutators <small>just for fun · a mutator run counts toward nothing</small></h3><button type="button" class="mu-master" aria-pressed="false"><span>Off</span><i></i></button></div>
@@ -830,16 +872,18 @@ export class UI {
         this.renderMuChips(); this.flipSync(g.duelMode);
       };
       fin.querySelector('.flip-mulist').onclick = (e) => { const b = e.target.closest('.mu-row'); if (!b || !g.isHost) return; g.audio.play('ui'); g.setMu((g.settings.mu | 0) ^ +b.dataset.b); this.renderMuChips(); this.flipSync(g.duelMode); };
+      const stg = mk('flip-stage', `<h3 class="arc-h">Stage select <small></small></h3><div class="fs-cards">${STAGE_POOL.map((i, k) => `<button type="button" class="fs-card" data-i="${i}"><span class="fs-img" style="background-image:url(assets/stages.webp);background-size:400% 200%;background-position:${(k % 4) * 33.333}% ${k < 4 ? 0 : 100}%"></span><b>${esc(BIOMES[i].name)}</b><span class="fs-picks"></span></button>`).join('')}<button type="button" class="fs-card fs-rand" data-i="-1"><span class="fs-img"><em>?</em></span><b>Random</b><span class="fs-picks"></span></button></div>`);
+      stg.querySelector('.fs-cards').onclick = (e) => { const b = e.target.closest('.fs-card'); if (!b) return; g.audio.play('ui'); g.hordeVote(+b.dataset.i); this.renderLobby(); };
       const clip = mk('flip-clip', '<div class="fc-head">Skill preview</div><div class="fc-screen"><img alt=""><div class="fc-dots"><i></i><i></i><i></i></div></div><div class="fc-cap"></div>');
       const banner = mk('flip-cpu-banner', 'Choosing CPU');
       const nav = mk('flip-nav', `<button type="button" class="btn flip-back">◀ Back</button><button type="button" class="btn flip-next">Next ▶</button>`);
       steps.onclick = (e) => { const b = e.target.closest('.flip-step'); if (b) this.setFlip(+b.dataset.s); };
       nav.querySelector('.flip-back').onclick = () => {
         if ((this.flipStep || 1) === 1 && g._cpuPick) { g.audio.play('ui'); g.cpuPickEnd(false); this.flipStep = 3; root.classList.add('flip-rev'); this.renderLobby(); return; } // back to your own fighter
-        this.setFlip((this.flipStep || 1) - 1);
+        { const pg = this.flipPages(), i = pg.indexOf(this.flipStep || 1); this.setFlip(pg[Math.max(0, i - 1)]); }
       };
-      nav.querySelector('.flip-next').onclick = () => this.setFlip((this.flipStep || 1) + 1);
-      this._flip = { steps, fin, nav, clip, banner };
+      nav.querySelector('.flip-next').onclick = () => { const pg = this.flipPages(), i = pg.indexOf(this.flipStep || 1); this.setFlip(pg[Math.min(pg.length - 1, i + 1)]); };
+      this._flip = { steps, fin, nav, clip, banner, stg };
     }
     const F = this._flip;
     for (const [sel, to] of [['#cpu-field', '.flip-opts'], ['#round-field', '.flip-opts'], ['#diff-field', '.flip-opts']]) { const n = this.$(sel), box = F.fin.querySelector(to); if (n.parentNode !== box) box.appendChild(n); }
@@ -852,23 +896,37 @@ export class UI {
       F.fin.classList.toggle('mu-open', open);
       F.fin.querySelectorAll('.mu-row').forEach((b) => { b.classList.toggle('on', (mask & +b.dataset.b) !== 0); b.disabled = !g.isHost; });
     }
-    const last = duel || this.lateJoin() ? 3 : 4, step = Math.min(last, Math.max(1, this.flipStep || 1));
+    const pages = this.flipPages(), last = pages[pages.length - 1], step = pages.includes(this.flipStep) ? this.flipStep : pages.filter((x) => x <= (this.flipStep || 1)).pop() || 1;
+    { const hm = !!g.hordeMode; for (const sel of ['#round-field', '#diff-field']) { const n = this.$(sel); if (hm) n.style.display = 'none'; } const h = F.fin.querySelector('h3'); if (h) h.firstChild.textContent = hm ? 'Horde options' : 'Run options'; }
+    root.classList.toggle('horde-on', !!g.hordeMode);
+    if (g.hordeMode && step === 5) { // the stage vote: a tick and the name of everyone who picked each map
+      const ms = g.lobbyMembers(), many = ms.length > 1;
+      F.stg.querySelectorAll('.fs-card').forEach((c) => {
+        const i = +c.dataset.i, who = ms.filter((m) => (m.p.hv == null ? -1 : m.p.hv | 0) === i);
+        c.classList.toggle('picked', who.length > 0); c.classList.toggle('mine', who.some((m) => m.me));
+        const h = many ? who.map((m) => `<span class="${m.me ? 'me' : ''}"><i>✓</i>${esc(m.p.n || 'Player')}</span>`).join('') : '';
+        const pk = c.querySelector('.fs-picks'); if (pk._h !== h) { pk._h = h; pk.innerHTML = h; }
+      });
+      const sm = F.stg.querySelector('small'), t = many ? 'everyone votes · most votes wins · a tie is drawn' : 'pick a map, or leave it on Random';
+      if (sm.textContent !== t) sm.textContent = t;
+    }
     this.flipStep = step;
     if (root.dataset.flip !== String(step)) root.dataset.flip = step;
     root.classList.toggle('flip-duel', !!duel);
     root.classList.toggle('flip-last', step === last);
-    F.steps.querySelectorAll('.flip-step').forEach((b) => { const n = +b.dataset.s; b.classList.toggle('sel', n === step); b.classList.toggle('done', n < step); b.style.display = n > last ? 'none' : ''; if (b.previousElementSibling) b.previousElementSibling.style.display = n > last ? 'none' : ''; });
+    F.steps.querySelectorAll('.flip-step').forEach((b) => { const n = +b.dataset.s, off = !pages.includes(n); b.classList.toggle('sel', n === step); b.classList.toggle('done', n < step); b.style.display = off ? 'none' : ''; if (b.previousElementSibling) b.previousElementSibling.style.display = off ? 'none' : ''; const num = b.querySelector('b'), t = String(pages.indexOf(n) + 1); if (num && !off && num.textContent !== t) num.textContent = t; });
     root.classList.toggle('cpu-pick', !!g._cpuPick);
     this.clipSync(step === 3 && root.classList.contains('on'));
     { const ab = this.$$('#class-detail .ab'); ab.forEach((r, i) => r.classList.toggle('playing', step === 3 && i === this.clipI)); }
     F.nav.querySelector('.flip-back').style.display = step > 1 || g._cpuPick ? '' : 'none';
     const nx = F.nav.querySelector('.flip-next');
     nx.style.display = step < last ? '' : 'none';
-    nx.textContent = (['', 'Weapons', 'Element', 'Mutators'][step] || 'Next') + ' ▶';
+    nx.textContent = (['', '', g.hordeMode ? 'Weapon' : 'Weapons', 'Element', 'Mutators', 'Stage'][pages[pages.indexOf(step) + 1] || 0] || 'Next') + ' ▶';
+    { const s2 = F.steps.querySelector('.flip-step[data-s="2"] span'), t2 = g.hordeMode ? 'Weapon' : 'Weapons'; if (s2 && s2.textContent !== t2) s2.textContent = t2; }
   }
   setFlip(n, quiet) {
     if (!FLIP_LOBBY) return;
-    const g = this.game, root = this.$('#s-lobby'), last = g.duelMode || this.lateJoin() ? 3 : 4, to = Math.min(last, Math.max(1, n | 0));
+    const g = this.game, root = this.$('#s-lobby'), pages = this.flipPages(), last = pages[pages.length - 1], to = pages.includes(n | 0) ? n | 0 : pages.filter((x) => x <= (n | 0)).pop() || 1;
     if (to === (this.flipStep || 1)) return;
     root.classList.toggle('flip-rev', to < (this.flipStep || 1));
     this.flipStep = to;
@@ -986,7 +1044,12 @@ export class UI {
     const lo = g.loadout;
     const cls = g.myClass();
     const chr = CHAR_BY_ID[lo.ch] || CHAR_BY_ID.veteran;
-    const step = g.lobbyStep || 1, armed = loadoutFull(lo.w);
+    { const host0 = g.hostPeer(g.party.peers()); if (!g.isHost && host0 && host0.p.lb) { const hm = !!host0.p.lb.hm; if (hm !== !!g.hordeMode) { g.hordeMode = hm; if (hm && lo.w.length > 1) g.setLoadout({ w: [] }); } } }
+    const step = g.lobbyStep || 1, armed = g.loadOk(lo.w);
+    { // Horde Mode: the wall offers weapons only, one pick
+      const hm = !!g.hordeMode;
+      if (this._wallHm !== hm) { this._wallHm = hm; this.$$('#wall .wcard').forEach((b) => { b.style.display = hm && TIER(WEAPON_BY_ID[b.dataset.w]) === 3 ? 'none' : ''; }); const sh = this.$$('#wall .shelf'); if (sh[2]) sh[2].style.display = hm ? 'none' : ''; this.$$('#wall .w-more').forEach((b) => { b.style.display = hm ? 'none' : ''; }); const h3 = this.root.querySelector('.arc-wall .arc-h small'); if (h3) h3.textContent = hm ? 'pick one weapon · everything else is bought at the stalls' : 'any 3 · weapons or gear'; }
+    }
     this.$('#pick-char').classList.toggle('on', step === 1);
     this.$('#pick-wall').classList.toggle('on', step === 2);
     this.$('#step-1').classList.toggle('on', step === 1); this.$('#step-1').classList.toggle('done', step > 1);
@@ -1020,11 +1083,11 @@ export class UI {
       const bar = (l, v, max, num) => `<div class="abar"><span>${l}</span><i style="--v:${Math.min(100, (v / max) * 100)}%"></i><b>${num}</b></div>`;
       this.$('#arc-bars').innerHTML = bar('Health', chr.stats.hp, 1.3, Math.round(chr.stats.hp * CONFIG.baseHp)) + bar('Speed', chr.stats.speed, 1.12, Math.round(chr.stats.speed * 100) + '%');
       this.$('#arc-pp').textContent = getMeta().pp.toLocaleString();
-      this.$('#arc-p1').textContent = (g.bot ? (g._cpuPick ? 'CPU' : 'YOU') : g.party.kind === 'local' ? 'PLAYER ' + g.seat : esc(g.myName || 'P1')) + (g.ready ? ' · LOCKED IN' : ' · ' + order.length + '/3 PICKED');
+      this.$('#arc-p1').textContent = (g.bot ? (g._cpuPick ? 'CPU' : 'YOU') : g.party.kind === 'local' ? 'PLAYER ' + g.seat : esc(g.myName || 'P1')) + (g.ready ? ' · LOCKED IN' : ' · ' + order.length + (g.hordeMode ? '/1 PICKED' : '/3 PICKED'));
     }
     this.$('#stage-name').innerHTML = `<div class="sn-role">${chr.role}</div><div class="sn-name">${chr.name}</div><div class="sn-blurb">${esc(chr.blurb)}</div>`;
     this.$('#class-detail').style.setProperty('--cc', cls.css);
-    { const cdEl = this.$('#class-detail'), h = this.classDetailHTML(cls);
+    { const cdEl = this.$('#class-detail'), h = g.hordeMode ? '' : this.classDetailHTML(cls);
       if (cdEl._h !== h) { cdEl._h = h; cdEl.innerHTML = h; }
       if (!this._czBound) {
         // Customize: hover (or click) one of your three cooldowns, then click its replacement in the column beside them.
@@ -1056,8 +1119,8 @@ export class UI {
     this.$('#mu-field').style.display = duel || (couch && !g.isHost) ? 'none' : '';
     this.renderMuChips();
     this.flipSync(duel);
-    const startWord = duel ? 'Start Duel' : 'Start Run';
-    this.$('#lobby-title').textContent = g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch || g.couchWait ? 'Local duel' : 'Duel party ' + (g.partyCode || '')) : couch || g.couchWait ? 'Local co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
+    const startWord = duel ? 'Start Duel' : g.hordeMode ? 'Start Horde' : 'Start Run';
+    this.$('#lobby-title').textContent = g.hordeMode ? 'Horde Mode' + (g.party.kind === 'solo' || !g.partyCode ? '' : ' · party ' + g.partyCode) : g.bot ? 'Duel Arena · versus the CPU' : duel ? (couch || g.couchWait ? 'Local duel' : 'Duel party ' + (g.partyCode || '')) : couch || g.couchWait ? 'Local co-op' : g.party.kind === 'solo' ? 'Solo run' : 'Party ' + g.partyCode;
     // Couch co-op: publish which step this seat is on so the other seat can show it.
     if (couch && g.party.mine.ls !== step) g.party.set({ ls: step });
     const memberHtml = (m, seat) => {
@@ -1073,7 +1136,7 @@ export class UI {
         <div class="m-state">${m.p.host ? '' : m.p.rdy ? 'Ready' : 'Picking'}</div>
       </div>`;
       }
-      const isArmed = loadoutFull(wps);
+      const isArmed = g.loadOk(wps);
       const done = !!m.p.rdy;
       const state = m.p.rdy ? 'Ready ✓' : isArmed ? 'Armed · press Ready'
         : m.p.ls === 2 ? `At the Weapon Wall · ${wps.length}/3 picked` : 'Choosing a character';
@@ -1091,7 +1154,7 @@ export class UI {
         const nm = (m) => g.bot ? (m.me ? 'You' : 'CPU') : couch ? 'Player ' + (m.id === 'p2' ? 2 : 1) : m.p.n;
         const rows = (couch ? members.slice().sort((a, b) => (a.id < b.id ? -1 : 1)) : members).map((m) => {
           const c = CLASS_BY_ID[m.p.c] || cls, st = g.bot && !m.me ? CPU_LEVELS[Math.max(0, Math.min(3, g.settings.cpuLevel ?? 1))] : m.p.rdy ? 'Ready' : m.p.ig ? 'In game' : m.p.host && !couch ? 'Host' : 'Picking';
-          return `<div class="pl-row${m.me ? ' me' : ''}${m.p.rdy ? ' rdy' : ''}" style="--cc:${c.css}"><i class="pl-ic">${ICONS[c.element]}</i><b>${esc(nm(m))}</b>${m.p.host ? '<span class="pl-crown" title="Host">👑</span>' : ''}<em>${st}</em></div>`;
+          return `<div class="pl-row${m.me ? ' me' : ''}${m.p.rdy ? ' rdy' : ''}" style="--cc:${c.css}"><i class="pl-ic">${ICONS[c.element]}</i><b>${esc(nm(m))}</b>${m.p.rdy ? '<span class="pl-ok" title="Ready">✓</span>' : ''}${m.p.host ? '<span class="pl-crown" title="Host">👑</span>' : ''}<em>${st}</em></div>`;
         }).join('');
         const wait = g.couchWait ? '<div class="pl-row wait"><i class="pl-ic">＋</i><b>Player 2</b><em>Press a button on a controller</em></div>' : '';
         const html = `<h4>Party <small>${members.length}${g.party.kind === 'solo' || couch || g.bot ? '' : ' / ' + CONFIG.maxPlayers}</small></h4>` + rows + wait;
@@ -1254,11 +1317,11 @@ export class UI {
     const rows = l === 'kb' ? [
       ['W A S D', 'Move'], ['Mouse', 'Look and aim'], ['Left click', 'Attack / fire (melee alternates slash and stab)'], ['Right click or C', 'Aim down sights, or block with a melee weapon'],
       ['Shift', 'Sprint'], ['Space', 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], ['X', 'Dash'], ['Q', 'Element ability'], ['G', 'Third ability'], ['F', 'Ultimate'],
-      ['1 2 3 or wheel', 'Swap weapon'], ['R', 'Reload'], ['E', 'Open crate, use altar, take a power-up'], ['B', 'Place bed'], ['V', 'First / third person'], ['Tab', 'Shop'], ['Esc', 'Pause menu'],
+      ['1 2 3 or wheel', 'Swap weapon'], ['R', 'Reload'], ['E', 'Open crate, use altar, take a power-up'], ['V', 'First / third person'], ['Tab', 'Shop'], ['Esc', 'Pause menu'],
     ] : (() => { const k = P[l] || P.ds; return [
       [k.ls, 'Move'], [k.l3, 'Sprint on/off (with the Jet Pack lit: go down)'], [k.rs, 'Look and aim'], [k.rt, 'Attack / fire (melee alternates slash and stab)'], [k.lt, 'Aim down sights, or hold to block (tap just before a hit to parry)'],
       [k.a, 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], [k.b, 'Dash'], [k.x, 'Reload, open crate, use altar, take a power-up'], [k.lb, 'Element ability'], [k.y, 'Third ability'], [k.rb, 'Ultimate'],
-      ['D-pad ◀ ▶', 'Swap weapon'], ['D-pad ▼', 'Game speed'], ['D-pad ▲', 'CPU takes over / hand back (CPU Run only)'], [k.r3, 'First / third person'], [k.lt + ' + ' + k.r3, 'Place bed'], [k.view, 'Shop'], [k.menu, 'Pause menu'],
+      ['D-pad ◀ ▶', 'Swap weapon'], ['D-pad ▼', 'Game speed'], ['D-pad ▲', 'CPU takes over / hand back (CPU Run only)'], [k.r3, 'First / third person'], [k.view, 'Shop'], [k.menu, 'Pause menu'],
     ]; })();
     const list = this.$('#ctl-list');
     if (list) list.innerHTML = rows.map(([key, d]) => '<div class="ctl-row"><kbd>' + key + '</kbd><span>' + d + '</span></div>').join('');
@@ -1366,16 +1429,20 @@ export class UI {
     this.$('#killfeed').innerHTML = '';
     this.couchKeysCard();
     const p = this.game.loadout;
-    const cls = this.game.myClass();
-    this.root.style.setProperty('--class', cls.css);
-    this.$('#ab-q .ab-icon').innerHTML = AB_ICONS[cls.q.id] || ICONS[cls.element];
-    this.$('#ab-r .ab-icon').innerHTML = AB_ICONS[cls.r.id] || ICONS[cls.element];
-    this.$('#ab-d .ab-icon').innerHTML = AB_ICONS.dash;
-    this.$('#ab-e .ab-icon').innerHTML = AB_ICONS[cls.e.id] || ICONS[cls.element];
-    this.$('#ab-e .ab-name').textContent = cls.e.name;
-    this.$('#ab-q .ab-name').textContent = cls.q.name;
-    this.$('#ab-r .ab-name').textContent = cls.r.name;
+    this.hudAbilities();
     this.padHints();
+  }
+  // The cooldown icons along the bottom. Horde Mode: a slot stays empty until a cooldown is bought for it.
+  hudAbilities() {
+    const g = this.game, cls = g.mode === 'game' && g.player ? g.player.cls : g.myClass();
+    this.root.style.setProperty('--class', cls.css);
+    this.$('#ab-d .ab-icon').innerHTML = AB_ICONS.dash;
+    for (const k of ['q', 'r', 'e']) {
+      const ab = cls[k], el = this.$('#ab-' + k);
+      el.classList.toggle('empty', !ab);
+      this.$('.ab-icon', el).innerHTML = ab ? AB_ICONS[ab.id] || ICONS[cls.element] || '' : '';
+      this.$('.ab-name', el).textContent = ab ? ab.name : 'Empty';
+    }
   }
 
   setLocked(locked, uiOpen) {
@@ -1391,10 +1458,11 @@ export class UI {
     if (show) this.renderShare();
   }
 
-  // Pause menu: share PC with teammates in steps of 10.
+  // Pause menu: sharing PC with teammates was here; it is switched off (the code below is kept in case it comes back).
   renderShare() {
     const g = this.game, box = this.$('#pause-share');
     if (!box) return;
+    box.innerHTML = ''; return; // sharing PC is gone from the pause menu (Nutty 2026-11-13)
     const mates = g.party ? g.party.peers().filter((q) => !q.me && q.p && q.p.ig) : [];
     this.shareAmt = this.shareAmt || {};
     if (!mates.length || !g.player) { box.innerHTML = ''; return; }
@@ -1422,6 +1490,16 @@ export class UI {
   updateHud(dt) {
     const g = this.game, p = g.player;
     if (!p) return;
+    { // Spectating: who you are watching, their health, and how to change player.
+      const sb = this.$k('#spec-bar'), s = p.out && g.mode === 'game' ? g.spec : null;
+      this.setC(sb, 'on', !!s);
+      if (s) {
+        this.setT(sb.querySelector('b'), s.name);
+        sb.querySelector('i').style.width = Math.round(100 * Math.max(0, Math.min(1, s.hp / (s.mh || 1)))) + '%';
+        const pad = g.pad && g.pad.active;
+        this.setT(sb.querySelector('span'), (s.n > 1 ? (pad ? 'R2 next player · L2 previous' : 'Click for the next player · right click for the previous') + (g.horde ? ' · ' : '') : '') + (g.horde ? 'You are back when this wave is beaten' : ''));
+      }
+    }
     // Every frame: bars and cooldowns.
     const hpF = Math.max(0, p.hp / p.stats.maxHp);
     this.setW('#hp-fill', hpF);
@@ -1430,7 +1508,7 @@ export class UI {
     this.setT('#hp-text', Math.ceil(p.hp) + ' / ' + Math.round(p.stats.maxHp));
     this.setC(this.root, 'lowhp', hpF < 0.3 && p.alive);
     for (const k of ['d', 'q', 'e', 'r']) {
-      const cd = p.cds[k], max = (k === 'd' ? DASH.cd : p.cls[k].cd) * p.stats.cdr * p.stats.mast[k].cd;
+      const cd = k !== 'd' && !p.cls[k] ? 0 : p.cds[k], max = (k === 'd' ? DASH.cd : p.cls[k] ? p.cls[k].cd : 1) * p.stats.cdr * p.stats.mast[k].cd;
       const el = this.$k('#ab-' + k);
       // Blink's way back: while it is open its icon counts down the seconds left to return (Nutty 2026-11-13).
       const B = p.blinkBack && p.blinkBack.key === k ? Math.max(0, p.blinkBack.until - g.now) : 0;
@@ -1456,6 +1534,16 @@ export class UI {
         this.$('.ws-img', el).style.backgroundImage = shot ? `url(${shot})` : '';
       }
       this.setT(el._nm ||= this.$('.ws-name', el), w.name);
+      { // Horde Mode durability: a bar along the bottom that runs from green to red, and a bloody X once the weapon is broken
+        const d = p.dur && !gear && w.tier !== 3 ? p.dur[i] : null;
+        let bar = el._dur;
+        if (d != null && !bar) { bar = el._dur = document.createElement('i'); bar.className = 'ws-dur'; bar.appendChild(document.createElement('i')); el.appendChild(bar); const x = el._x = document.createElement('span'); x.className = 'ws-x'; x.textContent = 'X'; el.appendChild(x); }
+        if (bar) {
+          const dv = d == null ? '' : Math.round(Math.max(0, d) * 100) + '%';
+          if (bar._v !== dv) { bar._v = dv; bar.style.display = d == null ? 'none' : ''; bar.firstChild.style.width = dv; bar.firstChild.style.background = 'hsl(' + Math.round(Math.max(0, d || 0) * 120) + ' 85% 45%)'; }
+          this.setC(el, 'broken', d != null && d <= 0);
+        }
+      }
       this.setT(el._am ||= this.$('.ws-ammo', el), w.deploy && p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : gear ? (w.id === 'turret' ? (p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : p.turretCd > 0 ? 'Ready in ' + Math.ceil(p.turretCd) + ' s' : w.hud) : (w.hud || 'Passive')) : w.summon || w.heal ? (p.staffCd > 0 ? 'Ready in ' + Math.ceil(p.staffCd) + ' s' : w.heal ? 'Raise to heal' : 'Slam to summon') : w.kind === 'melee' || w.bow || (w.kind === 'gun' && muOn(BOTTOMLESS)) ? '∞' : (i === p.cur && p.reloadT > 0 ? (w.cool ? 'Cooling' : w.energy ? 'Recharging' : 'Reloading') : w.energy ? Math.round(p.ammo[i] / p.magOf(w) * 100) + '% charge' : p.ammo[i] + ' / ' + p.magOf(w)));
     });
     // Charge bar of an energy weapon (Pulse Cannon, Laser Vision).
@@ -1473,7 +1561,8 @@ export class UI {
     const fpv = g.settings.view === 'first' || !!g.fpNow;
     const adsF = p.alive ? p.ads : 0;
     const scopedW = !!wp.scope;
-    { const wk = p.board ? Math.round((p.windK || 0) * 20) / 20 : 0, we = this.$k('#wind'); if (we && we._k !== wk) { we._k = wk; we.style.opacity = wk * 0.85; } }
+    { if (p.dashWind > 0) p.dashWind = Math.max(0, p.dashWind - dt); const dw = p.dashWind > 0 ? Math.sin(Math.PI * Math.min(1, (0.45 - p.dashWind) / 0.45)) : 0;
+      const wk = Math.round(Math.max(p.board ? p.windK || 0 : 0, dw) * 20) / 20, we = this.$k('#wind'); if (we && we._k !== wk) { we._k = wk; we.style.opacity = wk * 0.85; } }
     const chc = (wp.kind === 'melee' ? 'melee' : '') + (adsF > 0.5 ? (fpv ? (scopedW ? ' ads scoped' : ' ads') : ' ads-tp') : ''), ch = this.$k('#crosshair');
     if (ch._k !== chc) { ch._k = chc; ch.className = chc; }
     const so = '0', sc = this.$k('#scope'); // the black scope overlay is gone: scoped guns show a real scope picture (scope.js)
@@ -1484,16 +1573,26 @@ export class UI {
     this.lastHud = 0.1;
     const b = g.world.biome;
     this.setC(this.root, 'duelmode', !!g.duel);
-    this.setT('#round-label', g.duel ? 'Duel Arena · ' + b.name : ((g.round || 0) >= CONFIG.rounds ? 'Bonus round' : 'Round ' + ((g.round || 0) + 1) + ' / ' + CONFIG.rounds) + ' · ' + b.name);
+    const hw = g.horde && g.hw ? g.hw : null, hRest = hw ? hw[3] / 10 : 0;
+    this.setT('#round-label', hw ? 'Horde Mode · ' + (hw[0] > 0 ? 'Wave ' + hw[0] : 'Get ready') + ' · ' + b.name : g.duel ? 'Duel Arena · ' + b.name : ((g.round || 0) >= CONFIG.rounds ? 'Bonus round' : 'Round ' + ((g.round || 0) + 1) + ' / ' + CONFIG.rounds) + ' · ' + b.name);
     const ph = g.phase;
-    const timerText = g.duel ? fmtTime(g.tl || 0) : ph === 'play' ? (g.endless ? '∞' : g.tl <= 0 ? 'DEATH' : fmtTime(g.tl)) : ph === 'vote' ? fmtTime(g.tl) : ph === 'boss' ? 'BOSS' : ph === 'demon' ? 'RUN' : ph === 'bless' || ph === 'sproam' ? fmtTime(g.tl) : ph === 'extract' ? 'EXTRACT' : '';
+    const timerText = hw ? (ph === 'boss' ? 'BOSS' : hRest > 0 ? fmtTime(Math.ceil(hRest)) : 'WAVE ' + hw[0]) : g.duel ? fmtTime(g.tl || 0) : ph === 'play' ? (g.endless ? '∞' : g.tl <= 0 ? 'DEATH' : fmtTime(g.tl)) : ph === 'vote' ? fmtTime(g.tl) : ph === 'boss' ? 'BOSS' : ph === 'demon' ? 'RUN' : ph === 'bless' || ph === 'sproam' ? fmtTime(g.tl) : ph === 'extract' ? 'EXTRACT' : '';
     this.setT('#timer', timerText);
     this.setC('#timer', 'urgent', (g.duel && ph === 'duel' && g.tl < 30) || (ph === 'play' && !g.endless && g.tl < 30) || (ph === 'play' && !!g.views.demon) || ph === 'vote' || ph === 'demon');
-    this.setT('#phase-hint', g.duel ? (ph === 'duel' ? 'Next power-up in ' + Math.max(0, Math.ceil(g.dpt || 0)) + 's · first one down loses' : ph === 'dpick' ? 'Choose your power-up' : ph === 'dcount' ? 'Get ready' : '') : ph === 'play' ? (g.world && g.world.biome.id === 'space' ? 'Hunt, Loot, Survive' : g.endless && !g.views.demon ? 'Endless: hunt as long as you like, then hold ' + this.ctl('use') + ' at the altar to call the boss' : g.views.demon ? 'Death is hunting you. Hold ' + this.ctl('use') + ' at the altar to summon the boss, or kill her' : 'Hunt, Loot, Survive') : ph === 'boss' ? 'Defeat the boss' : ph === 'demon' ? 'Death is hunting you' : ph === 'bless' ? 'Choose a Deity Blessing' : ph === 'sproam' ? 'Free roam: open crates and hire NPCs before the ship leaves for space' : '');
+    this.setT('#phase-hint', hw ? (ph === 'boss' ? 'Wave ' + hw[0] + ' · defeat the boss' : hRest > 0 ? (hw[0] > 0 ? 'Wave ' + hw[0] + ' cleared · open a chest or run to a stall' : 'The first wave is coming') + ' · next wave in ' + Math.ceil(hRest) + 's' : 'Hunt, Loot, Survive') : g.duel ? (ph === 'duel' ? 'Next power-up in ' + Math.max(0, Math.ceil(g.dpt || 0)) + 's · first one down loses' : ph === 'dpick' ? 'Choose your power-up' : ph === 'dcount' ? 'Get ready' : '') : ph === 'play' ? (g.world && g.world.biome.id === 'space' ? 'Hunt, Loot, Survive' : g.endless && !g.views.demon ? 'Endless: hunt as long as you like, then hold ' + this.ctl('use') + ' at the altar to call the boss' : g.views.demon ? 'Death is hunting you. Hold ' + this.ctl('use') + ' at the altar to summon the boss, or kill her' : 'Hunt, Loot, Survive') : ph === 'boss' ? 'Defeat the boss' : ph === 'demon' ? 'Death is hunting you' : ph === 'bless' ? 'Choose a Deity Blessing' : ph === 'sproam' ? 'Free roam: open crates and hire NPCs before the ship leaves for space' : '');
+    { // Horde Mode mini HUD: enemies left, live. From ten down it spells it out: "10 enemies left" ... "0 enemies left".
+      const el = this.$k('#horde-left'), on = !!hw && hw[0] > 0 && (hRest <= 0 || hRest > HORDE.rest - 3); // stays up a moment on "0 enemies left"
+      this.setC(el, 'on', on);
+      if (on) {
+        const n = hw[1], low = n <= 10;
+        this.setC(el, 'low', low);
+        this.setT(el._b ||= this.$('b', el), String(n));
+        this.setT(el._s ||= this.$('span', el), n === 1 ? 'enemy left' : 'enemies left');
+      }
+    }
     this.setT('#pc', p.pc);
     this.setT('#kills', p.totalKills);
-    this.setT('#beds', p.beds);
-    { const bp = this.$k('#bed-placed'), v = p.bedPos ? '' : 'none'; if (bp._d !== v) { bp._d = v; bp.style.display = v; } }
+    this.setT('#beds', p.beds); // revives left
     // Jetpack fuel (only when you own it and have it switched on).
     const jf = this.$k('#jetfuel');
     const jon = p.jetEquipped(), won = !jon && p.hasGear('wings');
@@ -1580,21 +1679,31 @@ export class UI {
     ctx.drawImage(this.mmBase, 0, 0, S, S);
     const w = g.world;
     const M = (x, z) => w.toMap(x, z, S);
-    const dot = (x, z, r, col) => { const [i, j] = M(x, z); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(i, j, r, 0, 7); ctx.fill(); };
+    const K = S / 200; // the canvas is drawn at twice the size it is shown, so the map stays sharp
+    const dot = (x, z, r, col) => { const [i, j] = M(x, z); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(i, j, r * K, 0, 7); ctx.fill(); if (r >= 1.6) { ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 0.6 * K; ctx.stroke(); } };
     const [ax, az] = M(w.arena.x, w.arena.z);
-    ctx.strokeStyle = '#ff4a5a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ax, az, 6 + Math.sin(g.now * 4) * 1.5, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#ff4a5a'; ctx.lineWidth = 2 * K; ctx.beginPath(); ctx.arc(ax, az, (6 + Math.sin(g.now * 4) * 1.5) * K, 0, 7); ctx.stroke();
     const [sx, sz] = M(w.spawn.x, w.spawn.z);
-    ctx.fillStyle = '#fff'; ctx.fillRect(sx - 2, sz - 2, 4, 4);
-    for (const cr of w.crates) if (!cr.opened) dot(cr.x, cr.z, 2.2, '#ffd36a');
+    ctx.fillStyle = '#fff'; ctx.fillRect(sx - 2 * K, sz - 2 * K, 4 * K, 4 * K); // chests are not marked (Nutty 2026-11-13): find them yourself
+    if (g.stalls) { // Horde Mode: each stall is a shopping cart in its shop's colour
+      if (!this._cartP) this._cartP = new Path2D(SHOP_ICON.cart);
+      for (const st of g.stalls) {
+        const [cx, cz] = M(st.x, st.z), k = 0.62 * K;
+        ctx.save(); ctx.translate(cx - 12 * k, cz - 12 * k); ctx.scale(k, k);
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 5.5; ctx.stroke(this._cartP);
+        ctx.strokeStyle = st.shop.color; ctx.lineWidth = 2.8; ctx.stroke(this._cartP);
+        ctx.restore();
+      }
+    }
     for (const m of g.views.mobs.values()) dot(m.x, m.z, 1.6, '#ff4040');
     for (const n of g.views.npcs.values()) dot(n.x, n.z, 2, '#7dff8a');
     if (g.views.boss) dot(g.views.boss.x, g.views.boss.z, 5, '#ff2050');
     if (g.views.demon) dot(g.views.demon.x, g.views.demon.z, 4 + Math.sin(g.now * 10) * 1.5, '#ff0030');
-    if (g.player.bedPos) { const [bx, bz] = M(g.player.bedPos.x, g.player.bedPos.z); ctx.fillStyle = '#9fd0ff'; ctx.fillRect(bx - 3, bz - 2, 6, 4); }
     for (const v of g.views.players.values()) dot(v.pos.x, v.pos.z, 3, v.cls.css);
     const p = g.player;
     const [px, pz] = M(p.pos.x, p.pos.z);
-    ctx.translate(px, pz); ctx.rotate(-p.yaw + Math.PI);
+    ctx.translate(px, pz); ctx.rotate(-p.yaw + Math.PI); ctx.scale(K, K);
     ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4, 5); ctx.lineTo(0, 3); ctx.lineTo(-4, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
@@ -1630,11 +1739,13 @@ export class UI {
   shop(open) {
     const g = this.game, p = g.player;
     this.$('#shop').classList.toggle('on', open);
+    this.$('#shop').classList.toggle('hshop', !!(open && g.horde && g.hshop));
     if (!open || !p) return;
     this.$('#shop-pc').textContent = p.pc;
-    const items = [{ id: 'bed', name: 'Bed', role: 'Respawn', cost: g.price(CONFIG.bedPrice), desc: 'One more respawn. Place it with B.' }]
-      ;
-    this.$('#shop-items').innerHTML = items.map((it) => `
+    if (g.horde && g.hshop) return this.stallShop();
+    this.$('#shop h2').textContent = 'Shop'; this.$('#shop .panel > p.muted').textContent = 'Spend your PC on crates.';
+    const items = []; // beds are gone (Nutty 2026-11-13); crates are where PC goes
+    this.$('#shop-items').innerHTML = !items.length ? '<p class="muted">Nothing for sale here. Spend your PC on crates.</p>' : items.map((it) => `
       <button class="shop-item ${p.pc < it.cost ? 'poor' : ''} role-${it.role.toLowerCase()}" data-buy="${it.id}">
         <div class="si-role">${it.role}</div>
         <div class="si-name">${it.name}</div>
@@ -1642,6 +1753,63 @@ export class UI {
         <div class="si-cost"><img class="coin-img" src="${this.coin}">${it.cost}</div>
       </button>`).join('');
     this.$$('[data-buy]').forEach((b) => (b.onclick = () => g.buy(b.dataset.buy)));
+  }
+
+  // Horde Mode: the page that goes up when a wave ends. Every player's kills, PC collected and PC left for that wave, how long it took, and the mutators that are on.
+  waveSummary(wave) {
+    const g = this.game, el = this.$('#wave-sum');
+    clearTimeout(this._wsT); clearInterval(this._wsI);
+    el.classList.toggle('on', !!wave);
+    if (!wave) return;
+    const draw = () => {
+      if (!g.party || !g.hw) return;
+      const t = g.hw[5] | 0, mm = Math.floor(t / 60), ss = t % 60;
+      this.$('h3', el).textContent = 'Wave ' + wave + ' · ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
+      const rows = g.party.peers().filter((q) => q.p && q.p.n && q.p.ig).map((q) => { const h = Array.isArray(q.p.hs) && q.p.hs[0] === wave ? q.p.hs : null; return `<tr class="${q.me ? 'me' : ''}"><td>${esc(q.p.n)}</td><td>${h ? h[1] : '…'}</td><td>${h ? h[2] : '…'}</td><td>${h ? h[3] : '…'}</td></tr>`; }).join('');
+      this.$('.ws-body', el).innerHTML = '<table><tr><th>Player</th><th>Kills</th><th>PC collected</th><th>PC left</th></tr>' + rows + '</table>';
+      const mu = MUTATORS.filter((m) => (g.sim ? g.sim.mu : (g.lastW && g.lastW.mu) | 0) & m.bit);
+      this.$('.ws-mu', el).textContent = mu.length ? 'Mutators: ' + mu.map((m) => m.name).join(', ') : '';
+    };
+    draw();
+    this._wsI = setInterval(draw, 500); // teammates' numbers arrive a moment after your own
+    this._wsT = setTimeout(() => { clearInterval(this._wsI); el.classList.remove('on'); }, 12000);
+  }
+
+  // Horde Mode: one stall's goods. Click to buy. With every slot full, the next click asks which carried item to swap out.
+  stallShop() {
+    const g = this.game, p = g.player, kind = g.hshop, shop = HORDE.shops.find((s) => s.id === kind);
+    const items = g.stallItems(kind), elem = kind === 'elem';
+    const head = this.$('#shop h2');
+    head.innerHTML = `<span class="hs-ic" style="color:${shop.color}">${shopSvg(kind)}</span>${esc(shop.name)}`;
+    const slots = elem ? ['q', 'e', 'r'].map((k) => ({ i: ['q', 'r', 'e'].indexOf(k), key: this.key({ q: 'Q', e: 'G', r: 'F' }[k]), name: p.cls[k] ? p.cls[k].name : null })) : [0, 1, 2].map((i) => ({ i, key: String(i + 1), name: p.weapons[i] ? WEAPON_BY_ID[p.weapons[i]].name : null }));
+    const full = slots.every((s) => s.name);
+    const pend = this._hsPend && items.find((x) => x.id === this._hsPend && !x.own);
+    if (!pend) this._hsPend = null;
+    this.$('#shop .panel > p.muted').innerHTML = pend
+      ? `<b>${esc(pend.name)}</b>: every slot is full. Pick what it replaces, or pick something else.`
+      : (elem ? 'Cooldowns from any element, in any mix. ' : kind === 'gear' ? 'Gear shares your three item slots with your weapons. ' : 'You carry three items in all. ') + 'No refunds.';
+    const slotRow = `<div class="hs-slots${pend ? ' ask' : ''}">` + slots.map((s) => `<button type="button" class="hs-slot${s.name ? '' : ' empty'}" data-slot="${s.i}" ${pend && s.name ? '' : 'disabled'}><kbd>${esc(s.key)}</kbd><b>${esc(s.name || 'Empty')}</b>${pend && s.name ? '<em>Replace</em>' : ''}</button>`).join('') + '</div>';
+    let last = null;
+    const cards = items.map((it) => {
+      const hd = it.group && it.group !== last ? `<div class="hs-group" style="--gc:${it.css}">${esc(it.group)}</div>` : '';
+      last = it.group;
+      const st = it.own ? 'own' : it.locked ? 'locked' : p.pc < it.cost ? 'poor' : '';
+      const coin = `<img class="coin-img" src="${this.coin}">${it.cost}`;
+      return hd + `<button type="button" class="shop-item hs-item ${st}${pend && pend.id === it.id ? ' pend' : ''}" data-hbuy="${it.id}" ${it.own || it.locked ? 'disabled' : ''}${it.css ? ` style="--gc:${it.css}"` : ''}>
+        <div class="si-name">${esc(it.name)}</div><div class="si-desc">${esc(it.desc)}</div>
+        <div class="si-cost">${it.own ? 'Carried' : it.locked ? 'Locked · see Unlockables' : it.repair ? (it.dur <= 0 ? 'Broken · repair ' : 'Repair (' + Math.round(it.dur * 100) + '%) ') + coin : coin}</div></button>`;
+    }).join('');
+    const box = this.$('#shop-items'), top = box.scrollTop;
+    box.innerHTML = slotRow + `<div class="hs-list">${cards}</div>`;
+    box.scrollTop = top; { const l = box.querySelector('.hs-list'); if (l) l.scrollTop = this._hsTop || 0; l.onscroll = () => { this._hsTop = l.scrollTop; }; }
+    this.$$('[data-hbuy]').forEach((b) => (b.onclick = () => {
+      const r = g.hordeBuy(b.dataset.hbuy);
+      if (r === 'slot') { this._hsPend = b.dataset.hbuy; g.audio.play('ui'); this.stallShop(); }
+      else this._hsPend = null;
+    }));
+    this.$$('.hs-slot').forEach((b) => (b.onclick = () => { if (!this._hsPend) return; const id = this._hsPend; this._hsPend = null; g.hordeBuy(id, +b.dataset.slot); if (g.shopOpen) this.stallShop(); }));
+    this.$('#shop-pc').textContent = p.pc;
+    void full;
   }
 
   bless(opts) {
@@ -1755,6 +1923,12 @@ export class UI {
       const rows = s.cpu.rounds.map((r) => `<tr><td>Round ${r.round}</td><td>${r.farm}s</td><td>${r.boss}s</td><td>${r.kills}</td><td>${r.level}</td><td>${r.pc}</td><td>${r.powerups}</td></tr>`).join('');
       cpu.innerHTML = '<h3>CPU run report</h3><table><tr><th></th><th>Farm</th><th>Boss</th><th>Kills</th><th>Level</th><th>PC at vote</th><th>Picks</th></tr>' + rows + '</table><ul>' + s.cpu.notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>';
     }
+    if (s.horde) {
+      this.$('#sum-title').textContent = 'Overrun';
+      this.$('#sum-sub').textContent = 'You held out until wave ' + s.wave + '. Best so far: wave ' + (s.records.hordeBest || s.wave) + '.';
+      const m = Math.floor(s.time / 60), sec = s.time % 60;
+      this.$('#sum-stats').innerHTML = [['Wave reached', s.wave], ['Kills', s.kills], ['PC earned', s.pc], ['Damage dealt', s.dmg.toLocaleString()], ['Deaths', s.deaths], ['Time', m + 'm ' + sec + 's'], ['Perfect Points', '+' + (s.pp || 0)]].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+    } else {
     this.$('#sum-title').textContent = s.win ? 'A Perfect Run' : 'Run Over';
     this.$('#sum-sub').textContent = s.win ? (s.round > CONFIG.rounds ? 'You even beat The Visitor in space as ' : 'You conquered all six rounds as ') + s.cls + '.' : 'You reached round ' + s.round + ' as ' + s.cls + '. The next run is yours.';
     const m = Math.floor(s.time / 60), sec = s.time % 60;
@@ -1762,7 +1936,8 @@ export class UI {
       ['Round reached', s.round > CONFIG.rounds ? 'Bonus round' : s.round + ' / ' + CONFIG.rounds], ['Kills', s.kills], ['PC earned', s.pc], ['Damage dealt', s.dmg.toLocaleString()],
       ['Deaths', s.deaths], ['Time', m + 'm ' + sec + 's'], ['Perfect Points', '+' + (s.pp || 0)],
     ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('') + (s.blessings.length ? `<div class="wide"><span>Blessings</span><b>${s.blessings.map(esc).join(', ')}</b></div>` : '');
-    this.$('#sum-records').textContent = 'Best round ' + s.records.bestRound + ' · Perfect runs ' + s.records.wins + ' · Lifetime kills ' + s.records.totalKills;
+    }
+    this.$('#sum-records').textContent = s.horde ? 'Best wave ' + (s.records.hordeBest || s.wave) + ' · Lifetime kills ' + s.records.totalKills : 'Best round ' + s.records.bestRound + ' · Perfect runs ' + s.records.wins + ' · Lifetime kills ' + s.records.totalKills;
     // Every player can go back to character select on their own; only the host starts the next run.
     this.$('#sum-lobby').style.display = this.game.party ? '' : 'none';
     this.$('#sum-lobby').textContent = this.game.isHost || (this.game.party && this.game.party.kind === 'solo') ? 'Run it back' : 'Back to character select';

@@ -4,7 +4,7 @@
 // pickLandmarkSites runs before the terrain mesh is made, so each site gets a patch of level ground; buildLandmarks runs after the
 // stage's own scenery. Sites keep clear of the spawn, the boss arena, water and whatever the stage itself has built.
 import * as THREE from 'three';
-import { Shell, hall, column, steps } from './buildkit.js';
+import { Shell, hall, column, steps, storeys } from './buildkit.js';
 import { stoneMat, surfMat } from './stages.js';
 import { mulberry32 } from './rng.js';
 
@@ -12,7 +12,7 @@ const TAU = Math.PI * 2;
 const SITE_R = 15;
 
 // What each map builds, and from what. kinds: [kind, weight].
-function theme(id) {
+export function theme(id) {
   const wood = () => ({
     wall: surfMat('rough_wood', { tint: [0.95, 0.8, 0.62], rough: 0.88, bump: 0.7, rep: 1 }), trim: surfMat('dark_wood', { tint: [1.1, 1.0, 0.9], rough: 0.85, bump: 0.6 }),
     roof: surfMat('rough_wood', { tint: [0.62, 0.66, 0.46], rough: 0.9, bump: 0.9, rep: 3 }), floor: surfMat('rough_wood', { tint: [0.8, 0.68, 0.52], rough: 0.9, bump: 0.5, rep: 2 }),
@@ -106,7 +106,7 @@ const BUILD = {
   },
   // A keep: a tall hollow tower with two doorways, a gallery floor half way up, and a long stair to the battlements.
   keep(S, M, st, yb) {
-    const W = 8 + Math.round(st.s * 2), H = 8 + Math.round(st.s * 3);
+    const W = 11 + Math.round(st.s * 2), H = 9;
     const at = hall(S, { x: st.x, z: st.z, yaw: st.yaw, W, D: W, H, th: 1.0, yb, sink: 1.8, tk: 0.8, roof: 'flat', mats: M,
       doors: [{ side: 'z+', w: 2.4, h: 3.2 }, { side: 'x+', w: 2.0, h: 3.0 }] });
     stairUp(S, M.stone, at, st.yaw, -(W / 2 + 1.35), W / 2, yb + H + 0.6, yb, 1.8);
@@ -114,11 +114,8 @@ const BUILD = {
     for (let i = -1; i <= 1; i++) for (const [fx, fz] of [[i * (W / 2 - 0.6), W / 2 + 0.25], [i * (W / 2 - 0.6), -W / 2 - 0.25], [W / 2 + 0.25, i * (W / 2 - 0.6)]]) {
       const [mx, mz] = at(fx, fz); S.block(M.trim, 1.2, 1.0, 0.9, mx, yb + H + 0.6, mz, st.yaw, { bld: false });
     }
-    // Inside: a gallery along the back wall with steps up to it.
-    const gy = yb + 3.6, [gx, gz] = at(0, -(W / 2 - 1.0 - 1.1));
-    S.block(M.trim, W - 2.0, 0.35, 2.2, gx, gy, gz, st.yaw, { under: true });
-    const [qx, qz] = at(-(W / 2 - 1.0 - 0.8), -(W / 2 - 3.2) + 3.6);
-    steps(S, M.stone, qx, qz, st.yaw + Math.PI, gy + 0.35, yb + 0.15, { width: 1.4, depth: 0.9 });
+    // Inside: a whole upper floor, with a stair along the wall up to it.
+    storeys(S, at, st.yaw, W / 2 - 1, W / 2 - 1, [yb + 0.15, yb + 4.5], M);
   },
   // A colonnade temple on a platform: two rows of columns under a roof slab, a stair at the back up to the roof.
   temple(S, M, st, yb) {

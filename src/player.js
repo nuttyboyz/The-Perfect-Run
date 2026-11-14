@@ -1,4 +1,4 @@
-// The local player: movement, weapons, abilities, damage, beds and death.
+// The local player: movement, weapons, abilities, damage, revives and death.
 import * as THREE from 'three';
 import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME } from './mutators.js';
 import * as Vault from './vault.js';
@@ -7,7 +7,7 @@ import { updateWeaponFlames } from './flameweapon.js';
 import { spawnDragon } from './dragon.js';
 import { spawnGolem, GOLEM } from './golem.js';
 import { spawnPolaris, POLARIS } from './polaris.js';
-import { CONFIG, DUEL, GRAV, HEAL, FLAME, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf } from './data.js';
+import { CONFIG, DUEL, GRAV, HEAL, FLAME, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, DASH, freshStats, XP, puInfo, ZONE_K, zoneOf, mixClass, HORDE } from './data.js';
 import { makeHumanoid } from './models.js';
 import { animateWeapon, boltProto } from './weapons.js';
 import { launchArrow } from './longbow.js';
@@ -65,7 +65,7 @@ export class LocalPlayer {
     this.shield = { until: 0, hp: 0 };
     this.eye = { until: 0, dur: 5 }; // Eye of the Storm: while it lasts nothing can hurt you
     const perks = (this.perks = metaPerks());
-    this.beds = 1 + perks.beds;
+    this.beds = 1 + perks.beds; // revives (Nutty 2026-11-13: beds are gone; everyone starts with one revive, Another Chance adds more). The name stays for saves and the network.
     this.revives = perks.revives;
     this.bedPos = null;
     this.pc = perks.pc;
@@ -110,8 +110,45 @@ export class LocalPlayer {
     this.speedNow = 0;
   }
 
+  // Horde Mode stalls: a new set of carried items mid-run. Ammo stays with the guns you keep; `hold` is drawn at once if it can be held.
+  setWeapons(ids, hold) {
+    const old = this.weapons, oldAmmo = this.ammo, held = this.weapons[this.cur], oldDur = this.dur;
+    this.weapons = [...ids];
+    if (oldDur) this.dur = ids.map((w) => { const i = old.indexOf(w); return i >= 0 ? oldDur[i] : 1; });
+    this.ammo = ids.map((w) => { const i = old.indexOf(w); return i >= 0 ? oldAmmo[i] : WEAPON_BY_ID[w].mag || 0; });
+    this.gears = new Set(ids.map((w) => WEAPON_BY_ID[w]).filter((w) => w && w.gear).map((w) => w.gear));
+    const want = hold && WEAPON_BY_ID[hold] && WEAPON_BY_ID[hold].kind !== 'gear' ? hold : held;
+    let i = ids.indexOf(want);
+    if (i < 0 || WEAPON_BY_ID[ids[i]].kind === 'gear') i = Math.max(0, ids.findIndex((w) => WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind !== 'gear'));
+    this.cur = i; this.reloadT = 0; this.fireCd = Math.max(this.fireCd, 0.25); this.swing = this.swing && this.hasGear('swing') ? this.swing : null;
+    if (this.hasGear('drone') && !this.drone) this.drone = new Drone(true, this.game);
+    if (!this.hasGear('drone') && this.drone) { try { this.drone.dispose && this.drone.dispose(); } catch {} this.drone = null; }
+    if (!this.hasGear('jet')) this.jet.on = false;
+    if (!this.hasGear('wings')) this.wing.soar = false;
+    this.model.userData.setWeapon(this.heldId());
+  }
+  // Horde Mode stalls: the three cooldowns carried ([q, r, e] ids, null = empty). A slot that changed starts ready.
+  setAbils(ids) {
+    const was = ['q', 'r', 'e'].map((k) => (this.cls[k] ? this.cls[k].id : null));
+    this.cls = mixClass(ids);
+    ['q', 'r', 'e'].forEach((k, i) => { if (was[i] !== (ids[i] || null)) this.cds[k] = 0; });
+  }
+
   // An all-gear loadout has nothing to hold: the slot stays on a gear item and the hands are bare.
-  heldId() { const w = WEAPON_BY_ID[this.weapons[this.cur]]; return w && w.kind === 'gear' ? 'bare' : this.weapons[this.cur]; }
+  heldId() { const w = WEAPON_BY_ID[this.weapons[this.cur]]; return (w && w.kind === 'gear') || this.broken(this.cur) ? 'bare' : this.weapons[this.cur]; }
+  // Horde Mode durability (this.dur: one 0..1 value per carried item; absent in every other mode). A broken weapon cannot be held: fists until a stall fixes it.
+  broken(i) { return !!this.dur && this.dur[i] != null && this.dur[i] <= 0; }
+  wear(wp) {
+    if (!this.dur || !wp || wp.id === 'bare' || wp.tier === 3 || this.broken(this.cur)) return;
+    const i = this.cur;
+    this.dur[i] -= wp.kind === 'gun' ? 1 / Math.max(HORDE.gunMinShots, (wp.mag || 1) * HORDE.gunMags) : 1 / HORDE.meleeSwings;
+    if (this.dur[i] > 0) return;
+    this.dur[i] = 0;
+    const g = this.game, n = this.nextSlot(1);
+    if (g.player === this) { g.ui.toast(wp.name + ' is broken. Repair or replace it at a stall', 'bad'); g.audio.play('deny'); }
+    if (n !== i && !this.broken(n)) this.swap(n);
+    else { this.reloadT = 0; this.model.userData.setWeapon(this.heldId()); }
+  }
   get weapon() { return WEAPON_BY_ID[this.heldId()]; }
 
   // Each character has its own build: the tank is tougher, the skeleton quicker.
@@ -246,6 +283,7 @@ export class LocalPlayer {
     if (this.climb) { this.onGround = false; } else if (glued || this.pos.y <= gy) {
       if (!this.onGround && this.vel.y < -12) g.audio.play('land');
       this.pos.y = gy; this.vel.y = 0; this.onGround = true; this.flyT = 0;
+    } else if (this.onGround && this.vel.y <= 0 && this.pos.y - gy < 0.45 && !this.jet.on && !this.wing.soar) { this.pos.y = gy; this.vel.y = 0; // walking down a stair or off a low step: feet stay on it
     } else if (this.pos.y > gy + 0.3) this.onGround = false;
     if (this.swing) this.swingConstrain(dt);
     this.speedNow = Math.hypot(this.vel.x, this.vel.z);
@@ -286,7 +324,6 @@ export class LocalPlayer {
     if (input.pressed.has('KeyG')) this.cast('e');
     if (input.pressed.has('KeyF')) this.cast('r');
     if (this.blinkAim || this.blinkBack) this.blinkTick(input, dt);
-    if (input.pressed.has('KeyB')) this.placeBed();
     if (input.pressed.has('KeyV')) this.game.ui.setView(this.game.settings.view === 'first' ? 'third' : 'first');
 
     // Shield pulses (Rock Armor shoves enemies off).
@@ -360,14 +397,14 @@ export class LocalPlayer {
     const L = this.weapons.length;
     for (let k = 1; k <= L; k++) {
       const i = (((this.cur + dir * k) % L) + L) % L, w = WEAPON_BY_ID[this.weapons[i]];
-      if (w && w.kind !== 'gear') return i;
+      if (w && w.kind !== 'gear' && !this.broken(i)) return i;
     }
     return this.cur;
   }
 
   swap(i) {
     const w = WEAPON_BY_ID[this.weapons[i]];
-    if (i === this.cur || !w || w.kind === 'gear') return;
+    if (i === this.cur || !w || w.kind === 'gear' || this.broken(i)) return;
     this.cur = i;
     this.reloadT = 0;
     this.spinT = 0;
@@ -441,6 +478,7 @@ export class LocalPlayer {
     if (wp.eyes) return this.shootLaser(wp);
     if (wp.deploy) return this.deployTurret(wp);
     this.ammo[this.cur]--;
+    this.wear(wp);
     this.recoilT = 1;
     this.tapT = g.now;
     this.fireCd = (wp.spin ? Math.min(0, this.fireCd) : 0) + wp.rate / this.stats.rate;
@@ -650,6 +688,7 @@ export class LocalPlayer {
 
   melee() {
     const wp = this.weapon;
+    this.wear(wp);
     if (wp.summon || wp.heal) { // Zombie Staff: lift it overhead, slam the butt into the ground, five zombies claw out. Healing Staff: the same lift, then the beams
       if (this.staffCd > 0) { this.fireCd = 0.25; this.game.ui.toast('Staff recharging ' + Math.ceil(this.staffCd) + ' s', 'bad'); return; }
       this.staffCd = wp.cd * this.stats.cdr;
@@ -760,7 +799,7 @@ export class LocalPlayer {
   // Ability mastery: damage multiplier for the move with this id.
   mm(id) {
     const x = this.stats.ab[id], xk = x ? x.dmg : 1; // an elemental chest power-up for this very cooldown
-    for (const k of ['q', 'r', 'e']) if (this.cls[k].id === id) return this.stats.mast[k].dmg * xk;
+    for (const k of ['q', 'r', 'e']) if (this.cls[k] && this.cls[k].id === id) return this.stats.mast[k].dmg * xk;
     return xk;
   }
 
@@ -863,6 +902,7 @@ export class LocalPlayer {
     }
     if (this.cds[key] > 0 || !this.alive) return;
     const ab = this.cls[key];
+    if (!ab) return; // Horde Mode: an empty slot until a cooldown is bought
     const ok = this['ab_' + ab.id] && this['ab_' + ab.id]();
     if (ok === false) return;
     const x = this.stats.ab[ab.id];
@@ -902,9 +942,9 @@ export class LocalPlayer {
 
   // The dash hurts whatever it passes through, with the character's element on top.
   dashStrike() {
-    const g = this.game, el = this.cls.element;
+    const g = this.game, el = this.dash.el;
     const o = { kx: this.dash.vx * 0.5, kz: this.dash.vz * 0.5 };
-    if (el === 'Fire') o.burn = 2; else if (el === 'Frost') o.slow = 1.5; else if (el === 'Earth') o.kx *= 0.4, o.kz *= 0.4;
+    if (el === 'Fire') o.burn = 2; else if (el === 'Frost') o.slow = 1.5; else if (el === 'Death') o.slow = 1; else if (el === 'Earth') o.kx *= 0.4, o.kz *= 0.4;
     for (const t of g.targets()) {
       if (t.kind === 'demon' || this.dashHit.has(t.id)) continue;
       if (Math.hypot(t.x - this.pos.x, t.z - this.pos.z) < t.r + 1.3 && Math.abs(t.y - this.pos.y) < t.h + 1.5) {
@@ -922,18 +962,22 @@ export class LocalPlayer {
     const { t } = DASH, dist = DASH.dist * this.perks.dashDist;
     const a = [this.pos.x, this.pos.y, this.pos.z];
     const b = [a[0] + dir[0] * dist, a[1], a[2] + dir[1] * dist];
-    this.dash = { t, vx: dir[0] * dist / t, vz: dir[1] * dist / t };
+    // Horde (Nutty 2026-11-14): the dash is a plain dodge, no element and no damage, until an element's dash is bought from the Sage.
+    // Everywhere else it is the dash of the element you play.
+    const el = g.horde ? this.dashEl || null : this.cls.element === 'None' ? null : this.cls.element;
+    this.dash = { t, vx: dir[0] * dist / t, vz: dir[1] * dist / t, el };
     this.invulnUntil = Math.max(this.invulnUntil || 0, g.now + t + 0.08);
     this.cds.d = DASH.cd * this.stats.cdr * this.stats.mast.d.cd;
     this.dashHit = new Set();
-    this.dashDmg = DASH.dmg * this.stats.dmg * this.stats.mast.d.dmg;
-    // The trail left behind keeps biting for a couple of seconds: fire burns, frost slows, storm shocks, earth crushes, wind cuts.
-    const el = this.cls.element, tdmg = 7 * this.stats.dmg * this.stats.mast.d.dmg;
-    const to = el === 'Fire' ? { burn: 2 } : el === 'Frost' ? { slow: 1.5 } : el === 'Storm' ? { freeze: 0.3 } : el === 'Wind' ? { slow: 0.6 } : el === 'Death' ? { slow: 1 } : {};
-    g.el.dash(el, a, b, (p, q, k) => g.lineDamage(p, q, 1.15, tdmg * (el === 'Earth' ? 1.5 : 1) * (0.5 + 0.5 * k), { ...to, silentNum: true }));
     g.audio.play('wind', 0.5);
     g.ui.flashAbility('d');
-    g.emitFx(['dh', CLASSES.indexOf(this.cls), ...a.map(q10), ...b.map(q10)]);
+    if (!el) { this.dashDmg = 0; this.dashWind = 0.45; return; } // plain: a breath of wind across the screen says you dodged
+    this.dashDmg = DASH.dmg * this.stats.dmg * this.stats.mast.d.dmg;
+    // The trail left behind keeps biting for a couple of seconds: fire burns, frost slows, storm shocks, earth crushes, wind cuts, death chokes.
+    const tdmg = 7 * this.stats.dmg * this.stats.mast.d.dmg;
+    const to = el === 'Fire' ? { burn: 2 } : el === 'Frost' ? { slow: 1.5 } : el === 'Storm' ? { freeze: 0.3 } : el === 'Wind' ? { slow: 0.6 } : el === 'Death' ? { slow: 1 } : {};
+    g.el.dash(el, a, b, (p, q, k) => g.lineDamage(p, q, 1.15, tdmg * (el === 'Earth' ? 1.5 : 1) * (0.5 + 0.5 * k), { ...to, silentNum: true }));
+    g.emitFx(['dh', CLASSES.findIndex((c) => c.element === el), ...a.map(q10), ...b.map(q10)]);
   }
 
   // ---------- jetpack ----------
@@ -2507,29 +2551,29 @@ export class LocalPlayer {
     this.deaths = (this.deaths || 0) + 1;
     if (this.fireRing) this.fireRing.visible = false;
     g.audio.play('death');
-    const canRespawn = this.beds > 0 && g.phase !== 'demon' && g.phase !== 'boss';
+    const canRespawn = this.beds > 0 && g.phase !== 'demon';
     if (this.stats.phoenix > this.phoenixUsed && g.phase !== 'demon') {
       this.phoenixUsed++;
       this.freeRise = true;
       this.deadT = 2;
       g.ui.toast('Phoenix Feather. You rise from the ashes…', 'good');
     } else if (this.revives > 0 && g.phase !== 'demon') {
-      // Second Wind (Perfect Shop): get back up once without spending a bed.
+      // Second Wind (retired perk): get back up once without spending a revive.
       this.revives--;
       this.freeRise = true;
       this.deadT = 2.5;
       g.ui.toast('Second Wind. You rise again…', 'good');
     } else if (canRespawn) {
-      this.deadT = 4;
-      g.ui.toast('You died. Respawning ' + (this.bedPos ? 'at your bed' : 'at camp') + '…', 'bad');
+      this.deadT = 3;
+      g.ui.toast('You went down. Getting back up…', 'bad');
     } else {
       this.out = true;
-      if (!['over', 'win', 'lobby'].includes(g.phase) && !g.duel) g.ui.toast(g.phase === 'demon' ? 'She found you.' : 'You are out of beds.', 'bad');
+      if (!['over', 'win', 'lobby'].includes(g.phase) && !g.duel) g.ui.toast(g.phase === 'demon' ? 'She found you.' : 'No revives left.', 'bad');
     }
     g.emitFx(['die']);
   }
 
-  // Fresh fighter for a duel (also a rematch): full health, no power-ups, no beds, nothing carried over.
+  // Fresh fighter for a duel (also a rematch): full health, no power-ups, no revives, nothing carried over.
   resetDuel() {
     const g = this.game;
     this.blessings = []; this.powerups = []; this.elemPending = 0; this.cratesOpened = 0;
@@ -2557,31 +2601,20 @@ export class LocalPlayer {
   respawn() {
     const g = this.game;
     if (this.freeRise) this.freeRise = false; else this.beds--;
-    const p = this.bedPos || g.world.spawn;
-    this.placeAt(p.x + (Math.random() - 0.5) * 2, p.z + (Math.random() - 0.5) * 2);
+    // A revive: you get back up where you fell (Nutty 2026-11-13), not back at camp.
+    this.placeAt(this.pos.x, this.pos.z);
     this.alive = true;
     this.hp = this.stats.maxHp;
     this.invulnUntil = g.now + 5; // grace so a respawn in the middle of the horde does not end the run at once
     g.request('clear', [Math.round(this.pos.x), Math.round(this.pos.z)]);
-    if (this.bedPos) { this.bedPos = null; g.removeBedMesh(); }
     g.fx.shockwave([this.pos.x, this.pos.y, this.pos.z], 4, 0xffe0a0, 0.6);
-    g.ui.toast('Bed used. Beds left: ' + this.beds, this.beds ? '' : 'bad');
+    g.ui.toast(this.beds ? 'Revived. Revives left: ' + this.beds : 'Revived. That was your last one.', this.beds ? 'good' : 'bad');
   }
 
   revive(frac = 0.6) {
     this.alive = true;
     this.out = false;
     this.hp = Math.max(1, this.stats.maxHp * frac);
-  }
-
-  placeBed() {
-    const g = this.game;
-    if (!this.alive || this.beds <= 0) { g.ui.toast('No beds left. Buy one in the shop (' + g.ui.ctl('shop') + ').', 'bad'); return; }
-    if (!this.onGround) return;
-    this.bedPos = { x: this.pos.x, z: this.pos.z };
-    g.placeBedMesh(this.bedPos, this.yaw);
-    g.ui.toast('Bed placed. You will respawn here.');
-    g.audio.play('place');
   }
 
   presence() {

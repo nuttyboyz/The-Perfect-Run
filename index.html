@@ -53,6 +53,7 @@
 
 <!-- ============ TITLE ============ -->
 <section class="screen" id="s-title">
+  <div id="daily-box"><div class="db-head"><b>Daily Challenges</b><span id="db-reset"></span></div><div id="db-list"></div></div>
   <div class="title-wrap">
     <div class="logo">
       <h1><em>The</em>PERFECT<span>RUN</span></h1>
@@ -65,9 +66,9 @@
       <button class="btn" id="btn-join">Quickplay</button>
       <button class="btn" id="btn-couch">Local Co-op <small>2 Player Split-Screen</small></button>
       <button class="btn duel-btn" id="btn-duel">Duel Arena <small>Battle 1v1 against a CPU or a Friend</small></button>
+      <button class="btn horde-btn" id="btn-horde">Horde Mode <small>Fight til the End</small></button>
       <button class="btn pshop-btn" id="btn-pshop">Perfect Shop <small>Permanent Power-Ups · <b id="title-pp">0</b> PP</small></button>
       <button class="btn unlocks-btn" id="btn-unlocks">Unlockables <small>Gear &amp; More!</small></button>
-      <button class="btn daily-btn" id="btn-daily">Daily Challenges <small><b id="title-daily">0/3</b> Completed · Earn PP</small></button>
       <div class="view-toggle" id="view-toggle"><span>Camera</span><button data-view="first">First person</button><button data-view="third">Third person</button></div>
       <div class="menu-row">
       <button class="btn small wood-btn" id="btn-help"><span>How to Play</span></button>
@@ -287,7 +288,7 @@
       <li><i>🛡️</i><div><b>Choose your fighter.</b> Pick a hero, an element to command, and three weapons from the Weapon Wall.</div></li>
       <li><i>⚔️</i><div><b>Slash and shoot.</b> Waves of monsters close in from every side. Cut them down up close, gun them down from range, and burn, freeze or shock whatever is left.</div></li>
       <li><i>⭐</i><div><b>Level up.</b> Every kill feeds your XP bar. Each new level hands you a power-up, so the longer you last, the harder you hit.</div></li>
-      <li><i>🪙</i><div><b>Spend your coins.</b> Fallen monsters drop Perfect Coins. Crack open crates for more power, and buy beds that pull you back from death.</div></li>
+      <li><i>🪙</i><div><b>Spend your coins.</b> Fallen monsters drop Perfect Coins. Crack open crates for more power. Fall once and you get back up; the Perfect Shop sells Another Chance for more.</div></li>
       <li><i>💀</i><div><b>Beat the clock.</b> Each round lasts ten minutes. When time runs out Death comes hunting and the altar wakes. Call the round's boss there and bring it down to earn a deity's blessing.</div></li>
       <li><i>👑</i><div><b>Face Thermes.</b> Six rounds, six lands, six bosses. At the end he is waiting. Arrive strong enough to end him, and that is the perfect run.</div></li>
     </ol>
@@ -393,17 +394,19 @@
 <div id="hud">
   <div id="scope"></div>
   <div id="wind"></div>
+  <div id="spec-bar"><small>Spectating</small><b></b><div class="sp-hp"><i></i></div><span></span></div>
   <div id="topbar">
     <div id="round-label"></div>
     <div id="timer"></div>
     <div id="phase-hint"></div>
+    <div id="horde-left"><b></b><span></span></div>
     <div id="xpbar"><i id="xp-fill"><em class="xp-tip"></em></i><span id="xp-text"></span><span id="xp-pct"></span></div>
   </div>
   <div id="bossbar"><div id="boss-name"></div><div class="bb"><i id="boss-fill"></i></div></div>
   <div id="party"></div>
   <div id="killfeed"></div>
   <div id="mm-wrap">
-    <canvas id="minimap" width="200" height="200"></canvas>
+    <canvas id="minimap" width="400" height="400"></canvas>
     <div id="econ">
       <div class="pc"><img class="coin-img" alt=""><b id="pc">0</b><em id="coinpop"></em></div>
       <div class="kills"><b id="kills">0</b> kills</div>
@@ -415,7 +418,7 @@
     <div id="jetfuel"><i id="jet-fill"></i><span>JETPACK · double-tap Jump · Shift / L3 descend</span></div>
     <div id="energybar"><i id="energy-fill"></i><span id="energy-text"></span></div>
     <div class="hp"><i id="hp-fill"></i><i id="hp-shield"></i><span id="hp-text"></span></div>
-    <div class="beds"><svg viewBox="0 0 24 24"><path d="M3 18v-8h2v4h14a2 2 0 0 1 2 2v2h-2v-2H5v2zm4-5a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm4-3h7a2 2 0 0 1 2 2v1h-9z"/></svg><b id="beds">1</b><em id="bed-placed">placed</em></div>
+    <div class="beds" title="Revives left"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.2 5.3 3 1.7-1.8 3.2-3 5.3-3 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21zm-1-12v3H8v2h3v3h2v-3h3v-2h-3V9z"/></svg><b id="beds">1</b><em>revive</em></div>
   </div>
   <div id="weapons"><div class="wslot"><kbd>1</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>2</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>3</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div></div>
   <div id="abilities">
@@ -520,11 +523,13 @@
 <div id="shop" class="overlay">
   <div class="panel shop">
     <div class="shop-head"><h2>Shop</h2><div class="shop-pc"><img class="coin-img" alt=""><b id="shop-pc">0</b> PC</div></div>
-    <p class="muted">Spend your PC on beds and crates.</p>
+    <p class="muted">Spend your PC on crates.</p>
     <div id="shop-items" class="shop-items"></div>
     <button class="btn small ghost" id="shop-close">Close (Tab)</button>
   </div>
 </div>
+
+<div id="wave-sum"><div class="ws-kick">Wave cleared</div><h3></h3><div class="ws-body"></div><div class="ws-mu"></div></div>
 
 <div id="summary" class="overlay">
   <div class="panel summary">

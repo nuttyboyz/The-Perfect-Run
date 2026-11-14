@@ -370,12 +370,12 @@ export class Bot {
     if (ph === 'play' || ph === 'demon') {
       // The altar once the farming is done, or at once when Death shows up.
       // A timed round is played out to the very end: the altar is only called once the ten minutes are up.
-      const callable = g.endless ? elapsed > 150 : (g.tl || 0) <= 1;
+      const callable = g.horde ? false : g.endless ? elapsed > 150 : (g.tl || 0) <= 1;
       if ((callable || hunted) && toAltar < 6.5) { if (!this.calledAt || this.t - this.calledAt > 5) { this.calledAt = this.t; this.stat.unspentPC.push(p.pc); g.request('early'); g.ui.toast('The altar answers…'); } }
     }
     // Fight what is near.
     // Start walking to the altar in the last seconds so the bot arrives as the clock runs out.
-    const farmedNow = g.endless ? elapsed > 150 : (g.tl || 0) <= 25;
+    const farmedNow = g.horde ? false : g.endless ? elapsed > 150 : (g.tl || 0) <= 25; // Horde Mode has no altar: fight, loot, repeat
     const heading = ph !== 'boss' && (farmedNow || hunted) && toAltar > 5 ? { x: a.x, z: a.z } : null;
     if (tgt && td < (ph === 'boss' ? 90 : 40)) {
       this.fight(I, tgt, dt, { abilityRange: 26, goal: heading });
@@ -384,7 +384,7 @@ export class Bot {
     if (!tgt || td >= 40) this.stat.idle += dt;
     // Nothing to shoot: loot, then head for the altar, otherwise roam so the next wave finds us.
     const farmed = farmedNow;
-    if (ph === 'boss') { this.walk(I, a.x - p.pos.x, a.z - p.pos.z, false); return; }
+    if (ph === 'boss') { if (g.horde && tgt) this.walk(I, tgt.x - p.pos.x, tgt.z - p.pos.z, true); else this.walk(I, a.x - p.pos.x, a.z - p.pos.z, false); return; }
     const price = g.cratePrice();
     let crate = null, cd = 1e9;
     if (p.pc >= price && !hunted) for (const c of w.crates) { if (c.opened) continue; const d = Math.hypot(c.x - p.pos.x, c.z - p.pos.z); if (d < cd) { cd = d; crate = c; } }
@@ -409,14 +409,11 @@ export class Bot {
     this.walk(I, this.wander.x - p.pos.x, this.wander.z - p.pos.z, true);
   }
 
-  // Spend PC when it piles up: beds first, then hired help.
+  // Spend PC when it piles up. (Beds are gone; crates are bought in the roaming code above.)
   spend(dt) {
     const g = this.g, p = g.player;
     this.spendT = (this.spendT || 0) - dt;
     if (this.spendT > 0) return;
     this.spendT = 2;
-    const bed = g.price(CONFIG.bedPrice);
-    if (p.beds < 3 && p.pc >= bed + 30) { p.pc -= bed; p.beds++; g.audio.play('buy'); return; }
-    if (!p.bedPos && p.beds > 0 && p.onGround && g.phase === 'play') p.placeBed();
   }
 }

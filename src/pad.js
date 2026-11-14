@@ -66,8 +66,8 @@ export class PadInput {
         else if (this.held.has(c)) { I.keys.delete(c); this.held.delete(c); }
       }
     }
-    // R3 flips the camera view; with the left trigger held it places a bed. D-pad down is the speed-up button.
-    if (down(11)) I.pressed.add(b[6] ? 'KeyB' : 'KeyV');
+    // R3 flips the camera view. D-pad down is the speed-up button.
+    if (down(11)) I.pressed.add('KeyV');
     const ev = { pause: down(9), shop: down(8), back: down(1), a: down(0), dl: down(14), dr: down(15), du: down(12), dd: down(13) };
     this.prev = b;
     return ev;
