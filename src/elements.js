@@ -165,7 +165,7 @@ export class Elements {
           fx.glow.emit({ p: [pos.x, pos.y, pos.z], life: 0.05, s0: 3.4, s1: 3.4, c0: [1, 0.7, 0.3, 0.7], c1: [1, 0.5, 0.2, 0.4] });
           if (onPass) { passT += dt; if (passT >= 0.1) { passT = 0; onPass([pos.x, pos.y, pos.z]); } }
         }
-        if (pos.y <= ground + 0.2 || traveled > range || (!pierce && hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && this.solid(pos.x, pos.y, pos.z))) {
+        if (pos.y <= ground + 0.2 || traveled > range || (!pierce && hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && (this.solidv ? this.solidv(pos) : this.solid(pos.x, pos.y, pos.z)))) {
           explode();
           return false;
         }
@@ -400,7 +400,7 @@ export class Elements {
         m.rotation.x += spin[0] * dt; m.rotation.y += spin[1] * dt; m.rotation.z += spin[2] * dt;
         if (Math.random() < 0.7) fx.debris.emit({ p: [pos.x + rnd(-0.3, 0.3), pos.y + rnd(-0.3, 0.3), pos.z + rnd(-0.3, 0.3)], v: [rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)], life: rnd(0.3, 0.6), s0: 0.14, s1: 0.06, c0: [0.5, 0.4, 0.3, 1], c1: [0.4, 0.3, 0.2, 0], g: 10 });
         if (Math.random() < 0.5) fx.smoke.emit({ p: [pos.x, pos.y, pos.z], v: [0, 0.4, 0], life: 0.6, s0: 0.5, s1: 1.4, c0: [0.6, 0.5, 0.38, 0.3], c1: [0.6, 0.5, 0.4, 0], drag: 1 });
-        if (pos.y <= this.h(pos.x, pos.z) + 0.35 || traveled > range || (hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && this.solid(pos.x, pos.y, pos.z))) { smash(); return false; }
+        if (pos.y <= this.h(pos.x, pos.z) + 0.35 || traveled > range || (hitTest && hitTest(pos)) || (traveled > 1.5 && this.solid && (this.solidv ? this.solidv(pos) : this.solid(pos.x, pos.y, pos.z)))) { smash(); return false; }
       },
       dispose: () => scene.remove(m),
     });
@@ -1478,7 +1478,7 @@ export class Elements {
         if (onUpdate && onUpdate(pos, vel) === false) return false;
         if (pos.y < this.h(pos.x, pos.z)) { fx.impact([pos.x, pos.y + 0.2, pos.z], color); return false; }
         if (this.wall && this.wall(pos.x - vel.x * dt * 0.5, pos.y - vel.y * dt * 0.5, pos.z - vel.z * dt * 0.5)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
-        if (age > 0.12 && this.solid && this.solid(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
+        if (age > 0.12 && this.solid && (this.solidv ? this.solidv(pos) : this.solid(pos.x, pos.y, pos.z))) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
         if (age >= dur - dt * 1.5) return false;
       };
       return fx.add({ dur: dur + 1, update: (dt) => { const r = step(dt); if (r === false) body.done(); return r; } });
@@ -1499,7 +1499,7 @@ export class Elements {
         if (onUpdate && onUpdate(pos, vel) === false) return false;
         if (pos.y < this.h(pos.x, pos.z)) { fx.impact([pos.x, pos.y + 0.2, pos.z], color); return false; }
         if (this.wall && (this.wall(pos.x, pos.y, pos.z) || this.wall(pos.x - vel.x * dt * 0.5, pos.y - vel.y * dt * 0.5, pos.z - vel.z * dt * 0.5))) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // Pillar Burst, Ice Barrier, Wall of Fire: nothing an enemy fires gets through
-        if (age > 0.12 && this.solid && this.solid(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // a rock, tree or wall stops it
+        if (age > 0.12 && this.solid && (this.solidv ? this.solidv(pos) : this.solid(pos.x, pos.y, pos.z))) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // a rock, tree or wall stops it
       },
     });
   }

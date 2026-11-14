@@ -198,7 +198,7 @@ export function getTemplate(def, skinId) {
   else if (def.build === 'ninja') buildNinja(scene, design ? { ...skin, design } : skin);
   else if (def.build === 'corsair') buildCorsair(scene, design ? { ...skin, design } : skin);
   else if (def.build === 'grey') buildGrey(scene, design ? { ...skin, design } : skin);
-  else if (def.build === 'alien') buildAlien(scene);
+  else if (def.build === 'alien') buildAlien(scene, skin);
   else if (def.build === 'thermes') buildThermes(scene, skin);
   skinBodyMaterials(scene, def, skin);
   if (def.id === 'veteran' && def.file === 'veteran.glb') buildVeteranGear(scene, skin.gear);

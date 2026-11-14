@@ -167,7 +167,8 @@ export class Game {
     this.el = new Elements(this.fx, this.scene);
     this.el.block = (x, z, r, top, sec, soft) => { if (this.world) this.world.addTemp(x, z, r, top, sec, soft); };
     this.el.wall = (x, y, z) => !!this.world && this.world.wallAt(x, y, z); // enemy shots stop dead at a wall a player raised
-    this.el.solid = (x, y, z) => !!this.world && this.world.solidPoint(x, y, z); // enemy shots and element projectiles stop at props
+    this.el.solid = (x, y, z) => !!this.world && this.world.solidPoint(x, y, z);
+    this.el.solidv = (p) => !!this.world && this.world.solidMove(p); // swept from where the projectile last was // enemy shots and element projectiles stop at props
     this.setupComposer();
     this.onResize();
   }
@@ -2053,7 +2054,7 @@ export class Game {
       case 'fw': this.el.firewall(P(0), P(3), 6, null, !this.duel); this.audio.play('inferno', vol); break; // in a duel the other fighter's fire wall stops your shots too
       case 'fr': this.el.inferno(() => [v.pos.x, v.pos.y, v.pos.z], 5, 8); this.audio.play('inferno', vol); break;
       case 'eq': this.audio.play('earth', vol); break;
-      case 'fw': { v.flameUntil = this.now + a[0] / 10; const c = [v.pos.x, v.pos.y + 1.2, v.pos.z]; this.fx.flash(c, 0xff7a20, 22, 0.35, 14); this.audio.play('inferno', vol * 0.8); break; } // Flaming Weapons: their weapon burns (views.js)
+      case 'fwp': { v.flameUntil = this.now + a[0] / 10; const c = [v.pos.x, v.pos.y + 1.2, v.pos.z]; this.fx.flash(c, 0xff7a20, 22, 0.35, 14); this.audio.play('inferno', vol * 0.8); break; } // Flaming Weapons: their weapon burns (views.js)
       case 'fi': igniteFx(this.fx, P(0)); break; // a flaming hit lands
       case 'er': this.el.quake(P(0), D(3), 22); this.audio.play('quake', vol); break;
       case 'eb': this.el.boulder(P(0), D(3), { hitTest: (pos) => this.targets().some((t) => Math.hypot(t.x - pos.x, t.z - pos.z) < t.r + 0.7 && pos.y < t.y + t.h + 0.4), onImpact: () => this.audio.play('quake', vol * 0.6) }); this.audio.play('earth', vol); break;
@@ -2284,8 +2285,8 @@ export class Game {
     // Trees, rocks, tombs and buildings stop bullets too (never the cover right beside the shooter, or a trunk
     // between a third-person camera and its player).
     const pl = this.player;
-    let tMin = 0.5;
-    if (pl) { const t = (pl.pos.x - origin.x) * dir.x + (pl.pos.y + 1.2 - origin.y) * dir.y + (pl.pos.z - origin.z) * dir.z; if (t > 0 && t < 12) tMin = t + 0.7; }
+    let tMin = 0.3; // a body's own half-width: nothing solid can be nearer than that, so a wall you lean on still stops your shot
+    if (pl) { const t = (pl.pos.x - origin.x) * dir.x + (pl.pos.y + 1.2 - origin.y) * dir.y + (pl.pos.z - origin.z) * dir.z; if (t > 0 && t < 12) tMin = t + 0.3; }
     const pd = w.rayProps(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(maxDist, r.dist), tMin);
     if (pd < r.dist) { r.copy(origin).addScaledVector(dir, pd); r.hit = true; r.dist = pd; r.prop = true; }
     return r;
@@ -2404,7 +2405,7 @@ export class Game {
   launchProjectile(kind, o, d, { dmg = 0, radius = 6, falloff = 0.5, kb = 12, speed = 50, mine = false, wf = 0 } = {}) {
     const w = this.world, rocket = kind === 'rocket';
     const touch = (pos) => {
-      if (w.solidPoint(pos.x, pos.y, pos.z)) return true; // trees, stones, tombs, buildings, duel walls and steps
+      if (w.solidMove(pos)) return true; // trees, stones, tombs, buildings, duel walls and steps
       if (this._tgAt !== this.now) { this._tgAt = this.now; this._tg = this.targets(); }
       for (const t of this._tg) if (Math.hypot(t.x - pos.x, t.z - pos.z) < t.r + 0.25 && pos.y > t.y - 0.3 && pos.y < t.y + t.h + 0.3) return true;
       return false;

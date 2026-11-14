@@ -13,6 +13,7 @@ const SCAN_SURF = {
   cloth: { id: 'rough_linen', tile: 0.32, k: 0.8 }, wool: { id: 'poly_wool_herringbone', tile: 0.38, k: 0.8 }, silk: { id: 'velour_velvet', tile: 0.45, k: 0.6 },
   leather: { id: 'brown_leather', tile: 0.4, k: 0.85 }, felt: { id: 'curly_teddy_natural', tile: 0.3, k: 0.7 }, rope: { id: 'hessian_230', tile: 0.18, k: 0.8 },
   lacquer: { id: 'metal_plate_02', tile: 0.6, k: 0.25 },
+  wood: { id: 'dark_wood', tile: 0.35, k: 0.9 }, bone: { id: 'rough_linen', tile: 0.5, k: 0.25 },
 };
 const surfTex = new Map();
 let surfAvg = null;
@@ -46,6 +47,8 @@ const KINDS = {
   lacquer: { metal: 0.15, rough: 0.16, rv: 0.06, bump: 0.12, sc: 1, h: 'steel', cav: 0.15, clear: 0.9 },
   felt: { metal: 0, rough: 1, rv: 0.05, bump: 0.7, sc: 0.8, h: 'felt', cav: 0.4, sheen: 0.4 },
   rope: { metal: 0, rough: 0.95, rv: 0.1, bump: 1.2, sc: 1.2, h: 'rope', cav: 0.6 },
+  // seasoned timber: open grain, dry
+  wood: { metal: 0, rough: 0.78, rv: 0.2, bump: 0.55, sc: 1, h: 'leather', cav: 0.6 },
   bone: { metal: 0, rough: 0.7, rv: 0.15, bump: 0.4, sc: 1, h: 'leather', cav: 0.4 },
   // bare skin: fine pores over soft wrinkle noise, a faint sheen and a thin glossy film
   skin: { metal: 0, rough: 0.5, rv: 0.22, bump: 0.16, sc: 1.6, h: 'leather', cav: 0.1, sheen: 0.8, clear: 0.18, ccr: 0.32 },

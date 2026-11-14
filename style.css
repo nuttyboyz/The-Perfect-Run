@@ -1838,3 +1838,5 @@ body.split .ds-card b { font-size: .95rem; } body.split .ds-box { padding: 1rem;
 .db-claim:hover, .db-claim.pad-focus { filter: brightness(1.15); transform: translateY(-1px); }
 @media (max-width: 900px) { #daily-box { display: none; } }
 body.split #daily-box { display: none; }
+/* Runs: the Start Run box is the same size as the Start Horde box (Nutty 2026-11-14). */
+#s-lobby.flip-on:not(.flip-duel):not(.arc-split):not(.horde-on)[data-flip="4"] .arc-ready { right: auto; left: calc(50% - 320 * var(--u)); transform: none; width: calc(640 * var(--u)); }

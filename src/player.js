@@ -268,6 +268,7 @@ export class LocalPlayer {
     // Bullet Time (Nutty 2026-11-13): no more standing or walking in the air. While you hold aim off the ground you rise and fall like any jump, only in slow motion.
     this.btHang = false;
     const btAir = !!this.btHold && !this.onGround && !this.climb && !this.swing && !this.jet.on && !this.wing.soar && !this.dash, btK = btAir ? BT_AIR : 1;
+    const sx0 = this.pos.x, sz0 = this.pos.z;
     if (!this.climb) { if (!this.jet.on && !this.wing.soar) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt * btK; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt * btK); }
     if (this.knock) { // a shove from the other duelist's hit: slides you back, fading over about 0.4 s
       this.pos.x += this.knock.x * dt; this.pos.z += this.knock.z * dt;
@@ -275,7 +276,7 @@ export class LocalPlayer {
       if (Math.hypot(this.knock.x, this.knock.z) < 0.3) this.knock = null;
     }
     const bx = this.pos.x, bz = this.pos.z;
-    if (!this.climb) [this.pos.x, this.pos.z] = w.collide(this.pos.x, this.pos.z, 0.45, this.pos.y);
+    if (!this.climb) [this.pos.x, this.pos.z] = w.sweep(sx0, sz0, this.pos.x, this.pos.z, 0.45, this.pos.y);
     if (this.board && this.board.s > 3 && Math.hypot(this.pos.x - bx, this.pos.z - bz) > 0.02) this.board.s *= Math.max(0, 1 - 5 * dt); // scraping a wall
     const gy = w.standY(this.pos.x, this.pos.z, this.pos.y);
     // Riding: stay glued to the ground over crests and bumps (only a real drop or an ollie leaves it), so the board glides instead of hopping.
@@ -793,7 +794,7 @@ export class LocalPlayer {
     g.fx.flash(c, 0xff7a20, 26, 0.35, 14);
     for (let i = 0; i < g.fx.n(26); i++) g.fx.fire.emit({ p: [c[0] + rnd(-0.4, 0.4), c[1] + rnd(-0.5, 0.5), c[2] + rnd(-0.4, 0.4)], v: [rnd(-3, 3), rnd(1, 5), rnd(-3, 3)], life: rnd(0.3, 0.6), s0: rnd(0.5, 0.9), s1: 0.1, c0: [1, 0.55, 0.12, 0.9], c1: [0.9, 0.15, 0.02, 0] });
     g.audio.play('inferno', 0.8);
-    g.emitFx(['fw', Math.round(dur * 10)]);
+    g.emitFx(['fwp', Math.round(dur * 10)]);
   }
 
   // Ability mastery: damage multiplier for the move with this id.

@@ -349,7 +349,7 @@ export const MOBS = {
 // Every stage has its own tribe: these are the ground types a round draws from (flyers join on top, see HostSim.pickLineup).
 export const STAGE_MOBS = {
   graveyard: ['grunt', 'wraith', 'archer', 'necro', 'banshee', 'shambler', 'deadcop'],
-  forest: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'shambler'],
+  forest: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief'],
   desert: ['bandit', 'spitter', 'rifleman', 'pouncer', 'ogre', 'trooper', 'riot'],
   frozen: ['crawler', 'knight', 'bulwark', 'juggernaut', 'dreadknight', 'warmaiden'],
   volcanic: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager', 'riot'],
@@ -359,8 +359,10 @@ export const STAGE_MOBS = {
   waterfall: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll'],
   clearing: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'warmaiden'],
   volcano: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager'],
-  ruins: ['grunt', 'wraith', 'archer', 'necro', 'banshee', 'shambler', 'deadcop', 'riot'],
+  ruins: ['wraith', 'archer', 'riot', 'knight', 'warmaiden', 'bandit', 'crawler'], // the Graveyard's cast is the Graveyard's alone (Nutty 2026-11-14)
 };
+// Runs only (never Horde Mode): a stage listed here fields exactly this cast every round, nothing else (Nutty 2026-11-14: the Graveyard).
+export const STAGE_ONLY = { graveyard: { mobs: ['grunt', 'runner', 'shambler', 'deadcop', 'convict', 'hexer', 'banshee', 'necro'], fly: ['skyhunter'] } };
 // Flyers belong to the abyss alone, so no other stage repeats them.
 export const STAGE_FLY = { abyss: ['gloomwing', 'skyhunter'], space: ['wasp'] };
 // Every other stage takes its flyer in turn from this list, a different one each round (Nutty 2026-11-05: alternate all flyers, #8 included).
@@ -373,7 +375,7 @@ export function zoneOf(t, y, d2) {
   if (d2 > r * r * 0.36) return 'arm';
   return 'body';
 }
-export const FLYERS = ['gloomwing', 'skyhunter', 'wasp', 'surgeon'];
+export const FLYERS = ['gloomwing', 'wasp', 'surgeon']; // Skyhunter flies over the Graveyard only (Nutty 2026-11-14)
 // Ghoul and Stalker share the lizard-troll body and used to be most of every round: keep them rare.
 MOBS.grunt.w = 0.4; MOBS.grunt.pack = [1, 2]; MOBS.grunt.share = 0.22; MOBS.grunt.fam = 'troll';
 MOBS.runner.w = 0.5; MOBS.runner.pack = [1, 2]; MOBS.runner.share = 0.24; MOBS.runner.fam = 'troll';
@@ -405,6 +407,7 @@ Object.assign(MOBS, {
 Object.assign(MOBS, {
   shambler: { name: 'Shambler', tier: 1, hp: 64, speed: 4.2, dmg: 9, range: 1.9, rate: 1.0, radius: 0.55, height: 1.8, scale: 1, color: 0x5a6a4a, w: 1.0, cap: 8 }, // #12 rotting man in jeans
   deadcop: { name: 'Dead Cop', tier: 2, hp: 120, speed: 4.4, dmg: 13, range: 2.0, rate: 1.0, radius: 0.55, height: 1.85, scale: 1, color: 0x2a3040, w: 0.9, cap: 4 }, // #13 zombie police officer
+  convict: { name: 'Convict', tier: 1, hp: 70, speed: 4.4, dmg: 10, range: 1.9, rate: 1.0, radius: 0.55, height: 1.85, scale: 1, color: 0x8a8a80, w: 1.0, cap: 8 }, // #42 zombie prisoner
   trooper: { name: 'Trench Trooper', tier: 2, hp: 95, speed: 4.6, dmg: 14, range: 40, rate: 2.0, radius: 0.5, height: 1.85, scale: 1, color: 0x5a6040, w: 0.9, cap: 4, ranged: true, hold: [14, 26], pspd: 70, pstyle: 3 }, // #16 helmeted infantryman
   warmaiden: { name: 'Warmaiden', tier: 2, hp: 150, speed: 4.8, dmg: 17, range: 2.2, rate: 1.1, radius: 0.55, height: 1.85, scale: 1, color: 0x6a5a4a, w: 0.9, cap: 3 }, // #17 armoured warrior woman
   riot: { name: 'Riot Trooper', tier: 3, hp: 220, speed: 4.4, dmg: 16, range: 40, rate: 1.8, radius: 0.55, height: 1.9, scale: 1, color: 0x34465a, w: 0.8, cap: 3, ranged: true, hold: [14, 26], pspd: 70, pstyle: 3 }, // #21 armoured SWAT trooper
@@ -839,7 +842,7 @@ export const seedFlags = (seed) => ({ space: ((seed | 0) & SEED_SPACE) !== 0, ha
 // Stages 0-5 are the original six, 6 the Hot Springs Valley, 7 the space map. Boss indices: stage s fights BOSSES[s] (6 is Fear, so the
 // springs map uses 7 and the space map 8); the last round is always Fear.
 // Which boss each stage brings (BOSSES index per BIOMES index). The four newest maps borrow a boss until they get their own.
-export const STAGE_BOSS = [9, 11, 10, 13, 10, 5, 12, 8, 11, 14, 10, 9]; // Nutty 2026-11-05: Mixamo bosses 9-13 on every rotating stage (Thermes and The Visitor unchanged)
+export const STAGE_BOSS = [12, 11, 10, 13, 10, 5, 9, 8, 11, 14, 10, 9]; // Nutty 2026-11-05: Mixamo bosses 9-13 on every rotating stage (Thermes and The Visitor unchanged)
 // The stages a run draws from (BIOMES indices). The space map joins through the run seed's flag, never through this list.
 export const STAGE_POOL = [0, 1, 2, 3, 4, 6, 9, 11]; // The Abyss (5) dropped, Forest Clearing (9) and Misty Ruins (11) added (Nutty 2026-11-05)
 export function bossIdx(runSeed, round) { return round >= CONFIG.rounds ? 8 : round >= CONFIG.rounds - 1 ? 6 : STAGE_BOSS[stageIdx(runSeed, round)] ?? 0; }

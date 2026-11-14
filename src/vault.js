@@ -1536,7 +1536,7 @@ export function airshot(g, o, d, { speed = 44, range = 75, r = 1.25, targets = n
         const cy = clamp01y(p.y, q.y, q.y + q.h);
         if (Math.hypot(q.x - p.x, q.z - p.z) < q.r + r + 0.3 && Math.abs(p.y - cy) < r + 0.4) { hit.add(q.id); onHit(q, dir); fx.shockwave([q.x, q.y + 0.2, q.z], 3, 0xdfe4ea, 0.25); }
       }
-      if (t * speed >= range || p.y < gy + 0.25 || g.world.solidPoint(p.x, p.y, p.z, 0.5)) { gone = 0.001; burst(); }
+      if (t * speed >= range || p.y < gy + 0.25 || g.world.solidMove(p, 0.5)) { gone = 0.001; burst(); }
     },
     dispose: () => { scene.remove(grp); geo.dispose(); mat.dispose(); ringGeo.dispose(); ringMat.dispose(); },
   });

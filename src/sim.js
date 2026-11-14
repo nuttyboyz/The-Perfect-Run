@@ -2,7 +2,7 @@
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
 import { BULLET_TIME, BT_SLOW, BT_IN, BT_OUT, NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
-import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm , HORDE, SEED_HORDE } from './data.js';
+import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_ONLY, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm , HORDE, SEED_HORDE } from './data.js';
 
 const q10 = (v) => Math.round(v * 10);
 const EVENT_TTL = 1.6;
@@ -548,8 +548,10 @@ export class HostSim {
     const stage = this.duel ? null : BIOMES[stageIdx(this.runSeed, this.horde ? 0 : r)];
     const types = (stage && STAGE_MOBS[stage.id]) || MOB_TYPES;
     const pool = types.map((t) => ({ t, w: tierW[MOBS[t].tier - 1] * (MOBS[t].w ?? 1) })).filter((o) => o.w > 0 && !MOBS[o.t].fly && !MOBS[o.t].summoned && !MOBS[o.t].gone);
+    const only = !this.horde && stage ? STAGE_ONLY[stage.id] : null; // a run stage with a fixed cast: every one of them, every round
+    if (only) { pool.length = 0; for (const t of only.mobs) pool.push({ t, w: 1 }); }
     const pick = [];
-    const n = Math.min(pool.length, 5 + Math.min(3, Math.floor(r / 2)));
+    const n = only ? pool.length : Math.min(pool.length, 5 + Math.min(3, Math.floor(r / 2)));
     while (pick.length < n) {
       let roll = Math.random() * pool.reduce((a, o) => a + o.w, 0);
       const i = pool.findIndex((o) => (roll -= o.w) <= 0);
@@ -559,7 +561,7 @@ export class HostSim {
     const heavy = (B) => (B.radius >= 0.8 || B.model === 'brute' ? 1.3 : 1); // Nutty 2026-11-12 13:19: half heavy-set, half regular (views.js girth does the split)
     const lineup = Object.fromEntries(pick.map((o) => [o.t, [50, 26, 14][MOBS[o.t].tier - 1] * (MOBS[o.t].w ?? 1) * heavy(MOBS[o.t]) * (0.8 + Math.random() * 0.4)]));
     // From round 3 on, flyers join every lineup.
-    const fly = (stage && STAGE_FLY[stage.id]) || [FLYERS[(r + ((this.runSeed | 0) & 3)) % FLYERS.length]];
+    const fly = (only && only.fly) || (stage && STAGE_FLY[stage.id]) || [FLYERS[(r + ((this.runSeed | 0) & 3)) % FLYERS.length]];
     fly.forEach((f, i) => { lineup[f] = (i === 0 ? 16 : 9) * (0.8 + Math.random() * 0.4); });
     return lineup;
   }
@@ -968,6 +970,7 @@ export class HostSim {
     this.hunting = 0; for (const m of list) if (!m.roam && !m.owner) this.hunting++; // how many are after the players right now (see huntCap)
     const ds = this.dmgScale();
     for (const m of list) {
+      m.px = m.x; m.pz = m.z;
       const base0 = m.base;
       if (m.burn > 0) {
         m.burn -= dt;
@@ -1130,7 +1133,7 @@ export class HostSim {
           b.x += (dx / d) * push; b.z += (dz / d) * push;
         }
       }
-      [a.x, a.z] = w.collide(a.x, a.z, a.base.radius);
+      [a.x, a.z] = a.px !== undefined ? w.sweep(a.px, a.pz, a.x, a.z, a.base.radius) : w.collide(a.x, a.z, a.base.radius);
     }
   }
 

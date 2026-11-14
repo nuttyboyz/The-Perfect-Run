@@ -1,5 +1,6 @@
 // Seeded open-world generation: terrain, biome props, crates, spawn and boss arena.
 // Every player regenerates the identical map from the round seed.
+import { installSolids } from './solidvox.js';
 import * as THREE from 'three';
 import { mulberry32, makeNoise } from './rng.js';
 import * as TX from './textures.js';
@@ -77,6 +78,7 @@ export class World {
     this.buildContactShadows();
     this.buildClutter();
     this.buildAmbient();
+    this.buildSolidIndex(); // what is drawn is what is solid (solidvox.js)
     scene.add(this.group);
     this.minimap = this.buildMinimap();
   }
@@ -236,8 +238,9 @@ export class World {
     const c = { x, z, r, top };
     this.colliders.push(c);
     const cs = 8;
-    const x0 = Math.floor((x - r) / cs), x1 = Math.floor((x + r) / cs);
-    const z0 = Math.floor((z - r) / cs), z1 = Math.floor((z + r) / cs);
+    const pad = 3.2; // a body is looked up by the cell its centre is in, so a thing is listed in every cell a body touching it could stand in
+    const x0 = Math.floor((x - r - pad) / cs), x1 = Math.floor((x + r + pad) / cs);
+    const z0 = Math.floor((z - r - pad) / cs), z1 = Math.floor((z + r + pad) / cs);
     for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
       const k = i * 1000 + j;
       if (!this.grid.has(k)) this.grid.set(k, []);
@@ -261,7 +264,7 @@ export class World {
   }
 
   // Push a circle (x,z,r) out of props; returns corrected [x,z].
-  collide(x, z, r, y) {
+  collide(x, z, r, y, px, pz) {
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
     if (list) {
@@ -269,6 +272,7 @@ export class World {
         const dx = x - c.x, dz = z - c.z;
         const d = Math.hypot(dx, dz), m = c.r + r;
         if (d >= m) continue;
+        if (c.vx === undefined ? this.colVox(c) : c.vx) continue; // its drawn shape blocks instead (below)
         if (y !== undefined && c.top !== Infinity) { const q = d > 1e-4 ? Math.min(d, r * 0.8) / d : 0; // judged where the body's leading edge is, against the thing's real shape
           if (y >= this.propTop(c, d, x - dx * q, z - dz * q) - (c.stand ? 0.35 : 0)) continue; } // high enough to step onto a rock, tomb or stump, or nothing of it is here
         if (d < m && d > 1e-4) { x = c.x + (dx / d) * m; z = c.z + (dz / d) * m; }
@@ -295,6 +299,7 @@ export class World {
         if (d < m && d > 1e-4) { x = pf.x + (dx / d) * m; z = pf.z + (dz / d) * m; }
       }
     }
+    if (this.vx && this.walkBlocked(x, z, r, y)) { const f = this.walkFree(x, z, r, y); if (f) { x = f[0]; z = f[1]; } else if (px !== undefined) { x = px; z = pz; } }
     if (this.duel) {
       // The duel arena is a closed ring.
       const ax = x - this.arena.x, az = z - this.arena.z, ad = Math.hypot(ax, az), al = this.arena.r - 2.2;
@@ -303,6 +308,30 @@ export class World {
     const d = Math.hypot(x, z), lim = CONFIG.mapHalf - 12;
     if (d > lim) { x *= lim / d; z *= lim / d; }
     return [x, z];
+  }
+
+  // A body moving from (x0, z0) to (x1, z1): walked there in short steps, each pushed out of whatever it meets, so no speed (a dash,
+  // a shove, a slow frame) carries it through a wall to the far side (Nutty 2026-11-14: nobody phases in or out of a building).
+  sweep(x0, z0, x1, z1, r, y) {
+    const L = Math.hypot(x1 - x0, z1 - z0), st = Math.max(0.12, Math.min(0.25, r * 0.5));
+    if (L > 60) return this.collide(x1, z1, r, y);
+    if (L <= st) return this.collide(x1, z1, r, y, x0, z0); // a blink or a respawn is not a walk
+    const n = Math.min(80, Math.ceil(L / st)), dx = (x1 - x0) / n, dz = (z1 - z0) / n;
+    let x = x0, z = z0;
+    for (let i = 0; i < n; i++) [x, z] = this.collide(x + dx, z + dz, r, y, x, z);
+    return [x, z];
+  }
+  // Has something flying reached a solid thing since the last time it asked? p is the projectile's own position object: the stretch
+  // from where it was to where it is now is tested whole, so a fast bullet cannot skip over a thin wall between two frames.
+  solidMove(p, r = 0.12) {
+    const m = this._sm || (this._sm = new WeakMap()), q = m.get(p);
+    let hit = this.solidPoint(p.x, p.y, p.z, r);
+    if (!hit && q) {
+      const dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z, L = Math.hypot(dx, dy, dz);
+      if (L > 0.15 && L < 12) hit = this.rayProps(q.x, q.y, q.z, dx / L, dy / L, dz / L, L, 0) < L || (this.solids.length > 0 && this.rayBlock(q.x, q.y, q.z, dx / L, dy / L, dz / L, L) < L);
+    }
+    if (q) { q.x = p.x; q.y = p.y; q.z = p.z; } else m.set(p, { x: p.x, y: p.y, z: p.z });
+    return hit;
   }
 
   // Rocks, tombs, stumps, logs, chests: every prop up to 5 m tall can be stood on (Nutty 2026-11-14). Its top is highest in
@@ -362,7 +391,9 @@ export class World {
   standY(x, z, y) {
     let h = this.heightAt(x, z);
     { const list = this.grid.get(Math.floor(x / 8) * 1000 + Math.floor(z / 8));
-      if (list) for (const c of list) { if (c.top === Infinity) continue; const d = Math.hypot(x - c.x, z - c.z); if (d >= c.r) continue; const t = this.propTop(c, d, x, z); if (c.stand && y >= t - 0.35) h = Math.max(h, t); } }
+      let got = false;
+      if (list) for (const c of list) { if (c.top === Infinity) continue; const d = Math.hypot(x - c.x, z - c.z); if (d >= c.r) continue; const t = this.propTop(c, d, x, z); if (c.stand && t > -Infinity) got = true; if (c.stand && y >= t - 0.35) h = Math.max(h, t); }
+      if (!got && this.vx) { const t = this.vxTop(x, z, y); if (t > h) h = t; } } // anything else that is drawn here can be stood on too
     if (this.platforms) for (const pf of this.platsAt(x, z)) {
       if (pf.shotOnly) continue;
       if (pf.box) {
@@ -384,7 +415,7 @@ export class World {
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
     if (list) for (const c of list) if (Math.hypot(x - c.x, z - c.z) < c.r + r) return true;
-    return false;
+    return !!this.vx && this.walkBlocked(x, z, r);
   }
 
   // Where nothing may be placed (water, the crashed UFO): set by the stage (stages.js).
@@ -928,7 +959,10 @@ export class World {
       const q = Math.sqrt(disc);
       span((-b - q) / a, (-b + q) / a, top, base);
     };
-    for (const c of this.colliders) cyl(c.x, c.z, c.r, this.colTop(c), -Infinity);
+    for (const c of this.colliders) { if (c.vx) continue;
+      if (c.vx === undefined) { const rx = ox - c.x, rz = oz - c.z, b = rx * dx + rz * dz; if (b * b - a * (rx * rx + rz * rz - c.r * c.r) < 0 || this.colVox(c)) continue; } // only measured when a shot comes its way
+      cyl(c.x, c.z, c.r, this.colTop(c), -Infinity); }
+    if (this.vx) { const t = this.vxRay(ox, oy, oz, dx, dy, dz, Math.min(maxD, best), tMin); if (t < best) best = t; }
     if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && !t.soft) cyl(t.x, t.z, t.r, t.top, -Infinity); }
     if (this.platforms) for (const pf of this.platforms) {
       if (pf.air || pf.noShot) continue;
@@ -967,7 +1001,8 @@ export class World {
     if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && !t.soft && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true; }
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
-    if (list) for (const c of list) { const top = this.colTop(c); if (y >= top) continue;
+    if (this.vx && this.vxPoint(x, y, z)) return true;
+    if (list) for (const c of list) { if (c.vx === undefined ? this.colVox(c) : c.vx) continue; const top = this.colTop(c); if (y >= top) continue;
       const k = c.dome ? Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (y - c.gy) / Math.max(0.1, top - c.gy)), 2))) : 1; // a boulder narrows toward its top
       if (Math.hypot(x - c.x, z - c.z) < c.r * k + r) return true; }
     if (this.platforms) for (const pf of this.platsAt(x, z)) {
@@ -1028,7 +1063,7 @@ export class World {
     const beams = new THREE.InstancedMesh(beamGeo, beamMat, N);
     woods.castShadow = woods.receiveShadow = irons.castShadow = irons.receiveShadow = true;
     const all = [woods, irons, seams, beams];
-    for (const m of all) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
+    for (const m of all) { m.frustumCulled = false; m.count = 0; m.noSolid = true; this.group.add(m); } // a chest keeps its own round body: it vanishes when opened
     const root = new THREE.Object3D(), none = new THREE.Matrix4().makeScale(0, 0, 0);
     const place = (c, on) => {
       const k = c.id;
@@ -1111,6 +1146,7 @@ export class World {
   update(dt, t) {
     WIND.uT.value = t;
     for (const f of this.animated) f(t);
+    this.warmSolids();
   }
 
   dispose() {
@@ -1120,6 +1156,8 @@ export class World {
     });
   }
 }
+
+installSolids(World);
 
 // Grass-style sway: cards bend by their height along the card (uv.y) with a per-instance phase.
 function windifyGrass(mat) {

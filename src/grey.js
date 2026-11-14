@@ -240,23 +240,26 @@ function stretchHands(mesh, kit) {
 // lie on the skull and wrap round its sides, are hung on the head bone. Used by the hero, the Crash Site boss and its echo.
 const ALIEN_EYE = { headZ: 1.556, top: 1.767, x: 0.053, h: 0.45, w: 0.047, t: 0.034, tilt: 0.55 }; // metres on the 1.77 m body: centre off the nose line, height up the head (0 = head bone, 1 = crown), half length, half height, slant
 const _greyTex = new WeakMap();
-function greyTexture(src) {
-  if (_greyTex.has(src)) return _greyTex.get(src);
+function greyTexture(src, tone) {
+  const lo = tone ? tone.lo : [74, 74, 76], hi = tone ? tone.hi : [150, 150, 152], key = lo.join() + hi.join();
+  let byTone = _greyTex.get(src); if (!byTone) _greyTex.set(src, (byTone = new Map()));
+  if (byTone.has(key)) return byTone.get(key);
   let out = src;
   try {
     const im = src.image, w = im.width, h = im.height, c = document.createElement('canvas'); c.width = w; c.height = h;
     const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, w, h);
     const d = x.getImageData(0, 0, w, h), p = d.data;
-    for (let i = 0; i < p.length; i += 4) { const l = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2], k = Math.max(0, Math.min(1, (l - 38) / 141)), g = 74 + 76 * k; p[i] = g; p[i + 1] = g; p[i + 2] = g + 2; }
+    for (let i = 0; i < p.length; i += 4) { const l = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2], k = Math.max(0, Math.min(1, (l - 38) / 141)); p[i] = lo[0] + (hi[0] - lo[0]) * k; p[i + 1] = lo[1] + (hi[1] - lo[1]) * k; p[i + 2] = lo[2] + (hi[2] - lo[2]) * k; }
     x.putImageData(d, 0, 0);
     out = new THREE.CanvasTexture(c); out.flipY = src.flipY; out.colorSpace = src.colorSpace; out.wrapS = src.wrapS; out.wrapT = src.wrapT; out.anisotropy = src.anisotropy; out.channel = src.channel;
   } catch (e) { console.warn('grey texture failed', e); }
-  _greyTex.set(src, out); return out;
+  byTone.set(key, out); return out;
 }
-let _eyeMat = null;
-export function buildAlien(scene) {
+let _eyeMat = null; const _eyeGlow = {};
+export function buildAlien(scene, skin = {}) {
+  const tone = skin.tone || null;
   scene.updateMatrixWorld(true);
-  scene.traverse((o) => { if (!o.isMesh) return; const conv = (m) => { const n = m.clone(); if (n.map) n.map = greyTexture(n.map); else n.color.set(0x8a8d92); if (n.emissiveMap || n.emissive) n.emissive.set(0); n.needsUpdate = true; return n; };
+  scene.traverse((o) => { if (!o.isMesh) return; const conv = (m) => { const n = m.clone(); if (n.map) n.map = greyTexture(n.map, tone); else n.color.set(tone ? new THREE.Color(tone.hi[0] / 255, tone.hi[1] / 255, tone.hi[2] / 255) : 0x8a8d92); if (n.emissiveMap || n.emissive) n.emissive.set(0); n.needsUpdate = true; return n; };
     o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material); });
   let head = null; scene.traverse((o) => { if (o.isBone && boneKey(o.name) === 'Head') head = o; });
   if (!head) return;
@@ -285,6 +288,6 @@ export function buildAlien(scene) {
     }
     for (let a = 0; a < NS; a++) for (let b = 0; b < NT; b++) { const p0 = a * (NT + 1) + b, p1 = p0 + NT + 1; if (sg > 0) idx.push(p0, p1, p0 + 1, p1, p1 + 1, p0 + 1); else idx.push(p0, p0 + 1, p1, p1, p0 + 1, p1 + 1); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); g.setIndex(idx); g.computeVertexNormals();
-    const m = new THREE.Mesh(g, _eyeMat); m.name = 'alienEye'; scene.add(m); head.attach(m);
+    const m = new THREE.Mesh(g, skin.eyeGlow ? (_eyeGlow[skin.eyeGlow] || (_eyeGlow[skin.eyeGlow] = new THREE.MeshPhysicalMaterial({ color: 0x080808, emissive: skin.eyeGlow, emissiveIntensity: 1.3, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -60 }))) : _eyeMat); m.name = 'alienEye'; scene.add(m); head.attach(m);
   }
 }

@@ -164,7 +164,7 @@ export function buildStalls(game) {
     const yaw = Math.atan2(-best.x, -best.z); // the counter faces the middle of the map
     const group = buildStall(shop);
     group.position.set(best.x, best.y, best.z); group.rotation.y = yaw;
-    w.group.add(group);
+    w.group.add(group); if (w.addSolids) w.addSolids(group);
     // The counter and the shelves are solid; the space between is the keeper's.
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
     for (const s of [-1.3, 0, 1.3]) { w.addCollider(best.x + fx * 1.05 + rx * s, best.z + fz * 1.05 + rz * s, 0.75, best.y + 1.1); w.addCollider(best.x - fx * 1.1 + rx * s, best.z - fz * 1.1 + rz * s, 0.7, best.y + 2.3); }

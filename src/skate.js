@@ -263,7 +263,7 @@ export function placeBoards(world) {
   const ringMat = glow(0x5fe0ff, 0.7), beamMat = glow(0x5fe0ff, 0.1);
   group.add(new THREE.Mesh(mergeGeometries(rings.map((g) => (g.index ? g.toNonIndexed() : g))), ringMat));
   group.add(new THREE.Mesh(mergeGeometries(beams.map((g) => (g.index ? g.toNonIndexed() : g))), beamMat));
-  world.group.add(group);
+  group.noSolid = true; world.group.add(group);
   world.animated.push((t) => { ringMat.opacity = 0.5 + 0.25 * Math.sin(t * 3); });
   return spots;
 }

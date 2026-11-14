@@ -95,10 +95,13 @@ export const SKINS = {
     S('royal', 'Royal Violet', ['#4a2a7a', '#9a6ad8'], { mx: { h: 270, s0: 0.45, sk: 0.3, l0: 0.05, lk: 1.6 } }),
     S('forest', 'Forest Ranger', ['#2a4a26', '#7a6a3a'], { mx: { h: 105, s0: 0.35, sk: 0.3, l0: 0.05, lk: 1.6 } }),
   ],
+  // The Visitor (Nutty 2026-11-14): the approved grey with black eyes first, then four that really differ. tone: the body's darkest and lightest colour; eyeGlow: lit eyes.
   grey: [
-    S('slate', 'Slate Grey', ['#b4bac2', '#05060a'], { skin: 0xb4bac2, shade: 0x6f7a88, eye: 0x05060a }),
-    S('pale', 'Pale Visitor', ['#d2d6da', '#0a0c14'], { skin: 0xd2d6da, shade: 0x8d97a4, eye: 0x0a0c14 }),
-    S('ash', 'Ash Walker', ['#7f8289', '#120a0c'], { skin: 0x7f8289, shade: 0x464b55, eye: 0x120a0c }),
+    S('slate', 'Original Grey', ['#8e9096', '#05060a'], {}),
+    S('void', 'Void Black', ['#0c0c10', '#ff1a10'], { tone: { lo: [5, 5, 7], hi: [52, 52, 58] }, eyeGlow: 0xff1a10 }),
+    S('abyss', 'Deep Blue', ['#122650', '#f2f6ff'], { tone: { lo: [6, 12, 32], hi: [50, 78, 138] }, eyeGlow: 0xf2f6ff }),
+    S('moss', 'Dark Green', ['#143a1c', '#ffd820'], { tone: { lo: [6, 20, 10], hi: [56, 106, 62] }, eyeGlow: 0xffd820 }),
+    S('blood', 'Blood Red', ['#6a141c', '#05060a'], { tone: { lo: [30, 4, 8], hi: [148, 42, 50] } }),
   ],
   // Space-map aliens (mobrig.js builds them on the Visitor's body): one skin each, so each is its own colour.
   mob_zorp: [S('a', 'Zorp', ['#7fd070', '#05060a'], { skin: 0x7fd070, shade: 0x2f8a3a, eye: 0x0a1204 })],

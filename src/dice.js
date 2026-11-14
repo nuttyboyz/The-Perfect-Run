@@ -48,7 +48,7 @@ export function placeDice(world) {
     d.position.y = 0.9;
     grp.add(d, new THREE.Mesh(ringGeo, ringMat), new THREE.Mesh(beamGeo, beamMat));
     s.mesh = grp; s.die = d; s.ph = r() * 6;
-    world.group.add(grp);
+    grp.noSolid = true; world.group.add(grp);
   }
   world.animated.push((t) => {
     ringMat.opacity = 0.45 + 0.2 * Math.sin(t * 3);

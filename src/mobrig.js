@@ -11,6 +11,8 @@ import { getTemplate, bonesOf } from './characters.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MOB_SIZE, MOB_TALL } from './data.js';
 import { animateTail } from './lizard.js';
+import { necroRobe, necroStaffParts } from './necrogear.js';
+import { real } from './realmat.js';
 import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 
 // h: standing height in metres. hunch: forward lean of the spine (radians).
@@ -64,6 +66,7 @@ export const MOB_LOOKS = {
   // The rest of the Mixamo bodies (Nutty 2026-11-05). Their weapons come from MOB_ARM_POOL (data.js), one at random per mob.
   shambler: { file: 'm12.glb', tposeArms: true, h: 1.85, hunch: 0.4, rough: 0.75 }, // #12 rotting man in jeans
   deadcop: { file: 'm13.glb', tposeArms: true, h: 1.85, hunch: 0.35 }, // #13 zombie police officer
+  convict: { file: 'm42.glb', tposeArms: true, h: 1.85, hunch: 0.38, rough: 0.8 }, // #42 zombie prisoner in stripes
   trooper: { file: 'm16.glb', tposeArms: true, h: 1.85, hunch: 0.12 }, // #16 helmeted infantryman
   warmaiden: { file: 'm17.glb', tposeArms: true, h: 1.85, hunch: 0.1 }, // #17 armoured warrior woman
   riot: { file: 'm21.glb', tposeArms: true, h: 1.9, hunch: 0.1, bulk: 1.05 }, // #21 SWAT trooper
@@ -549,6 +552,11 @@ const GEAR_MATS = {
   wRust: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.55 }),
   axeSteel: () => new THREE.MeshStandardMaterial({ color: 0x9aa2b0, roughness: 0.3, metalness: 0.9 }),
   axeHaft: () => new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.75 }),
+  // the Necromancer's kit (necrogear.js): scanned-surface materials, colours on the vertices. The odd scale gives each its own instance.
+  nWool: () => { const m = real('wool', { scale: 2.503 }); m.side = THREE.DoubleSide; return m; },
+  nWood: () => real('wood', { scale: 2.003 }), nBone: () => real('bone', { scale: 2.003 }), nIron: () => real('plate', { scale: 2.003 }),
+  nHide: () => real('leather', { scale: 3.003 }), nRope: () => real('rope', { scale: 5.003 }),
+  nFeather: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }),
 };
 // Weapons a mob carries from MOB_ARMS: on armed types the template leaves its old weapon out and each mob gets its own.
 const WEAPON_GEAR = new Set(['blade', 'dagger', 'sword', 'greatsword', 'club', 'rifle', ...Object.values(MOB_ARMS).map((a) => a.gear)]);
@@ -560,7 +568,7 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
   const toI = new THREE.Matrix4().makeScale(tpl.scale, tpl.scale, tpl.scale).multiply(new THREE.Matrix4().makeRotationY(tpl.yaw));
   const toT = toI.clone().invert();
   const mats = shared || {};
-  const mat = (k) => mats[k] || (mats[k] = (() => { const m = GEAR_MATS[k](); if (m.isMeshStandardMaterial) addRim(m); return m; })());
+  const mat = (k) => mats[k] || (mats[k] = (() => { const m = GEAR_MATS[k](); if (m.isMeshStandardMaterial) { const k0 = m.customProgramCacheKey ? m.customProgramCacheKey() : ''; addRim(m); if (k0) { const k1 = m.customProgramCacheKey; m.customProgramCacheKey = () => k1() + '|' + k0; } } return m; })());
   const bp = (n) => (bones.get(n) ? bones.get(n).getWorldPosition(V()).applyMatrix4(toI) : V());
   const ID = { u: V(0, 1, 0), f: V(0, 0, 1) };
   // Frame along a limb: Y runs hand -> elbow (up, once the arm hangs), Z is as far forward as that allows.
@@ -641,17 +649,13 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       put('Spine2', 'glowG', merge([ball(0.17).translate(0, 0.02, 0), ball(0.12).translate(0.18, -0.12, 0.02), ball(0.1).translate(-0.16, -0.16, 0.0), ball(0.08).translate(0.02, 0.22, 0.04)]), [0, 0, -0.24]);
     },
     // Necromancer: a hooded mantle, a ragged robe and a skull-topped staff.
-    robe() {
-      const pts = []; for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push(new THREE.Vector2(0.2 + t * 0.2 + Math.sin(t * 9) * 0.015, -t * 1.05)); }
-      put('Hips', 'cloth', new THREE.LatheGeometry(pts, 14), [0, 0.08, 0]);
-      put('Head', 'cloth', merge([cone(0.15, 0.36, 12).translate(0, 0.24, -0.03), ball(0.16).scale(1, 1.15, 1.05).translate(0, 0.06, -0.06)]), [0, 0.0, 0]);
-      put('Spine2', 'cloth', new THREE.CylinderGeometry(0.13, 0.3, 0.46, 14, 1, true).translate(0, 0, 0), [0, -0.08, -0.01]);
-    },
+    robe() { necroRobe({ put, bp, s, has: (n) => !!bones.get(n) }); },
     staff() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'wood', cyl(0.03, 0.03, 1.8, 6).translate(0, 0.35, 0), [0, 0, 0.05], fr);
-      put('RightHand', 'bone', merge([ball(0.1).scale(1, 1.1, 1).translate(0, 1.31, 0), cone(0.03, 0.2, 5).translate(0.09, 1.38, 0).rotateZ(0), cone(0.03, 0.2, 5).translate(-0.09, 1.38, 0)]), [0, 0, 0.05], fr);
-      put('RightHand', 'glowC', ball(0.07).translate(0, 1.44, 0), [0, 0, 0.05], fr);
+      // Held upright in the right hand: the shaft runs through the closed fist when the body has finger bones, else beside the wrist.
+      const fr = limb('RightHand', 'RightForeArm'), F = fist('Right'); let o = [0, 0, 0.05];
+      const x = V().crossVectors(fr.u, fr.f).normalize(); if (F) o = [F.palm.dot(x) / s, F.palm.dot(fr.u) / s, F.palm.dot(fr.f) / s];
+      o[0] += 0.045 * Math.sign(x.x * bp('RightHand').x || 1); // a hand's width clear of the robe
+      for (const [mk, geo] of necroStaffParts()) put('RightHand', mk, geo, o, fr);
     },
     // Archer: a recurve bow in the left hand and a quiver of arrows.
     // Gripped at its handle in the left fist: the stave runs along the knuckles, the belly faces down the arm, the string toward the archer.
