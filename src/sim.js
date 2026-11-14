@@ -548,10 +548,18 @@ export class HostSim {
     const stage = this.duel ? null : BIOMES[stageIdx(this.runSeed, this.horde ? 0 : r)];
     const types = (stage && STAGE_MOBS[stage.id]) || MOB_TYPES;
     const pool = types.map((t) => ({ t, w: tierW[MOBS[t].tier - 1] * (MOBS[t].w ?? 1) })).filter((o) => o.w > 0 && !MOBS[o.t].fly && !MOBS[o.t].summoned && !MOBS[o.t].gone);
+    // Runs (Nutty 2026-11-14: "mix it up with mobs for the runs"): every map but the Graveyard and the Crash Site fields its own tribe
+    // mixed with enemies from the rest of the game, a new blend each round. The Graveyard's own cast and the aliens stay home.
+    if (!this.horde && stage && !STAGE_ONLY[stage.id] && stage.id !== 'space') {
+      const home = new Set(types), keep = new Set(Object.values(STAGE_ONLY).flatMap((o) => o.mobs.concat(o.fly || [])).concat(STAGE_MOBS.space, ['gruk']));
+      pool.length = 0;
+      for (const t of MOB_TYPES) { const B = MOBS[t]; if (keep.has(t) || t.startsWith('echo') || B.fly || B.summoned || B.gone || B.boss || (B.cost != null && !home.has(t))) continue;
+        const w = tierW[B.tier - 1] * (B.w ?? 1) * (home.has(t) ? 1.5 : 1); if (w > 0) pool.push({ t, w }); }
+    }
     const only = !this.horde && stage ? STAGE_ONLY[stage.id] : null; // a run stage with a fixed cast: every one of them, every round
     if (only) { pool.length = 0; for (const t of only.mobs) pool.push({ t, w: 1 }); }
     const pick = [];
-    const n = only ? pool.length : Math.min(pool.length, 5 + Math.min(3, Math.floor(r / 2)));
+    const n = only ? pool.length : Math.min(pool.length, 5 + Math.min(3, Math.floor(r / 2)) + (!this.horde && stage && stage.id !== 'space' ? 1 : 0));
     while (pick.length < n) {
       let roll = Math.random() * pool.reduce((a, o) => a + o.w, 0);
       const i = pool.findIndex((o) => (roll -= o.w) <= 0);
