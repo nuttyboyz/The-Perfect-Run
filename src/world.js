@@ -866,7 +866,7 @@ export class World {
       span((-b - q) / a, (-b + q) / a, top, base);
     };
     for (const c of this.colliders) cyl(c.x, c.z, c.r, this.colTop(c), -Infinity);
-    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now) cyl(t.x, t.z, t.r, t.top, -Infinity); }
+    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && !t.soft) cyl(t.x, t.z, t.r, t.top, -Infinity); }
     if (this.platforms) for (const pf of this.platforms) {
       if (pf.air) continue;
       if (!pf.box) { cyl(pf.x, pf.z, pf.r, pf.top - 0.05, pf.base !== undefined ? pf.base - 0.3 : -Infinity); continue; }
@@ -887,13 +887,21 @@ export class World {
   colTop(c) { if (c.shot !== undefined) return c.shot; if (c.top !== Infinity) return c.top; if (c.shotTop === undefined) c.shotTop = this.heightAt(c.x, c.z) + 4; return c.shotTop; }
   // Is this point inside a tree, rock, tomb, wall or building? (Arrows, rockets, fireballs and enemy shots stop there.)
   // Short-lived solid columns (Pillar Burst's rocks): they stop every shot while they stand.
-  addTemp(x, z, r, top, sec) {
+  // soft: flames, not stone. Enemy shots burn up in it, the players' own shots fly through.
+  addTemp(x, z, r, top, sec, soft = false) {
     const now = performance.now() / 1000;
     this.temps = (this.temps || []).filter((t) => t.until > now);
-    this.temps.push({ x, z, r, top, until: now + sec });
+    this.temps.push({ x, z, r, top, until: now + sec, soft });
+  }
+  // Is an ENEMY shot at this point inside a wall a player raised (Pillar Burst, Ice Barrier, Wall of Fire)?
+  wallAt(x, y, z, r = 0.12) {
+    if (!this.temps || !this.temps.length) return false;
+    const now = performance.now() / 1000;
+    for (const t of this.temps) if (t.until > now && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true;
+    return false;
   }
   solidPoint(x, y, z, r = 0.12) {
-    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true; }
+    if (this.temps && this.temps.length) { const now = performance.now() / 1000; for (const t of this.temps) if (t.until > now && !t.soft && y < t.top && Math.hypot(x - t.x, z - t.z) < t.r + r) return true; }
     const cs = 8;
     const list = this.grid.get(Math.floor(x / cs) * 1000 + Math.floor(z / cs));
     if (list) for (const c of list) { const top = this.colTop(c); if (y >= top) continue;

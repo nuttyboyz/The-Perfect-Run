@@ -836,7 +836,7 @@ export function drain(g, from, to, dur = 3) {
 }
 
 // ---- Necromancer: Acid Splash. A huge bubbling pool of acid at `c` (radius r) for `dur` s. onTick() twice a second (it keeps ticking 3 s after the pool dries, for the poison).
-export function acid(g, c, dur = 8, r = 9, onTick) {
+export function acid(g, c, dur = 8, r = 15, onTick) {
   const fx = g.fx, scene = g.scene, gy = g.world.heightAt(c[0], c[2]);
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,

@@ -1046,7 +1046,7 @@ export class UI {
     const couch = g.party.kind === 'local';
     const duel = g.isHost ? !!g.duelMode : !!(host && host.p.lb && host.p.lb.dm);
     if (!g.isHost) g.duelMode = duel;
-    const modeOn = g.party.kind !== 'solo' && !g.bot && g.seat === 1;
+    const modeOn = false; // the Game Mode box is gone from the select screen (Nutty 2026-11-13): the mode is picked in the menus
     this.$('#mode-field').classList.toggle('on', modeOn);
     this.$('#game-mode').disabled = !g.isHost;
     this.$('#game-mode').value = duel ? 'duel' : 'run';

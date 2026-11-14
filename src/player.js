@@ -23,6 +23,7 @@ import { Dailies } from './dailies.js';
 import { moveOf, movesFor, hitShape, MELEE_V2 } from './meleemoves.js';
 
 const TAP_MIN = 0.06; // fastest a handgun can be fired by tapping the trigger
+const BT_AIR = 0.2; // Bullet Time: how fast your own jump plays while you hold aim in the air
 const PARRY = { window: 0.22, mul: 1 }; // seconds after raising the shield that a hit is parried; the attacker takes the hit's damage times mul
 const q10 = (v) => Math.round(v * 10);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -227,9 +228,10 @@ export class LocalPlayer {
     if (this.drone) this.drone.update(dt, { x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw }, this.alive);
     this.turretStep(dt, input);
     if (this.gravPull) this.gravStep(dt);
-    this.btHang = !!this.btHold && !this.onGround && !this.climb && !this.swing && !this.jet.on && !this.wing.soar && !this.dash;
-    if (this.btHang) { this.vel.y *= Math.exp(-14 * dt); const hd = Math.exp(-6 * dt); this.vel.x *= hd; this.vel.z *= hd; if (Math.abs(this.vel.y) < 0.05) this.vel.y = 0; } // brake to a stop and hang
-    if (!this.climb) { if (!this.jet.on && !this.wing.soar && !this.btHang) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt); }
+    // Bullet Time (Nutty 2026-11-13): no more standing or walking in the air. While you hold aim off the ground you rise and fall like any jump, only in slow motion.
+    this.btHang = false;
+    const btAir = !!this.btHold && !this.onGround && !this.climb && !this.swing && !this.jet.on && !this.wing.soar && !this.dash, btK = btAir ? BT_AIR : 1;
+    if (!this.climb) { if (!this.jet.on && !this.wing.soar) this.vel.y -= CONFIG.gravity * (muOn(LOWGRAV) ? GRAV_K : 1) * dt * btK; /* Low Gravity mutator: moon jumps */ this.pos.addScaledVector(this.vel, dt * btK); }
     if (this.knock) { // a shove from the other duelist's hit: slides you back, fading over about 0.4 s
       this.pos.x += this.knock.x * dt; this.pos.z += this.knock.z * dt;
       const kd = Math.exp(-(this.onGround ? 5 : 0.3) * dt); this.knock.x *= kd; this.knock.z *= kd; // blown off your feet you keep flying until you land
@@ -1300,8 +1302,16 @@ export class LocalPlayer {
     near = near.slice(0, 12);
     const pts = near.map((t) => [t.x, t.y, t.z]);
     if (!pts.length) {
-      const f = this.forward();
-      for (let i = 0; i < 5; i++) { const a = (i - 2) * 0.32, dist = 4.5; pts.push([c[0] + (f[0] * Math.cos(a) - f[2] * Math.sin(a)) * dist, c[1], c[2] + (f[2] * Math.cos(a) + f[0] * Math.sin(a)) * dist]); }
+      // nobody near: a long wall of rock across your front (Nutty 2026-11-13: more pillars going sideways)
+      const f = this.forward(), fl = Math.hypot(f[0], f[2]) || 1, fx_ = f[0] / fl, fz_ = f[2] / fl;
+      for (let i = 0; i < 11; i++) { const s = (i - 5) * 2.5, dist = 5 - Math.abs(i - 5) * 0.12; pts.push([c[0] + fx_ * dist - fz_ * s, c[1], c[2] + fz_ * dist + fx_ * s]); }
+    } else {
+      // each rock that comes up under an enemy brings one up on either side of it, across your line of sight, so they join into a wall
+      const side = [];
+      for (const t of near.slice(0, 8)) { const dx = t.x - c[0], dz = t.z - c[2], dl = Math.hypot(dx, dz) || 1, px = -dz / dl, pz = dx / dl;
+        for (const s of [-2.8, 2.8]) { const q = [t.x + px * s, t.y, t.z + pz * s]; if (![...pts, ...side].some((o) => Math.hypot(o[0] - q[0], o[2] - q[2]) < 1.8)) side.push(q); } }
+      while (pts.length < 12 && side.length) pts.push(side.shift()); // (the first 12 are drawn as full clusters)
+      pts.push(...side);
     }
     g.el.pillars(pts, c);
     const dmg = 154 * this.stats.dmg * this.mm('pillars'), hit = new Set(); // 140 + 10% (Nutty 2026-11-11)
@@ -1431,7 +1441,7 @@ export class LocalPlayer {
   // Ice Barrier: a wall of ice 3 m ahead, 12 m wide, for 8 s. Whatever touches it is locked in an ice crystal for 10 s.
   ab_barrier() {
     const g = this.game, f = this.forward();
-    const cx = this.pos.x + f[0] * 3, cz = this.pos.z + f[2] * 3, px = -f[2], pz = f[0], hw = 6;
+    const cx = this.pos.x + f[0] * 3.6, cz = this.pos.z + f[2] * 3.6, px = -f[2], pz = f[0], hw = 10; // 20 m wide (Nutty 2026-11-13: taller and wider)
     const y = g.world.heightAt(cx, cz);
     const a = [cx - px * hw, y, cz - pz * hw], b = [cx + px * hw, y, cz + pz * hw];
     const locked = new Set(), dmg = 20 * this.stats.dmg * this.mm('barrier');
@@ -1441,7 +1451,7 @@ export class LocalPlayer {
         if (t.kind === 'demon' || locked.has(t.id)) continue;
         const sgm = Math.max(0, Math.min(1, ((t.x - a[0]) * vx + (t.z - a[2]) * vz) / L2));
         const d = Math.hypot(t.x - (a[0] + vx * sgm), t.z - (a[2] + vz * sgm)) - t.r;
-        if (d > 1.0 || Math.abs(t.y - y) > 3.5) continue;
+        if (d > 1.7 || Math.abs(t.y - y) > 5) continue;
         locked.add(t.id);
         g.damage(t, dmg, { lock: 10, slow: 10, at: [t.x, t.y + t.h * 0.6, t.z] });
         if (t.kind === 'player') continue; // the other duelist seals themselves in takeStatus (3 s cap, thaw grace, blockers) and announces it with fx 'ic'
@@ -2013,7 +2023,7 @@ export class LocalPlayer {
   // Acid Splash: a huge pool of acid at your feet for 8 s. It hurts and slows whatever wades in it; each enemy it touched stays
   // poisoned for 3 s after it last stood in the pool, even once the pool has dried up.
   ab_acid() {
-    const g = this.game, c = [this.pos.x, g.world.heightAt(this.pos.x, this.pos.z), this.pos.z], R = 9;
+    const g = this.game, c = [this.pos.x, g.world.heightAt(this.pos.x, this.pos.z), this.pos.z], R = 15; // was 9 (Nutty 2026-11-13: more spread and range)
     const dmg = 18 * this.stats.dmg * this.mm('acid'), pdmg = 12 * this.stats.dmg * this.mm('acid'), poison = new Map();
     let n = 0;
     Vault.acid(g, c, 8, R, (wet) => {
@@ -2021,7 +2031,7 @@ export class LocalPlayer {
       for (const t of g.targets()) {
         if (t.kind === 'demon') continue;
         const at = [t.x, t.y + t.h * 0.6, t.z];
-        if (wet && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 3) {
+        if (wet && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 4) {
           poison.set(t.id, g.now + 3);
           g.damage(t, dmg, { slow: 1.2, silentNum: n % 2 === 0, shown: dmg });
           Vault.poisonDrip(g, at);

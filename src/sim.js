@@ -1400,7 +1400,11 @@ export class HostSim {
           // Aura beam: a line of blasts races from the boss through each player, far past them.
           for (const p of players.filter((p) => p.alive)) {
             const ex = p.x - b.x, ez = p.z - b.z, L = Math.hypot(ex, ez) || 1;
-            for (let i = 0; i < 11; i++) { const dd = 5 + i * 4.4; this.ev('s', q10(b.x + (ex / L) * dd), q10(b.z + (ez / L) * dd), 27, 90 + i * 5, bd(22)); }
+            // A wall a player raised (Pillar Burst, Ice Barrier, Wall of Fire) stops the beam where it meets it. Only Thermes' eye lasers
+            // and the Visitor's beam go through walls (Nutty 2026-11-13).
+            let reach = Infinity;
+            if (w.wallAt) for (let q = 1; q <= 50; q += 0.7) { const X = b.x + (ex / L) * q, Z = b.z + (ez / L) * q; if (w.wallAt(X, w.heightAt(X, Z) + 1, Z, 0.4)) { reach = q; break; } }
+            for (let i = 0; i < 11; i++) { const dd = 5 + i * 4.4; if (dd > reach) break; this.ev('s', q10(b.x + (ex / L) * dd), q10(b.z + (ez / L) * dd), 27, 90 + i * 5, bd(22)); }
           }
           b.mode = 'hold'; b.modeT = 1.4; b.cd += 1.2;
         } else if (atk === 'stomp') {

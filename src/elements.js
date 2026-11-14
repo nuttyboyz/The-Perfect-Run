@@ -174,9 +174,10 @@ export class Elements {
   }
 
   // Wall of Fire: a curtain of flame from a to b for dur seconds. onTick(a, b) fires four times a second for damage.
-  firewall(a, b, dur = 6, onTick) {
+  firewall(a, b, dur = 6, onTick, soft = true) {
     const fx = this.fx;
     const L = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
+    if (this.block) { const nb = Math.ceil(L / 1.2); for (let i = 0; i <= nb; i++) { const s = i / nb, x = a[0] + (b[0] - a[0]) * s, z = a[2] + (b[2] - a[2]) * s; this.block(x, z, 1.3, fx.heightAt(x, z) + 9, dur, soft); } } // enemy shots burn up in the wall
     const mid = [(a[0] + b[0]) / 2, a[1], (a[2] + b[2]) / 2];
     const light = fx.holdLight({}, 0xff6a20, 40, L * 1.6); // L is the wall's length; it stands about 1.7x taller than it used to
     const N = Math.max(3, Math.round(L / 2.4));
@@ -490,7 +491,7 @@ export class Elements {
       spire.scale.set(0.95, 7.4 + Math.random() * 1.2, 0.95); spire.rotation.z = (Math.random() - 0.5) * 0.1;
       base.castShadow = spire.castShadow = true;
       g.add(base, spire);
-      const nS = 6;
+      const nS = i < 12 ? 6 : 3;
       for (let k = 0; k < nS; k++) {
         const an = (k / nS) * 6.28 + Math.random() * 0.5, rr = 0.75 + Math.random() * 0.75;
         const sh = new THREE.Mesh(shards[(i + k) % 3], mat), w = 0.34 + Math.random() * 0.3;
@@ -501,13 +502,13 @@ export class Elements {
         sh.castShadow = true;
         g.add(sh);
       }
-      for (let k = 0; k < 3; k++) { const an = Math.random() * 6.28, rr = 1.5 + Math.random() * 0.7; const b = new THREE.Mesh(geos[(i + k + 1) % 4], mat); const sc = 0.35 + Math.random() * 0.3; b.scale.set(sc, sc * 0.8, sc); b.position.set(Math.cos(an) * rr, 0.2, Math.sin(an) * rr); g.add(b); }
+      for (let k = 0; k < (i < 12 ? 3 : 1); k++) { const an = Math.random() * 6.28, rr = 1.5 + Math.random() * 0.7; const b = new THREE.Mesh(geos[(i + k + 1) % 4], mat); const sc = 0.35 + Math.random() * 0.3; b.scale.set(sc, sc * 0.8, sc); b.position.set(Math.cos(an) * rr, 0.2, Math.sin(an) * rr); g.add(b); }
       const y = this.h(p[0], p[2]);
       g.position.set(p[0], y - DEEP, p[2]);
       g.rotation.y = Math.random() * 6.28;
       const delay = from ? Math.hypot(p[0] - from[0], p[2] - from[2]) * 0.02 : i * 0.03;
       g.userData = { y, delay, up: false };
-      if (this.block) this.block(p[0], p[2], 1.7, y + 7, delay + dur + 0.2); // while it stands, no shot passes through it
+      if (this.block) this.block(p[0], p[2], 1.9, y + 8, delay + dur + 0.2); // while it stands, no shot passes through it
       scene.add(g);
       return g;
     });
@@ -982,22 +983,27 @@ export class Elements {
     const fx = this.fx, scene = this.scene;
     const geo = iceGeo(), mat = iceMat();
     const L = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1, ux = (b[0] - a[0]) / L, uz = (b[2] - a[2]) / L;
-    const n = Math.max(6, Math.round(L / 0.75));
+    const n = Math.max(6, Math.round(L / 0.95));
     const spikes = [];
     for (let i = 0; i <= n; i++) {
       const sgm = i / n, x = a[0] + (b[0] - a[0]) * sgm + rnd(-0.2, 0.2), z = a[2] + (b[2] - a[2]) * sgm + rnd(-0.2, 0.2);
       const y = this.h(x, z);
-      for (let k = 0; k < 2; k++) {
+      // a great spike in the middle and a shorter one leaning out on each face, so the wall is thick as well as tall
+      for (let k = 0; k < 3; k++) {
         const m = new THREE.Mesh(geo, mat);
-        const big = k === 0, sc = big ? rnd(1.6, 2.3) : rnd(0.9, 1.3);
+        const big = k === 0, sc = big ? rnd(2.5, 3.4) : rnd(1.4, 2.0), side = k === 1 ? 1 : -1, off = big ? 0 : side * rnd(0.8, 1.2);
         m.scale.set(sc, sc * (big ? 1.35 : 1), sc);
-        m.position.set(x + (k ? uz * 0.5 : 0), y - 4, z + (k ? -ux * 0.5 : 0));
-        m.rotation.set(rnd(-0.18, 0.18), rnd(0, 6.28), rnd(-0.18, 0.18));
+        const H = sc * (big ? 1.35 : 1) * 1.9;
+        m.position.set(x + uz * off, y - H - 0.3, z - ux * off);
+        // lean: along the wall a little, and the outer rows fan out sideways
+        const lean = big ? rnd(-0.12, 0.12) : side * rnd(0.3, 0.6), along = rnd(-0.3, 0.3);
+        m.rotation.set(0, 0, 0); m.rotateOnWorldAxis(new THREE.Vector3(ux, 0, uz), -lean); m.rotateOnWorldAxis(new THREE.Vector3(-uz, 0, ux), along); m.rotateY(rnd(0, 6.28));
         m.castShadow = true;
-        m.userData = { y, delay: Math.abs(sgm - 0.5) * 0.3, h: sc * (big ? 2.4 : 1.4) };
+        m.userData = { y, delay: Math.abs(sgm - 0.5) * 0.3, h: H, H };
         scene.add(m); spikes.push(m);
       }
-      fx.decal([x, 0, z], TX.frostDecal(), 3.2, dur + 2, { opacity: 0.85 });
+      fx.decal([x, 0, z], TX.frostDecal(), 4.4, dur + 2, { opacity: 0.85 });
+      if (this.block) this.block(x, z, 1.5, y + 7.5, dur + 0.3); // solid ice: no shot passes while it stands
     }
     const mid = [(a[0] + b[0]) / 2, this.h((a[0] + b[0]) / 2, (a[2] + b[2]) / 2), (a[2] + b[2]) / 2];
     fx.flash([mid[0], mid[1] + 2, mid[2]], 0x9fdcff, 30, 0.4, L);
@@ -1010,15 +1016,15 @@ export class Elements {
         for (const m of spikes) {
           const u = m.userData, aa = t - u.delay;
           const up = aa < 0 ? 0 : aa < 0.25 ? 1 - Math.pow(1 - aa / 0.25, 3) : t < dur ? 1 : Math.max(0, 1 - (t - dur) / 0.6);
-          m.position.y = u.y - 4 + up * 3.8;
-          if (aa > 0 && aa - dt <= 0) for (let k = 0; k < fx.n(5); k++) fx.shard.emit({ p: [m.position.x, u.y + 0.3, m.position.z], v: [rnd(-2, 2), rnd(2, 6), rnd(-2, 2)], life: rnd(0.4, 0.8), s0: 0.35, s1: 0.1, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], g: 10 });
+          m.position.y = u.y - u.H - 0.3 + up * (u.H + 0.1);
+          if (aa > 0 && aa - dt <= 0) for (let k = 0; k < fx.n(3); k++) fx.shard.emit({ p: [m.position.x, u.y + 0.3, m.position.z], v: [rnd(-2, 2), rnd(2, 6), rnd(-2, 2)], life: rnd(0.4, 0.8), s0: 0.35, s1: 0.1, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], g: 10 });
         }
         if (t < dur) {
           // Cold mist drifting off the wall.
           for (let i = 0; i < fx.n(2); i++) { const sgm = Math.random(), x = a[0] + (b[0] - a[0]) * sgm, z = a[2] + (b[2] - a[2]) * sgm; fx.smoke.emit({ p: [x, this.h(x, z) + rnd(0.2, 2.5), z], v: [rnd(-0.4, 0.4), rnd(-0.3, 0.2), rnd(-0.4, 0.4)], life: rnd(0.8, 1.4), s0: 0.8, s1: 2, c0: [0.85, 0.95, 1, 0.3], c1: [0.85, 0.95, 1, 0], drag: 1.5 }); }
           if (Math.random() < 0.6) { const sgm = Math.random(), x = a[0] + (b[0] - a[0]) * sgm, z = a[2] + (b[2] - a[2]) * sgm; fx.glow.emit({ p: [x, this.h(x, z) + rnd(0.5, 3), z], life: 0.4, s0: 0.5, s1: 0.1, c0: [0.7, 0.9, 1, 0.5], c1: [0.7, 0.9, 1, 0] }); }
         } else if (t - dt < dur) {
-          for (const m of spikes) for (let k = 0; k < 3; k++) fx.shard.emit({ p: [m.position.x, m.userData.y + rnd(0.3, m.userData.h), m.position.z], v: [rnd(-3, 3), rnd(1, 5), rnd(-3, 3)], life: 0.7, s0: 0.4, s1: 0.1, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], g: 12 });
+          for (const m of spikes) for (let k = 0; k < 2; k++) fx.shard.emit({ p: [m.position.x, m.userData.y + rnd(0.3, m.userData.h), m.position.z], v: [rnd(-3, 3), rnd(1, 5), rnd(-3, 3)], life: 0.7, s0: 0.4, s1: 0.1, c0: [0.85, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0], g: 12 });
         }
         tick += dt;
         if (onTick && t < dur && tick >= 0.1) { tick -= 0.1; onTick(); }
@@ -1461,8 +1467,10 @@ export class Elements {
         fx.glow.emit({ p: [pos.x, pos.y, pos.z], life: 0.05, s0: 0.9 * size, s1: 0.9 * size, c0: [1, 1, 1, 0.9], c1: [1, 1, 1, 0.8] });
         fx.glow.emit({ p: [pos.x, pos.y, pos.z], v: [rnd(-0.4, 0.4), rnd(-0.4, 0.4), rnd(-0.4, 0.4)], life: 0.6, s0: 1.7 * size, s1: 0.3, c0: [...color, 0.75], c1: [...color, 0] });
         fx.streak.emit({ p: [pos.x - vel.x / sp * 0.9 * size, pos.y - vel.y / sp * 0.9 * size, pos.z - vel.z / sp * 0.9 * size], v: [0, 0, 0], life: 0.12, s0: 3.2 * size, s1: 1.4 * size, c0: [...color, 0.9], c1: [...color, 0], rot: ang });
+        if (this.wall && this.wall(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; }
         if (onUpdate && onUpdate(pos, vel) === false) return false;
         if (pos.y < this.h(pos.x, pos.z)) { fx.impact([pos.x, pos.y + 0.2, pos.z], color); return false; }
+        if (this.wall && (this.wall(pos.x, pos.y, pos.z) || this.wall(pos.x - vel.x * dt * 0.5, pos.y - vel.y * dt * 0.5, pos.z - vel.z * dt * 0.5))) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // Pillar Burst, Ice Barrier, Wall of Fire: nothing an enemy fires gets through
         if (age > 0.12 && this.solid && this.solid(pos.x, pos.y, pos.z)) { fx.impact([pos.x, pos.y, pos.z], color); return false; } // a rock, tree or wall stops it
       },
     });

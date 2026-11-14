@@ -159,7 +159,8 @@ export class Game {
     this.fx = new FX(this.scene, this.camera, this.q);
     this.muFx = new MutatorFx(this);
     this.el = new Elements(this.fx, this.scene);
-    this.el.block = (x, z, r, top, sec) => { if (this.world) this.world.addTemp(x, z, r, top, sec); };
+    this.el.block = (x, z, r, top, sec, soft) => { if (this.world) this.world.addTemp(x, z, r, top, sec, soft); };
+    this.el.wall = (x, y, z) => !!this.world && this.world.wallAt(x, y, z); // enemy shots stop dead at a wall a player raised
     this.el.solid = (x, y, z) => !!this.world && this.world.solidPoint(x, y, z); // enemy shots and element projectiles stop at props
     this.setupComposer();
     this.onResize();
@@ -1811,7 +1812,7 @@ export class Game {
       case 'rk': { const wp = WEAPONS[a[6]] || {}; this.launchProjectile(wp.proj || 'rocket', P(0), D(3), { speed: wp.speed || 50 }); this.fx.muzzle(P(0), D(3)); this.audio.play('shot_' + wp.id, vol); break; }
       case 'melee': this.audio.play('swing', vol * 0.6); break;
       case 'fq': this.el.fireball(P(0), D(3), { pierce: true, speed: 46, range: 130 }); this.audio.play('fire_cast', vol); break;
-      case 'fw': this.el.firewall(P(0), P(3), 6); this.audio.play('inferno', vol); break;
+      case 'fw': this.el.firewall(P(0), P(3), 6, null, !this.duel); this.audio.play('inferno', vol); break; // in a duel the other fighter's fire wall stops your shots too
       case 'fr': this.el.inferno(() => [v.pos.x, v.pos.y, v.pos.z], 5, 8); this.audio.play('inferno', vol); break;
       case 'eq': this.audio.play('earth', vol); break;
       case 'fw': { v.flameUntil = this.now + a[0] / 10; const c = [v.pos.x, v.pos.y + 1.2, v.pos.z]; this.fx.flash(c, 0xff7a20, 22, 0.35, 14); this.audio.play('inferno', vol * 0.8); break; } // Flaming Weapons: their weapon burns (views.js)
@@ -1840,7 +1841,7 @@ export class Game {
         this.fx.blood(at, [0.35, 0.05, 0.08]);
         break;
       }
-      case 'na': Vault.acid(this, P(0)); this.audio.play('necro_fall', vol); break;
+      case 'na': Vault.acid(this, P(0), 8, 15); this.audio.play('necro_fall', vol); break;
       case 'nt': { // Black Thorn Vines: a[3] = seconds they stand; then 'nx' sends the thorns out
         Vault.vines(this, P(0), 7, a[3] / 10); this.audio.play('earth', vol); break;
       }
@@ -2730,6 +2731,8 @@ export class Game {
   }
   elemKeys() {
     const I = this.input;
+    // WASD moves the highlight too (Nutty 2026-11-13), whenever the pick has the game stopped; in a live co-op pick those keys still walk you
+    if (this.elemStops()) for (const [k, dx, dy] of [['KeyA', -1, 0], ['KeyD', 1, 0], ['KeyW', 0, -1], ['KeyS', 0, 1]]) if (I.pressed.has(k)) { I.pressed.delete(k); this.elemMove(dx, dy); }
     if (I.pressed.has('ArrowLeft')) { I.pressed.delete('ArrowLeft'); this.elemMove(-1); }
     if (I.pressed.has('ArrowRight')) { I.pressed.delete('ArrowRight'); this.elemMove(1); }
     if (I.pressed.has('ArrowUp')) { I.pressed.delete('ArrowUp'); this.elemMove(0, -1); }
