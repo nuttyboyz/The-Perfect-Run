@@ -674,33 +674,7 @@ export class UI {
       if (!w) { box.innerHTML = '<h3>Weapon stats</h3><p class="ws-hint">Point at any weapon on the wall to see its stats here.</p>'; box.dataset.w = ''; return; }
       if (box.dataset.w === id) return;
       box.dataset.w = id;
-      const act = w.summon || w.deploy || w.grav || w.heal, gear = w.kind === 'gear' || act;
-      const kind = w.kind === 'gear' ? 'Gear' : act ? 'Gear · Active' : w.eyes ? 'Eye beams' : w.kind === 'melee' ? 'Melee' : w.proj ? 'Explosive' : w.auto ? 'Automatic' : 'Firearm';
-      const row = (l, v, max, num) => '<div class="ws-row"><span>' + l + '</span><i style="--v:' + Math.max(4, Math.min(100, (v / max) * 100)) + '%"></i><b>' + num + '</b></div>';
-      const n1 = (v) => (Math.round(v * 10) / 10).toString();
-      let rows = '';
-      if (!gear) {
-        const hit = w.dmg * (w.pellets || 1), dps = hit / w.rate;
-        rows += row('Damage', hit, 160, w.pellets ? w.dmg + ' x ' + w.pellets : Math.round(hit));
-        if (w.kind === 'melee') {
-          rows += row('Swing speed', 1 / w.rate, 4, n1(1 / w.rate) + ' / s');
-          rows += row('Damage / second', dps, 200, Math.round(dps));
-          if (w.range) rows += row('Reach', w.range, 10, n1(w.range) + ' m');
-          if (w.arc) rows += row('Sweep', w.arc, 200, Math.round(w.arc) + '°');
-        } else {
-          const kick = w.rec ? (w.rec.v || 0) + (w.rec.h || 0) * 0.5 : 0;
-          rows += row('Fire rate', 60 / w.rate, 900, Math.round(60 / w.rate) + ' / min');
-          rows += row('Damage / second', dps, 300, Math.round(dps));
-          if (w.mag) rows += row('Magazine', w.mag, 60, w.mag);
-          if (w.reload) rows += row('Reload', 4 - Math.min(4, w.reload), 4, n1(w.reload) + ' s');
-          if (w.fall) rows += row('Range', w.fall[0], 120, w.fall[0] + ' m');
-          if (w.rec) rows += row('Recoil', kick, 4, kick < 0.5 ? 'Low' : kick < 1.6 ? 'Medium' : 'High');
-          if (w.hand) rows += row('Handling', w.hand, 14, w.hand >= 10 ? 'Quick' : w.hand >= 7 ? 'Steady' : 'Heavy');
-          if (w.scope) rows += '<div class="ws-tag">Scoped</div>';
-        }
-      }
-      box.innerHTML = '<h3>' + esc(w.name) + '</h3><div class="ws-kind">' + kind + '</div>' + (wshots[w.id] ? '<img src="' + wshots[w.id] + '" alt="">' : '')
-        + (gear ? '<div class="ws-how">' + esc(w.how || 'Passive') + '</div>' : '<div class="ws-rows">' + rows + '</div>') + '<p>' + esc(w.desc || '') + '</p>';
+      box.innerHTML = this.wstatHtml(id, wshots);
     };
     this.wstat = wstat;
     wstat(splitLoadout(g.loadout.w).ws[0] || '');
@@ -1775,6 +1749,38 @@ export class UI {
     this._wsT = setTimeout(() => { clearInterval(this._wsI); el.classList.remove('on'); }, 12000);
   }
 
+  // The stats card for one weapon or piece of gear (Weapon Wall box, Horde stall hover box): name, kind, picture, stat bars, description.
+  wstatHtml(id, wshots) {
+    const w = WEAPON_BY_ID[id]; if (!w) return ''; wshots = wshots || {};
+      const act = w.summon || w.deploy || w.grav || w.heal, gear = w.kind === 'gear' || act;
+    const kind = w.kind === 'gear' ? 'Gear' : act ? 'Gear · Active' : w.eyes ? 'Eye beams' : w.kind === 'melee' ? 'Melee' : w.proj ? 'Explosive' : w.auto ? 'Automatic' : 'Firearm';
+    const row = (l, v, max, num) => '<div class="ws-row"><span>' + l + '</span><i style="--v:' + Math.max(4, Math.min(100, (v / max) * 100)) + '%"></i><b>' + num + '</b></div>';
+    const n1 = (v) => (Math.round(v * 10) / 10).toString();
+    let rows = '';
+    if (!gear) {
+      const hit = w.dmg * (w.pellets || 1), dps = hit / w.rate;
+      rows += row('Damage', hit, 160, w.pellets ? w.dmg + ' x ' + w.pellets : Math.round(hit));
+      if (w.kind === 'melee') {
+        rows += row('Swing speed', 1 / w.rate, 4, n1(1 / w.rate) + ' / s');
+        rows += row('Damage / second', dps, 200, Math.round(dps));
+        if (w.range) rows += row('Reach', w.range, 10, n1(w.range) + ' m');
+        if (w.arc) rows += row('Sweep', w.arc, 200, Math.round(w.arc) + '°');
+      } else {
+        const kick = w.rec ? (w.rec.v || 0) + (w.rec.h || 0) * 0.5 : 0;
+        rows += row('Fire rate', 60 / w.rate, 900, Math.round(60 / w.rate) + ' / min');
+        rows += row('Damage / second', dps, 300, Math.round(dps));
+        if (w.mag) rows += row('Magazine', w.mag, 60, w.mag);
+        if (w.reload) rows += row('Reload', 4 - Math.min(4, w.reload), 4, n1(w.reload) + ' s');
+        if (w.fall) rows += row('Range', w.fall[0], 120, w.fall[0] + ' m');
+        if (w.rec) rows += row('Recoil', kick, 4, kick < 0.5 ? 'Low' : kick < 1.6 ? 'Medium' : 'High');
+        if (w.hand) rows += row('Handling', w.hand, 14, w.hand >= 10 ? 'Quick' : w.hand >= 7 ? 'Steady' : 'Heavy');
+        if (w.scope) rows += '<div class="ws-tag">Scoped</div>';
+      }
+    }
+    return '<h3>' + esc(w.name) + '</h3><div class="ws-kind">' + kind + '</div>' + (wshots[w.id] ? '<img src="' + wshots[w.id] + '" alt="">' : '')
+      + (gear ? '<div class="ws-how">' + esc(w.how || 'Passive') + '</div>' : '<div class="ws-rows">' + rows + '</div>') + '<p>' + esc(w.desc || '') + '</p>';
+  }
+
   // Horde Mode: one stall's goods. Click to buy. With every slot full, the next click asks which carried item to swap out.
   stallShop() {
     const g = this.game, p = g.player, kind = g.hshop, shop = HORDE.shops.find((s) => s.id === kind);
@@ -1789,6 +1795,24 @@ export class UI {
       ? `<b>${esc(pend.name)}</b>: every slot is full. Pick what it replaces, or pick something else.`
       : (elem ? 'Cooldowns from any element, in any mix. ' : kind === 'gear' ? 'Gear shares your three item slots with your weapons. ' : 'You carry three items in all. ') + 'No refunds.';
     const slotRow = `<div class="hs-slots${pend ? ' ask' : ''}">` + slots.map((s) => `<button type="button" class="hs-slot${s.name ? '' : ' empty'}" data-slot="${s.i}" ${pend && s.name ? '' : 'disabled'}><kbd>${esc(s.key)}</kbd><b>${esc(s.name || 'Empty')}</b>${pend && s.name ? '<em>Replace</em>' : ''}</button>`).join('') + '</div>';
+    /* every item is shown as the thing itself (the weapon's own picture, a cooldown's preview clip, a dash's element sign), not its name: the name and stats are in the box on the right */
+    const wshots = (g.menu.weaponShots && g.menu.weaponShots(g.renderer)) || {};
+    const abOf = (id) => { for (const c of CLASSES) { const ab = c.pool.find((q) => q.id === id); if (ab) return [c, ab]; } return null; };
+    const pic = (it) => {
+      if (!elem) return wshots[it.id] ? `<img class="hs-img" src="${wshots[it.id]}" alt="${esc(it.name)}">` : `<div class="si-name">${esc(it.name)}</div>`;
+      /* elements: the name first, big enough to find at a glance while the horde is coming, over the cooldown's own symbol; the moving preview plays only in the box at the side */
+      if (it.id.startsWith('dash:')) { const c = CLASSES.find((q) => q.element === it.id.slice(5)); return `<div class="hs-nm">${esc(c ? c.name : '')} Dash</div><div class="hs-ic" style="color:${c ? c.css : '#fff'}">${AB_ICONS.dash || '➤➤'}</div>`; }
+      const ca = abOf(it.id); return `<div class="hs-nm">${esc(it.name)}</div><div class="hs-ic" style="color:${it.css || '#fff'}">${ca ? AB_ICONS[ca[1].id] || ICONS[ca[0].element] || '' : ''}</div>`;
+    };
+    const statHtml = (it) => {
+      if (!it) return '<h3>' + esc(shop.name) + '</h3><p class="ws-hint">Point at anything on sale to see what it is and what it does.</p>';
+      if (!elem) return this.wstatHtml(it.id, wshots);
+      const ca = abOf(it.id), dash = it.id.startsWith('dash:');
+      return '<h3>' + esc(it.name) + '</h3><div class="ws-kind" style="color:' + (it.css || '#ffd166') + '">' + esc(dash ? 'Dash' : it.group || '') + '</div>'
+        + (ca ? '<img class="hs-clip" src="assets/clips/' + clipName(ca[0], ca[1]) + '.webp" alt="">' : '')
+        + (ca && ca[1].cd ? '<div class="ws-rows"><div class="ws-row"><span>Cooldown</span><i style="--v:' + Math.max(4, Math.min(100, 100 - ca[1].cd * 3)) + '%"></i><b>' + ca[1].cd + ' s</b></div></div>' : '')
+        + '<p>' + esc(it.desc || '') + '</p>';
+    };
     let last = null;
     const cards = items.map((it) => {
       const hd = it.group && it.group !== last ? `<div class="hs-group" style="--gc:${it.css}">${esc(it.group)}</div>` : '';
@@ -1796,11 +1820,13 @@ export class UI {
       const st = it.own ? 'own' : it.locked ? 'locked' : p.pc < it.cost ? 'poor' : '';
       const coin = `<img class="coin-img" src="${this.coin}">${it.cost}`;
       return hd + `<button type="button" class="shop-item hs-item ${st}${pend && pend.id === it.id ? ' pend' : ''}" data-hbuy="${it.id}" ${it.own || it.locked ? 'disabled' : ''}${it.css ? ` style="--gc:${it.css}"` : ''}>
-        <div class="si-name">${esc(it.name)}</div><div class="si-desc">${esc(it.desc)}</div>
+        ${pic(it)}
         <div class="si-cost">${it.own ? 'Carried' : it.locked ? 'Locked · see Unlockables' : it.repair ? (it.dur <= 0 ? 'Broken · repair ' : 'Repair (' + Math.round(it.dur * 100) + '%) ') + coin : coin}</div></button>`;
     }).join('');
     const box = this.$('#shop-items'), top = box.scrollTop;
-    box.innerHTML = slotRow + `<div class="hs-list">${cards}</div>`;
+    box.innerHTML = slotRow + `<div class="hs-wrap"><div class="hs-list">${cards}</div><div class="arc-wstat hs-stat" id="hs-stat"></div></div>`;
+    { const sb = box.querySelector('#hs-stat'), show = (id) => { this._hsHov = id; sb.innerHTML = statHtml(items.find((x) => x.id === id)); }; show(items.some((x) => x.id === this._hsHov) ? this._hsHov : this._hsPend || null);
+      box.querySelectorAll('[data-hbuy]').forEach((b) => { const h = () => { if (this._hsHov !== b.dataset.hbuy) show(b.dataset.hbuy); }; b.onmouseenter = h; b.onfocus = h; b.addEventListener('padfocus', h); }); }
     box.scrollTop = top; { const l = box.querySelector('.hs-list'); if (l) l.scrollTop = this._hsTop || 0; l.onscroll = () => { this._hsTop = l.scrollTop; }; }
     this.$$('[data-hbuy]').forEach((b) => (b.onclick = () => {
       const r = g.hordeBuy(b.dataset.hbuy);

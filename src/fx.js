@@ -4,6 +4,7 @@ import { PERF } from './perf.js';
 import { muOn, LOWGRAV } from './mutators.js';
 import * as THREE from 'three';
 import { Ballistics } from './ballistics.js';
+import { PlasmaShots } from './plasmashot.js';
 import * as TX from './textures.js';
 
 const VERT = /* glsl */ `
@@ -181,6 +182,8 @@ export class FX {
     this.boltTex = TX.boltTexture();
     this.heightAt = () => 0;
     this.ball = new Ballistics(scene, camera); // tracer rounds and muzzle flashes (ballistics.js)
+    this.plasma = new PlasmaShots(scene); // the Alien Blaster's flying purple blasts (plasmashot.js)
+    this.plasma.onLand = (p) => this.plasmaBurst([p.x, p.y, p.z]);
   }
 
   setScale(px) { for (const s of this.systems) s.mat.uniforms.uScale.value = px; }
@@ -191,6 +194,7 @@ export class FX {
     this.time += dt;
     for (const s of this.systems) s.update(dt, this.time);
     this.ball.update(dt);
+    this.plasma.update(dt);
     for (const l of this.lights) {
       const u = l.userData;
       if (u.owner) continue;
@@ -448,6 +452,16 @@ export class FX {
       this.fire.emit({ p: [a[0] + dx * k + R(-0.05, 0.05), a[1] + dy * k + R(-0.05, 0.05), a[2] + dz * k + R(-0.05, 0.05)], v: [dx / L * 5 + R(-0.4, 0.4), R(0.4, 1.4), dz / L * 5 + R(-0.4, 0.4)], life: R(0.22, 0.45), s0: R(0.16, 0.3), s1: 0.04, c0: [1, 0.55, 0.14, 0.85], c1: [0.9, 0.16, 0.02, 0] }); }
     for (let i = 0; i < this.n(light ? 3 : 6); i++) this.fire.emit({ p: [b[0] + R(-0.12, 0.12), b[1] + R(-0.05, 0.15), b[2] + R(-0.12, 0.12)], v: [R(-1, 1), R(1, 2.6), R(-1, 1)], life: R(0.3, 0.6), s0: R(0.3, 0.5), s1: 0.06, c0: [1, 0.6, 0.16, 0.9], c1: [0.9, 0.16, 0.02, 0] });
     for (let i = 0; i < this.n(3); i++) this.spark.emit({ p: [b[0], b[1], b[2]], v: [R(-3, 3), R(1.5, 4.5), R(-3, 3)], life: R(0.35, 0.8), s0: 0.07, s1: 0.01, c0: [1, 0.6, 0.15, 1], c1: [0.9, 0.15, 0, 0], g: 6 });
+  }
+  // The Alien Blaster: a medium dark purple blast that flies to the hit, a lighter purple trail behind it.
+  blast(a, b, size = 1.35) {
+    this.plasma.shot(a, b, size);
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1;
+    this.glow.emit({ p: [a[0] + dx / L * 0.3, a[1] + dy / L * 0.3, a[2] + dz / L * 0.3], life: 0.09, s0: 0.55, s1: 0.15, c0: [0.62, 0.42, 1, 0.85], c1: [0.3, 0.1, 0.7, 0] }); /* a quick violet bloom at the muzzle */
+  }
+  plasmaBurst(p, k = 1) {
+    this.glow.emit({ p, life: 0.16, s0: 0.5 * k, s1: 1.3 * k, c0: [0.5, 0.3, 0.95, 0.8], c1: [0.2, 0.05, 0.5, 0] });
+    for (let i = 0; i < this.n(7); i++) this.spark.emit({ p, v: [(Math.random() - 0.5) * 7 * k, Math.random() * 4 * k, (Math.random() - 0.5) * 7 * k], life: 0.25 + Math.random() * 0.3, s0: 0.09, s1: 0.01, c0: [0.75, 0.55, 1, 1], c1: [0.3, 0.1, 0.7, 0], g: 7 });
   }
   tracer(a, b, color = [1, 0.85, 0.5], beamLen = 0) {
     if (beamLen > 0) { // a short beam: only the stretch just ahead of the muzzle is drawn

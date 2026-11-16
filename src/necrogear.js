@@ -97,7 +97,7 @@ export function necroRobe({ put, bp, s, has }) {
 export function necroStaffParts() {
   const out = [];
   // the shaft: a seasoned bough, never quite straight, thicker toward the crown, with knots and a broken twig
-  const shaft = bough([V(0.006, -0.62, 0), V(-0.008, -0.3, 0.006), V(0.004, 0.0, -0.004), V(0.012, 0.35, 0.006), V(-0.006, 0.7, -0.006), V(0.004, 1.0, 0.004), V(0, 1.16, 0)], [0.019, 0.022, 0.023, 0.024, 0.026, 0.03, 0.034], 9);
+  const shaft = bough([V(0.006, -0.62, 0), V(-0.008, -0.3, 0.006), V(0.004, 0.0, -0.004), V(0.012, 0.35, 0.006), V(-0.006, 0.7, -0.006), V(0.004, 1.0, 0.004), V(0, 1.16, 0)], [0.016, 0.016, 0.0155, 0.018, 0.022, 0.028, 0.034], 9); // (slim where the hand holds it: a fist has to close round it)
   const knots = [[0.012, 0.36, 0.012, 0.03], [-0.01, 0.74, -0.012, 0.032], [-0.008, -0.33, 0.01, 0.027]].map(([x, y, z, r]) => new THREE.SphereGeometry(r, 8, 6).scale(1, 0.7, 1).translate(x, y, z));
   const twig = bough([V(0.01, 0.52, 0.0), V(0.05, 0.6, 0.02), V(0.07, 0.69, 0.02)], [0.012, 0.009, 0.004], 6);
   // the crown: the bough splits into four claws that close over the skull
@@ -109,8 +109,8 @@ export function necroStaffParts() {
   out.push(['nIron', T(merge([new THREE.CylinderGeometry(0.024, 0.019, 0.1, 10).translate(0.006, -0.63, 0), new THREE.ConeGeometry(0.019, 0.07, 10).rotateX(Math.PI).translate(0.006, -0.715, 0),
     new THREE.CylinderGeometry(0.031, 0.031, 0.022, 12).translate(0.004, 1.02, 0.004), new THREE.CylinderGeometry(0.036, 0.036, 0.026, 12).translate(0, 1.13, 0)].map((g) => T(g, IRON))), IRON)]);
   // the grip: a leather thong wound round the shaft where the hand holds it
-  const wrap = []; for (let i = 0; i <= 44; i++) { const t = i / 44, a = t * Math.PI * 2 * 9; wrap.push(V(0.004 + Math.sin(a) * 0.0265, -0.1 + t * 0.2, -0.004 + Math.cos(a) * 0.0265)); }
-  out.push(['nHide', T(bough(wrap, [0.0075, 0.0075], 5), HIDE)]);
+  const wrap = []; for (let i = 0; i <= 44; i++) { const t = i / 44, a = t * Math.PI * 2 * 9; wrap.push(V(0.004 + Math.sin(a) * 0.0165, -0.1 + t * 0.2, -0.004 + Math.cos(a) * 0.0165)); }
+  out.push(['nHide', T(bough(wrap, [0.004, 0.004], 5), HIDE)]);
   // rope lashing under the crown, and a cord of charms: two finger bones and three crow feathers
   const lash = []; for (let i = 0; i <= 30; i++) { const t = i / 30, a = t * Math.PI * 2 * 5; lash.push(V(Math.sin(a) * 0.034, 1.05 + t * 0.07, Math.cos(a) * 0.034)); }
   const cord = bough([V(0.034, 1.08, 0.0), V(0.075, 1.0, 0.01), V(0.07, 0.86, 0.012)], [0.004, 0.004], 5), cord2 = bough([V(0.03, 1.07, 0.012), V(0.05, 0.98, 0.04), V(0.045, 0.9, 0.045)], [0.004, 0.004], 5);

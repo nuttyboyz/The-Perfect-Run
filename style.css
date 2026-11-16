@@ -1840,3 +1840,23 @@ body.split .ds-card b { font-size: .95rem; } body.split .ds-box { padding: 1rem;
 body.split #daily-box { display: none; }
 /* Runs: the Start Run box is the same size as the Start Horde box (Nutty 2026-11-14). */
 #s-lobby.flip-on:not(.flip-duel):not(.arc-split):not(.horde-on)[data-flip="4"] .arc-ready { right: auto; left: calc(50% - 320 * var(--u)); transform: none; width: calc(640 * var(--u)); }
+
+/* Horde stalls: goods shown as the thing itself, with the Weapon Wall's stats box beside the list (v92). */
+.hs-wrap { display: grid; grid-template-columns: 1fr 330px; gap: 14px; align-items: start; }
+.hs-wrap .hs-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.hs-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.hs-item .hs-img { display: block; width: 100%; height: 92px; object-fit: contain; filter: drop-shadow(0 6px 10px rgba(0,0,0,.6)); pointer-events: none; }
+.hs-item .hs-img.hs-clip { object-fit: cover; border-radius: 6px; filter: none; }
+.hs-item .hs-dash { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 40px; filter: none; }
+.hs-item .hs-dash em { font-style: normal; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .8; }
+.hs-item .si-cost { text-align: center; }
+.hs-item:hover, .hs-item.pad-focus { background: rgba(255,255,255,.1); }
+#shop.hshop .hs-stat { display: block; position: static; width: auto; max-height: min(52vh, 560px); overflow-y: auto; padding: 14px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,12,18,.72); --u: .72px; }
+#shop.hshop .hs-stat img { height: 120px; }
+#shop.hshop .hs-stat img.hs-clip { height: auto; max-height: 170px; object-fit: cover; border-radius: 8px; filter: none; }
+@media (max-width: 900px) { .hs-wrap { grid-template-columns: 1fr; } }
+
+/* Elements stall (v93): name on every card, symbol under it; the clip plays only in the side box. */
+.hs-item .hs-nm { font: 700 15px/1.15 'Rajdhani', sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #fff; text-align: center; min-height: 34px; display: flex; align-items: center; justify-content: center; text-shadow: 0 2px 4px rgba(0,0,0,.8); pointer-events: none; }
+#shop .hs-item .hs-ic { height: 56px; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 34px; pointer-events: none; }
+#shop .hs-item .hs-ic svg { width: 48px; height: 48px; flex: none; fill: currentColor; filter: drop-shadow(0 0 8px currentColor); }

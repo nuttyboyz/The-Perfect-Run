@@ -441,7 +441,7 @@ export class BossView {
         aimBone(B.get('RightHandThumb3'), B.get('RightHandThumb4'), GRIP_D.copy(F).addScaledVector(L, -0.1).normalize());
         const gp = this.gun.position;
         hd.getWorldPosition(gp).lerp(B.get('RightHandMiddle1').getWorldPosition(GRIP_1), 0.5).addScaledVector(L, 0.2);
-        gp.addScaledVector(U, B.get('RightHandIndex1').getWorldPosition(GRIP_1).sub(gp).dot(U) + 0.03).addScaledVector(F, 0.02 * GUN_S);
+        gp.addScaledVector(U, B.get('RightHandIndex1').getWorldPosition(GRIP_1).sub(gp).dot(U) + 0.2).addScaledVector(F, 0.058 * GUN_S); /* the Halo's grip hangs lower and further back than the old blaster's */
         this.gun.quaternion.setFromRotationMatrix(GRIP_MB.makeBasis(GRIP_1.crossVectors(U, F), U, F));
       }
     }
@@ -496,7 +496,7 @@ export class BossView {
   // Where the Visitor's blaster points from: just ahead of its gun hand.
   muzzle(out) {
     const h = this.rig && this.rig.b && this.rig.b.get('RightHand');
-    if (h && this.aimDir && this.gun) { out.copy(this.gun.position).addScaledVector(this.aimDir, 0.31 * GUN_S); out.y += 0.03 * GUN_S; return out; }
+    if (h && this.aimDir && this.gun) { out.copy(this.gun.position).addScaledVector(this.aimDir, 0.33 * GUN_S); out.y += 0.04 * GUN_S; return out; }
     return out.set(this.x + Math.sin(this.yaw) * 3, this.y + 7, this.z + Math.cos(this.yaw) * 3);
   }
   target() { const s = this.def.scale; return { id: 'B', kind: 'boss', x: this.x, y: this.y, z: this.z, r: 0.9 * s, h: 2.9 * s, view: this }; }

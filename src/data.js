@@ -93,12 +93,12 @@ export const CLASSES = [
     e: { id: 'raise', name: 'Raise the Dead', cd: 10, desc: 'For 10s every enemy you kill gets back up and fights for you for 10 seconds, then falls for good. In a duel, three of the dead climb out of the ground and hunt your opponent.' },
     more: [
       { id: 'seekers', name: 'Homing Skulls', cd: 5, desc: 'Loose 3 skulls wreathed in green fire, each trailing green. They hunt down the nearest enemies by themselves and explode on impact.' },
-      { id: 'vines', name: 'Black Thorn Vines', cd: 10, desc: 'Huge black-rosed vines burst from the ground at your crosshair. Enemies can walk through them but are torn up the whole time they are inside. When the cooldown runs out the thorns fly off into every enemy nearby, and then it recharges again.' },
+      { id: 'vines', name: 'Black Thorn Vines', cd: 10, desc: 'Huge black-rosed vines burst from the ground at your crosshair. Enemies that touch them are caught fast in the thorns and torn up the whole time they are stuck. When the cooldown runs out the thorns fly off into every enemy nearby, and then it recharges again.' },
       { id: 'scythe', name: "Reaper's Scythe", cd: 5, desc: 'A giant ghostly scythe sweeps a full circle around you, cutting down everything in reach.' },
       { id: 'ghostwalk', name: 'Ghost Walk', cd: 10, desc: 'Your body stays behind while your spirit runs ahead for 6s, faster and untouchable, free to scout and attack. Then you snap back to your body. Press again to snap back early.' },
       { id: 'crows', name: 'Crow Swarm', cd: 10, desc: 'A swarm of red-eyed crows dives from the sky onto your crosshair and tears at everything there in all directions for 5s.' },
       { id: 'supper', name: 'Last Supper', cd: 10, desc: 'For the next 8s you heal a little for every enemy that dies. In a duel you heal a little for every hit you land.' },
-      { id: 'finger', name: 'Finger of Death', cd: 10, desc: 'Every enemy around you except bosses and champions dies instantly, its soul leaving its body. In a duel it takes a fifth of your opponent\'s health instead.' },
+      { id: 'finger', name: 'Finger of Death', cd: 10, desc: 'Hold to open a green death portal at your crosshair. Let go and every enemy standing in the circle dies instantly, except bosses and champions. In a duel it takes a fifth of your opponent\'s health.' },
     ],
   },
 ];
@@ -147,6 +147,7 @@ export const WEAPONS = [
   ...SWORD_SHIELD_DATA,
   { id: 'knife', name: 'Combat Knife', kind: 'melee', dmg: 34, rate: 0.3, range: 6.2, arc: 70, desc: 'Fast and vicious up close.' },
   { id: 'sword', name: 'Longsword', kind: 'melee', dmg: 70, rate: 0.55, range: 6.2, arc: 165, desc: 'Wide sweeping cuts.' },
+  { id: 'fencing', name: 'Fencing Sword', kind: 'melee', dmg: 56, rate: 0.4, range: 6.8, arc: 95, desc: 'A duelling sword with a polished bell guard and a long, needle-fine blade. A deep lunge that out-reaches everything, then a quick diagonal slash.' },
   { id: 'katana', name: 'Katana', kind: 'melee', dmg: 52, rate: 0.42, range: 6.2, arc: 120, desc: 'Folded steel. Quick, clean cuts.' },
   { id: 'spear', name: 'War Spear', kind: 'melee', dmg: 86, rate: 0.7, range: 8.4, arc: 40, desc: 'Long reach, wide sweeping thrusts.' },
   { id: 'axe', name: 'Battle Axe', kind: 'melee', dmg: 118, rate: 0.9, range: 6.2, arc: 150, desc: 'A one-hand viking bearded axe with brass inlay. Swings alternate overhead chops and wide cuts.' },
@@ -156,9 +157,9 @@ export const WEAPONS = [
   { id: 'machete', name: 'Machete', kind: 'melee', dmg: 54, rate: 0.42, range: 6.2, arc: 125, desc: 'A broad survival blade. Fast, heavy chops.' },
   { id: 'fireaxe', name: 'Fire Axe', kind: 'melee', dmg: 135, rate: 0.95, range: 6.2, arc: 150, desc: 'Hickory-handled rescue axe, red head with a bright steel edge and a glass-breaker spike. Chops alternate with wide cuts.' },
   { id: 'sledge', name: 'Sledgehammer', kind: 'melee', dmg: 185, rate: 1.3, range: 6.2, arc: 110, kb: 17, desc: 'A long-handled demolition hammer. Slow, and nothing stands up to it.' },
-  { id: 'chainsaw', name: 'Chainsaw', kind: 'melee', dmg: 30, rate: 0.2, range: 6.2, arc: 90, kb: 3, desc: 'Roaring two-handed saw. Hold the attack to keep the motor running: it drives in, then rips across, over and over.' },
+  { id: 'chainsaw', name: 'Chainsaw', kind: 'melee', dmg: 30, rate: 0.2, range: 6.2, arc: 90, kb: 3, desc: 'Roaring two-handed saw. Hold the attack to keep the motor running: it drives in, slashes down across, then rips level, over and over.' },
   { id: 'whip', name: 'Bullwhip', kind: 'melee', dmg: 55, rate: 0.5, range: 9.5, arc: 50, desc: 'A long lash with the longest reach of any melee weapon.' },
-  { id: 'alienblaster', tap: true, name: 'Alien Blaster', kind: 'gun', dmg: 46, rate: 0.16, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [1, 0.12, 0.1], beamLen: 9, kick: 0.35, fall: [40, 90, 0.7], hand: 13, rec: { v: 0.7, h: 0.3, ret: 0.9 }, desc: 'Strange alien pistol. Fires fast semi-auto bursts of short red beams that hit hard.' },
+  { id: 'alienblaster', tap: true, blast: true, name: 'Alien Blaster', kind: 'gun', dmg: 46, rate: 0.16, mag: 14, reload: 1.3, spread: 0.006, auto: false, quiet: true, tracer: [0.45, 0.2, 0.9], beamLen: 9, kick: 0.35, fall: [40, 90, 0.7], hand: 13, rec: { v: 0.7, h: 0.3, ret: 0.9 }, desc: 'Halo: a pearl-white alien pistol with no barrel, only four rings. Throws dark purple plasma blasts as fast as you can pull the trigger.' },
   { id: 'pistol', tap: true, name: 'Striker Pistol', kind: 'gun', dmg: 27, rate: 0.2, mag: 17, reload: 1.1, spread: 0.008, auto: false, fall: [25, 60, 0.55], hand: 14, rec: { v: 1.3, h: 0.4, ret: 0.85 }, desc: 'Polymer service pistol. Fast and reliable, 17 in the mag.' },
   { id: 'smg', name: 'Tactical SMG', kind: 'gun', dmg: 13, rate: 0.068, mag: 36, reload: 1.6, spread: 0.035, auto: true, fall: [18, 48, 0.5], hand: 13, rec: { v: 0.22, h: 0.42, ret: 0.6, grow: 0.04, cap: 9, bloom: 0.0022 }, desc: 'Compact and flat-shooting. Sprays fast at close range.' },
   { id: 'ar', name: 'Carbine', kind: 'gun', dmg: 20, rate: 0.092, mag: 30, reload: 1.8, spread: 0.014, auto: true, fall: [45, 100, 0.75], hand: 11, rec: { v: 0.26, h: 0.28, b: 0.05, ret: 0.6, grow: 0.04, cap: 8, bloom: 0.0015 }, desc: 'Short-barrel carbine with a red dot. All-round automatic.' },
@@ -349,15 +350,15 @@ export const MOBS = {
 // Every stage has its own tribe: these are the ground types a round draws from (flyers join on top, see HostSim.pickLineup).
 export const STAGE_MOBS = {
   graveyard: ['grunt', 'wraith', 'archer', 'necro', 'banshee', 'shambler', 'deadcop'],
-  forest: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief'],
+  forest: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'lizardman'],
   desert: ['bandit', 'spitter', 'rifleman', 'pouncer', 'ogre', 'trooper', 'riot'],
   frozen: ['crawler', 'knight', 'bulwark', 'juggernaut', 'dreadknight', 'warmaiden'],
   volcanic: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager', 'riot'],
   abyss: ['runner', 'hexer', 'witch'],
-  springs: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll', 'trooper'],
+  springs: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll', 'trooper', 'lizardman'],
   space: ['zorp', 'skree', 'gloop', 'lanky', 'stinger', 'brainer', 'warden', 'gorgle'], // Gruk out (Nutty 2026-11-05); Gorgle in (picked 2026-11-05)
-  waterfall: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll'],
-  clearing: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'warmaiden'],
+  waterfall: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll', 'lizardman'],
+  clearing: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'warmaiden', 'lizardman'],
   volcano: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager'],
   ruins: ['wraith', 'archer', 'riot', 'knight', 'warmaiden', 'bandit', 'crawler'], // the Graveyard's cast is the Graveyard's alone (Nutty 2026-11-14)
 };
@@ -411,6 +412,8 @@ Object.assign(MOBS, {
   trooper: { name: 'Trench Trooper', tier: 2, hp: 95, speed: 4.6, dmg: 14, range: 40, rate: 2.0, radius: 0.5, height: 1.85, scale: 1, color: 0x5a6040, w: 0.9, cap: 4, ranged: true, hold: [14, 26], pspd: 70, pstyle: 3 }, // #16 helmeted infantryman
   warmaiden: { name: 'Warmaiden', tier: 2, hp: 150, speed: 4.8, dmg: 17, range: 2.2, rate: 1.1, radius: 0.55, height: 1.85, scale: 1, color: 0x6a5a4a, w: 0.9, cap: 3 }, // #17 armoured warrior woman
   riot: { name: 'Riot Trooper', tier: 3, hp: 220, speed: 4.4, dmg: 16, range: 40, rate: 1.8, radius: 0.55, height: 1.9, scale: 1, color: 0x34465a, w: 0.8, cap: 3, ranged: true, hold: [14, 26], pspd: 70, pstyle: 3 }, // #21 armoured SWAT trooper
+  echo15: { name: 'Echo of Dreyar', tier: 3, hp: 1600, speed: 5.2, dmg: 34, range: 3.8, rate: 1.3, radius: 1.2, height: 4.4, scale: 1, summoned: true, cost: 3, color: 0x6a5a4a, slam: { r: 4.6, d: 1.0, dmg: 30, cd: 6 } },
+  lizardman: { name: 'Lizard man', tier: 2, hp: 140, speed: 4.6, dmg: 16, range: 2.2, rate: 1.1, radius: 0.55, height: 1.95, scale: 1, color: 0x4a7a3a, w: 0.9, cap: 4 }, /* was the playable Scalefang (Nutty 2026-11-16); spear or purple plasma, see MOB_ARM_POOL */
 });
 
 // Tuning: mobs are bigger, hit 10% softer and close in 10% slower, so there is time to
@@ -443,6 +446,7 @@ export const MOB_ARMS = {
   pistol: { cls: 'soldier', gear: 'pistol', ranged: true, range: 30, rate: 1.25, dmgK: 0.65, hold: [10, 18], pspd: 52, pstyle: 3 },
   shotgun: { cls: 'soldier', gear: 'shotgun', ranged: true, range: 16, rate: 1.9, dmgK: 1.4, hold: [6, 12], pspd: 48, pstyle: 3 },
   crossbow: { cls: 'human', gear: 'crossbow', ranged: true, range: 40, rate: 2.4, dmgK: 1.3, hold: [14, 24], pspd: 42, pstyle: 2 },
+  plasma: { gear: 'plasmaorb', ranged: true, range: 32, rate: 1.7, dmgK: 0.9, hold: [11, 20], pspd: 34, pstyle: 5 }, /* the Lizard man's thrown plasma (style 5: a smaller ball of the Halo's purple plasma) */
   // Hand weapons, each modelled for the bodies that carry it (mobarms.js; Nutty 2026-11-13: realistic, made for the enemy, none from the Weapon Wall).
   // swords for the smaller enemies
   arming: { gear: 'w_arming', reach: 0.5, rate: 1.0, dmgK: 1.1 }, falchion: { gear: 'w_falchion', reach: 0.45, rate: 1.05, dmgK: 1.15 },
@@ -470,6 +474,7 @@ export const MOB_ARM_POOL = {
   goblin: ['scimitar', 'shortsword', 'falchion'], bandit: ['cutlass', 'sabre', 'hatchet'],
   knight: ['arming', 'falchion', 'mace', 'waraxe'], warmaiden: ['arming', 'shortsword', 'spear', 'waraxe'],
   troll: ['greataxe', 'battleaxe', 'greatsword'], gobchief: ['longsword', 'battleaxe', 'greataxe'], dreadknight: ['greatsword', 'greataxe', 'warhammer'],
+  lizardman: ['spear', 'plasma'],
   rifleman: ARMS_OF('soldier'), bulwark: ['pistol', 'smg', 'shotgun'], juggernaut: ['shotgun', 'rifle', 'smg'], trooper: ARMS_OF('soldier'), riot: ARMS_OF('soldier'),
 };
 // The mob's stats with its weapon applied (cached per type and weapon). wi: index into MOB_ARM_IDS, plus 1 (0 = unarmed).
@@ -515,6 +520,7 @@ export const BOSSES = [
   { name: 'Rotgut', hp: 3400, color: 0x4a7a3a, glow: 0x9aff4a, scale: 3.2, speed: 5.6, attacks: ['summon', 'pools', 'charge', 'pools'] },     // 12: #28 zombie
   { name: 'Big Elvis', hp: 5000, color: 0xe8e0d0, glow: 0xffd04a, scale: 4.0, speed: 4.2, attacks: ['stomp', 'slam', 'charge', 'stomp', 'ring'] },       // 13: #20 the huge jumpsuit crooner
   { name: 'Uncle Gus', hp: 4400, color: 0xd0a070, glow: 0xffa040, scale: 3.8, speed: 4.4, attacks: ['leap', 'slam', 'leap', 'summon'] },      // 14: #25 the big man in the shirt
+  { name: 'Dreyar', hp: 4800, color: 0x6a5a4a, glow: 0xff8a3a, scale: 3.8, speed: 5.2, attacks: ['pursuit', 'slam', 'flurry', 'charge', 'pursuit', 'ring'] }, // 15: #37 with a two-handed sword (Nutty 2026-11-14)
 ];
 
 // Death arrives at the 10 minute mark of every round. She can be killed, but her health bar is 500 times a Ghoul's.
@@ -845,7 +851,13 @@ export const seedFlags = (seed) => ({ space: ((seed | 0) & SEED_SPACE) !== 0, ha
 export const STAGE_BOSS = [12, 11, 10, 13, 10, 5, 9, 8, 11, 14, 10, 9]; // Nutty 2026-11-05: Mixamo bosses 9-13 on every rotating stage (Thermes and The Visitor unchanged)
 // The stages a run draws from (BIOMES indices). The space map joins through the run seed's flag, never through this list.
 export const STAGE_POOL = [0, 1, 2, 3, 4, 6, 9, 11]; // The Abyss (5) dropped, Forest Clearing (9) and Misty Ruins (11) added (Nutty 2026-11-05)
-export function bossIdx(runSeed, round) { return round >= CONFIG.rounds ? 8 : round >= CONFIG.rounds - 1 ? 6 : STAGE_BOSS[stageIdx(runSeed, round)] ?? 0; }
+// Dreyar (15) has no home stage: on about one round in four he turns up instead of the stage's own boss (never on the Graveyard, whose boss is Rotgut).
+export function bossIdx(runSeed, round) {
+  if (round >= CONFIG.rounds) return 8; if (round >= CONFIG.rounds - 1) return 6;
+  const st = stageIdx(runSeed, round);
+  if (st !== 0 && st !== 7 && ((((runSeed >>> 0) * 2654435761 >>> 0) >>> 9) + round * 3) % 4 === 0) return 15;
+  return STAGE_BOSS[st] ?? 0;
+}
 export function stageIdx(runSeed, round) {
   if (round >= CONFIG.rounds) return 7; // the optional bonus round after Fear is always the space map
   const order = [...STAGE_POOL]; // Crash Site Prime never joins rounds 1-6: it is only the bonus round after Thermes (Nutty 2026-11-06)
@@ -869,7 +881,7 @@ export const HORDE = {
   // Durability: every weapon wears out and must be repaired or replaced at a stall. A gun lasts gunMags magazines, a blade meleeSwings swings.
   gunMags: 20, gunMinShots: 80, meleeSwings: 400, repair: 0.5,
   price: { melee: 100, gun: 250, elem: 800, gear: 1000, dash: 500 }, // Nutty 2026-11-14 08:16 (was 300 / 500 / 1000 / 2000)
-  bosses: [9, 10, 11, 12, 13, 14, 5],
+  bosses: [9, 10, 11, 12, 13, 14, 5, 15], bossAt: { 5: 15 }, // bossAt: this wave's boss is always this one (Nutty 2026-11-14: Dreyar, #37, on wave 5)
   shops: [
     { id: 'melee', name: 'Weapons', color: '#e5484d', hex: 0xe5484d, npc: 'Blacksmith' },
     { id: 'gun', name: 'Guns', color: '#3f86ff', hex: 0x3f86ff, npc: 'Quartermaster' },

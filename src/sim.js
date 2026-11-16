@@ -203,7 +203,7 @@ export class HostSim {
     const n = Math.max(1, this.lastPlayers.filter((p) => !p.out).length);
     if (w % HORDE.bossEvery === 0) {
       const pool = HORDE.bosses.filter((i) => i !== this.hboss);
-      this.hboss = pool[Math.floor(Math.random() * pool.length)];
+      this.hboss = (HORDE.bossAt && HORDE.bossAt[w]) ?? pool[Math.floor(Math.random() * pool.length)];
       for (const m of this.mobs.values()) this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti);
       this.mobs.clear();
       this.phase = 'boss'; this.waveQuota = this.waveLeft = this.waveSpawned = 1; this.spawnCd = 4;
@@ -326,7 +326,7 @@ export class HostSim {
 
   // h: [seq, targetId, dmg, slow, freeze, burn, kx10, kz10]
   applyHit(from, h) {
-    const [, id, dmg, slow = 0, freeze = 0, burn = 0, kx = 0, kz = 0, lock = 0, launch = 0] = h; // lock: frozen solid for that long, whatever the size; launch: hurled up at that speed
+    let [, id, dmg, slow = 0, freeze = 0, burn = 0, kx = 0, kz = 0, lock = 0, launch = 0] = h; let snare = 0; if (slow < 0) { snare = -slow; slow = snare; } /* snare: caught and held where it stands (Black Thorn Vines); bosses and players are only slowed */ // lock: frozen solid for that long, whatever the size; launch: hurled up at that speed
     const d = Math.max(0, Math.min(5000, +dmg || 0));
     if (id === 'B' && this.boss) {
       this.boss.hp -= d;
@@ -377,6 +377,7 @@ export class HostSim {
     m.hp -= dd;
     m.lastHit = from;
     if (slow) m.slow = Math.max(m.slow, slow);
+    if (snare && !m.base.fly) m.stag = Math.max(m.stag, snare * (m.base.radius >= 1 || m.mini ? 0.6 : 1));
     if (freeze) m.frozen = Math.max(m.frozen, freeze * (m.base.radius >= 1 || m.mini ? 0.5 : 1));
     if (lock) m.frozen = Math.max(m.frozen, lock);
     if (launch && !m.base.fly && m.mode !== 'leap') { m.lvy = Math.max(m.lvy || 0, launch * (m.base.radius >= 1 || m.mini ? 0.6 : 1)); m.frozen = Math.max(m.frozen, 0.1); }

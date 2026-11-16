@@ -34,6 +34,7 @@ const tmp = v3(), tmp2 = v3();
 export const rangeK = (wp, d) => { const f = wp.fall; return !f || d <= f[0] ? 1 : d >= f[1] ? f[2] : 1 - (1 - f[2]) * (d - f[0]) / (f[1] - f[0]); };
 export const flashSize = (id) => ({ ak: 0.38, pistol: 0.22, revolver: 0.26, hpistol: 0.26, magnum: 0.3, shotgun: 0.42, coach: 0.45, sawedoff: 0.45, lmg: 0.4, minigun: 0.36, sniper: 0.4, lever: 0.36 }[id] || 0.32);
 
+const FOD_R = 10; /* Finger of Death: the portal's radius (m) */
 const BLINK = { range: 150, back: 8 }; // how far the circle reaches (m): as far as the crosshair itself can (Nutty 2026-11-13); and how long the way back stays open (s)
 const ORBIT_BLOCKS = 3; // blows one Boulder Orbit rock can take before it crumbles
 
@@ -325,6 +326,7 @@ export class LocalPlayer {
     if (input.pressed.has('KeyG')) this.cast('e');
     if (input.pressed.has('KeyF')) this.cast('r');
     if (this.blinkAim || this.blinkBack) this.blinkTick(input, dt);
+    if (this.fodAim) this.fodTick(input, dt);
     if (input.pressed.has('KeyV')) this.game.ui.setView(this.game.settings.view === 'first' ? 'third' : 'first');
 
     // Shield pulses (Rock Armor shoves enemies off).
@@ -543,6 +545,7 @@ export class LocalPlayer {
       }
       if (wp.energy && hits.length && n % 2 === 0) g.fx.pulseHit([end.x, end.y, end.z]);
       if (wp.energy) g.fx.shotFx(wp, [origin.x, origin.y, origin.z], [end.x, end.y, end.z], 'me', (g.settings.view === 'first' || !!g.fpNow));
+      else if (wp.blast) g.fx.blast([origin.x, origin.y, origin.z], [end.x, end.y, end.z]);
       else if (!rapid || n % 2 === 0) { g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], this.wf ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen);
         if (this.wf) g.fx.fireShot([origin.x, origin.y, origin.z], [end.x, end.y, end.z], rapid || pellets > 1); } // Flaming Weapons: the bullets burn
       lastEnd = end;
@@ -2101,7 +2104,7 @@ export class LocalPlayer {
   }
 
   // Black Thorn Vines: vines burst out at the crosshair (within 30 m) and stand for as long as the cooldown runs. Anything inside
-  // is torn at four times a second. When the cooldown runs out the thorns fly into every enemy within 24 m, and it recharges again.
+  // is caught fast in the thorns (it cannot walk out; bosses and the other duelist are slowed instead) and torn at four times a second. When the cooldown runs out the thorns fly into every enemy within 24 m, and it recharges again.
   ab_vines() {
     const g = this.game, a = g.aim.point;
     const k = Object.keys(this.cds).find((q) => this.cls[q] && this.cls[q].id === 'vines') || 'q';
@@ -2113,7 +2116,7 @@ export class LocalPlayer {
     let n = 0;
     Vault.vines(g, c, R, cd, () => {
       n++;
-      for (const t of g.targets()) if (t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 6) g.damage(t, dmg, { slow: 0.6, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * rnd(0.3, 0.8), t.z] });
+      for (const t of g.targets()) if (t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < R + t.r && Math.abs(t.y - c[1]) < 6) g.damage(t, dmg, { snare: 0.4, silentNum: n % 2 === 0, at: [t.x, t.y + t.h * rnd(0.3, 0.8), t.z] });
     }, (tips) => {
       const list = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < 24);
       const ends = list.map((t) => { const id = t.id; let last = [t.x, t.y + t.h * 0.6, t.z]; return () => { const q = g.targets().find((w) => w.id === id); if (q) last = [q.x, q.y + q.h * 0.6, q.z]; return last; }; });
@@ -2213,23 +2216,47 @@ export class LocalPlayer {
     g.ui.healFlash && g.ui.healFlash();
   }
 
-  // Finger of Death: every enemy within 16 m dies on the spot, its soul leaving its body. Bosses and champions are spared.
-  // In a duel it takes a fifth of the other fighter's health instead.
+  // Finger of Death (Nutty 2026-11-16): HOLD the button and a green portal turns on the ground at your crosshair, black aura climbing out of it;
+  // LET GO and every enemy standing in the circle dies on the spot, its soul leaving its body. Bosses and champions are spared.
+  // In a duel it takes a fifth of the other fighter's health if they are in the circle.
   ab_finger() {
-    const g = this.game, R = 16, souls = [];
+    const g = this.game, key = Object.keys(this.cds).find((k) => this.cls[k] && this.cls[k].id === 'finger') || 'q';
+    if (this.fodAim) return false;
+    this.fodAim = { key, code: { q: 'KeyQ', e: 'KeyG', r: 'KeyF' }[key] || 'KeyQ', mark: Vault.deathPortal(g, FOD_R), at: null, t: 0 };
+    this.fodSpot();
+    g.audio.play('necro_rise', 0.5);
+    return false; /* nothing spent until it is let go */
+  }
+  fodSpot() {
+    const g = this.game, A = this.fodAim, a = g.aim.point, o = this.pos;
+    let dx = a.x - o.x, dz = a.z - o.z; const dl = Math.hypot(dx, dz);
+    if (dl > 45) { dx *= 45 / dl; dz *= 45 / dl; }
+    const x = o.x + dx, z = o.z + dz;
+    A.at = [x, g.world.heightAt(x, z), z]; A.mark.set(A.at);
+  }
+  fodTick(input, dt) {
+    const g = this.game, A = this.fodAim; A.t += dt;
+    if (!this.alive) { A.mark.end(); this.fodAim = null; return; }
+    this.fodSpot();
+    if (input.keys.has(A.code)) return;
+    this.fodAim = null; A.mark.burst();
+    const c = A.at, R = FOD_R, souls = [];
     for (const t of g.targets()) {
-      if (t.kind === 'demon' || t.kind === 'boss' || Math.hypot(t.x - this.pos.x, t.z - this.pos.z) > R + t.r) continue;
-      if (t.kind === 'mob' && t.view && (t.view.mini || t.view.echo)) continue; // champions and a boss's echoes are spared
-      if (t.kind === 'player') g.damage(t, 0.2 * DUEL.hp / DUEL.pvp, { chain: true, at: [t.x, t.y + t.h * 0.6, t.z] }); // a fifth of a duelist's health
+      if (t.kind === 'demon' || t.kind === 'boss' || Math.hypot(t.x - c[0], t.z - c[2]) > R + t.r) continue;
+      if (t.kind === 'mob' && t.view && (t.view.mini || t.view.echo)) continue; /* champions and a boss's echoes are spared */
+      if (t.kind === 'player') g.damage(t, 0.2 * DUEL.hp / DUEL.pvp, { chain: true, at: [t.x, t.y + t.h * 0.6, t.z] }); /* a fifth of a duelist's health */
       else g.damage(t, 1e7, { chain: true, kill: true, silentNum: true });
       Vault.soul(g, [t.x, t.y, t.z], t.h);
       souls.push(q10(t.x), q10(t.y), q10(t.z), Math.round(t.h * 10));
       if (souls.length >= 96) break;
     }
-    g.fx.shockwave([this.pos.x, g.world.heightAt(this.pos.x, this.pos.z), this.pos.z], R, 0x101418, 0.6);
-    g.fx.flash([this.pos.x, this.pos.y + 1.5, this.pos.z], 0x9fc8ff, 22, 0.4, 20);
+    g.fx.shockwave(c, R, 0x2bff5a, 0.5);
+    g.fx.flash([c[0], c[1] + 1.5, c[2]], 0x58ff7a, 24, 0.4, 20);
     g.audio.play('necro_fall'); g.audio.play('thunder', 0.5); g.shake(0.3);
+    g.emitFx(['nk', ...c.map(q10)]);
     if (souls.length) g.emitFx(['nd', ...souls]);
+    const k = A.key, ab = this.cls[k];
+    if (ab && ab.id === 'finger') { const x = this.stats.ab.finger; this.cds[k] = (g.duel ? DUEL.cd : ab.cd) * this.stats.cdr * this.stats.mast[k].cd * (x ? x.cd : 1); this.castPerks(k, x); this.castT = 0.35; if (g.player === this) g.ui.flashAbility(k); }
   }
 
   // Boulder Orbit: three rocks rise and circle you. While they circle, each blocks ORBIT_BLOCKS incoming attacks and then crumbles. Each press throws one at the crosshair; the cooldown starts with the last.
@@ -2540,6 +2567,7 @@ export class LocalPlayer {
   }
 
   die() {
+    if (this.fodAim) { this.fodAim.mark.end(); this.fodAim = null; }
     if (this.blinkAim) { this.blinkAim.mark.end(); this.blinkAim = null; } if (this.blinkBack) { this.blinkBack.mark.end(); this.blinkBack = null; } // Blink's circles go with you
     const g = this.game;
     this.hp = 0;

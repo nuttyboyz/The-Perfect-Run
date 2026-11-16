@@ -1,4 +1,4 @@
-// Melee attack motions. Every melee weapon has its own pair of attacks that alternate, and so must every melee weapon added later:
+// Melee attack motions. Every melee weapon has its own attacks that alternate (a pair; the chainsaw has three), and so must every melee weapon added later:
 // list it in WEAPON_MOVES with two moves true to how that weapon is really swung (an unlisted one gets forehand, backhand).
 // The first attack after a pause is always the first move of the pair.
 // A move is a path for the weapon's tip around the shoulders, as keyframes [time 0..1, az, el, reach]:
@@ -26,6 +26,10 @@ export const MOVES = {
   rise: M('sweep', [[0, 0, -0.1, 1], [0.28, 0.95, -0.6, 0.92], [0.55, -0.8, 0.72, 1.05], [0.75, -1.05, 0.88, 1], [1, -0.25, 0.1, 0.92]]),
   // Stab: draw the hand back to the hip, drive straight out ahead, pull back.
   stab: M('thrust', [[0, 0, -0.08, 1], [0.28, -0.18, -0.02, 0.55], [0.45, 0, 0.02, 1.45], [0.6, 0, 0, 1.4], [1, 0, -0.1, 0.92]]),
+  // Fencing lunge: the guard hand draws back a little, then the arm snaps straight and the whole body drives in behind the point; a quick recovery to guard.
+  lunge: M('thrust', [[0, 0, 0.02, 1], [0.22, -0.1, 0.05, 0.62], [0.42, 0, 0.06, 1.62], [0.6, 0, 0.04, 1.58], [1, 0, 0, 0.95]], { lunge: 1, reachK: 1.35, dmgK: 1.25, arcK: 0.6 }),
+  // Fencing cut: a fast diagonal slash from the high right down to the left, wrist-led.
+  fcut: M('sweep', [[0, 0, 0.02, 1], [0.24, -0.8, 0.9, 0.95], [0.5, 0.7, -0.4, 1.12], [0.72, 0.95, -0.55, 1.02], [1, 0.15, -0.05, 0.95]]),
   // Overhead chop: lift it up past the head, bring it straight down in front.
   chop: M('chop', [[0, 0, 0, 1], [0.3, -0.2, 1.5, 0.85], [0.55, 0, -0.55, 1.05], [0.75, 0, -0.72, 1], [1, 0, -0.22, 0.92]]),
   // Uppercut: from low by the right hip up through the target.
@@ -47,6 +51,8 @@ export const MOVES = {
   hookL: M('sweep', [[0, 0.1, -0.05, 0.9], [0.28, 1.05, 0.1, 0.8], [0.52, -0.6, 0.05, 1.1], [0.72, -0.85, 0, 1], [1, -0.1, -0.05, 0.95]]),
   // Chainsaw, second attack: with the bar buried, rip it across from right to left, motor still biting.
   sawrip: M('sweep', [[0, 0, -0.12, 1], [0.25, -0.75, -0.02, 0.95], [0.5, 0.55, -0.18, 1.2], [0.78, 0.85, -0.24, 1.1], [1, 0.1, -0.12, 1]], { buck: 1 }),
+  // Chainsaw, diagonal slash: lifted over the right shoulder and dragged down across the body to the left hip, motor biting all the way.
+  sawdiag: M('sweep', [[0, 0, -0.12, 1], [0.27, -0.8, 0.85, 0.92], [0.52, 0.6, -0.4, 1.2], [0.78, 0.9, -0.55, 1.1], [1, 0.1, -0.12, 1]], { buck: 1 }),
   // Chainsaw: braced low with both hands and pushed into the target, the motor bucking while it cuts (no second move).
   saw: M('thrust', [[0, 0, -0.12, 1], [0.25, 0, -0.08, 0.72], [0.45, 0.05, -0.15, 1.3], [0.8, 0.1, -0.2, 1.3], [1, 0, -0.12, 1]], { buck: 1, reachK: 1, dmgK: 1, arcK: 1.6 }),
 };
@@ -67,7 +73,8 @@ export const WEAPON_MOVES = {
   claws: ['rake', 'rakeL'], // raking slashes: the right arm only, then the left arm only
   bare: ['cross', 'hookL'], // a straight right, then a left hook
   whip: ['lash', 'sidelash'], // the overhead crack, then the sidearm lash
-  chainsaw: ['saw', 'sawrip'], // drive the bar in, then rip it across (hold the attack and it keeps going)
+  fencing: ['lunge', 'fcut'], // the classic lunge, then a diagonal slash
+  chainsaw: ['saw', 'sawdiag', 'sawrip'], // three attacks in turn: drive the bar straight in, a diagonal slash down, then a level rip across (hold the attack and it keeps going)
 };
 // Sword-and-shield sets (and any new one-handed sword) slash, then stab past the shield's rim.
 export const SHIELD_MOVES = ['fore', 'stab'];

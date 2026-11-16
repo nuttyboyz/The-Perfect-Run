@@ -929,6 +929,63 @@ function soulTex() {
   SOUL_TEX = new THREE.CanvasTexture(cv); SOUL_TEX.colorSpace = THREE.SRGBColorSpace;
   return SOUL_TEX;
 }
+// Finger of Death, held: a green portal turning on the ground with black aura climbing out of it. set(p) moves it; burst() is the release
+// (the ring flares, the dark column shoots up, then it closes); end() just closes it.
+export function deathPortal(g, r = 10) {
+  const fx = g.fx, scene = g.scene;
+  const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 }, uB: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; uniform float uB; varying vec2 vUv;
+      float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float nz(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(hsh(i), hsh(i + vec2(1., 0.)), f.x), mix(hsh(i + vec2(0., 1.)), hsh(i + vec2(1., 1.)), f.x), f.y); }
+      void main(){ vec2 p = (vUv - 0.5) * 2.; float rr = length(p), a = atan(p.y, p.x);
+        float sw = a + uT * 1.4 - rr * 5.5;                                             /* the whirl: arms wound in towards the middle */
+        float arms = pow(0.5 + 0.5 * sin(sw * 5.), 3.) * smoothstep(1.0, 0.25, rr) * smoothstep(0.06, 0.3, rr);
+        float n = nz(vec2(a * 3. + uT * 0.6, rr * 7. - uT * 1.5)) * 0.6 + nz(vec2(a * 7. - uT, rr * 15. - uT * 2.5)) * 0.4;
+        float rim = smoothstep(0.07, 0.0, abs(rr - 0.93 - 0.012 * sin(a * 9. + uT * 3.))) * (0.75 + 0.5 * n);
+        float rim2 = smoothstep(0.03, 0.0, abs(rr - 0.74)) * (0.5 + 0.5 * sin(a * 24. - uT * 5.)) * 0.7;   /* a turning band of marks */
+        float pit = smoothstep(0.9, 0.0, rr);                                           /* the dark of the hole itself */
+        float g1 = arms * (0.45 + 0.75 * n) + rim * 1.5 + rim2 + uB * 2.2 * smoothstep(1.0, 0.2, rr);
+        vec3 col = mix(vec3(0.02, 0.2, 0.05), vec3(0.3, 1.0, 0.36), clamp(g1, 0., 1.)) * (0.5 + g1 * 1.1);
+        float al = clamp(pit * 0.82 + g1, 0., 1.) * smoothstep(1.0, 0.97, rr);
+        gl_FragColor = vec4(col, al * uA); }` });
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 56).rotateX(-Math.PI / 2), mat); m.renderOrder = 3; m.visible = false; m.frustumCulled = false; scene.add(m);
+  // the black aura: a wall of dark wisps climbing off the rim (normal blending, so it reads black in daylight) with a green edge low down
+  const amat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uT: { value: 0 }, uA: { value: 0 }, uB: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; uniform float uB; varying vec2 vUv;
+      float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float nz(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(hsh(i), hsh(i + vec2(1., 0.)), f.x), mix(hsh(i + vec2(0., 1.)), hsh(i + vec2(1., 1.)), f.x), f.y); }
+      void main(){ float y = vUv.y; vec2 q = vec2(vUv.x * 26., y * 3.2 - uT * (1.3 + uB * 4.));
+        float n = nz(q) * 0.55 + nz(q * 2.3 + 7.) * 0.3 + nz(q * 5.1 + 3.) * 0.15;
+        float wisp = smoothstep(0.2 + y * 0.42 - uB * 0.2, 0.62, n);                     /* tongues that thin out as they climb */
+        float al = wisp * smoothstep(1.0, 0.25, y) * smoothstep(0.0, 0.05, y) * (0.85 + uB * 0.15);
+        vec3 col = mix(vec3(0.0, 0.006, 0.002), vec3(0.06, 0.4, 0.1), smoothstep(0.12, 0.0, y) * 0.5 * n);  /* black, a little of the portal's green only at its foot */
+        gl_FragColor = vec4(col, al * uA * 0.92); }` });
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.9, r * 0.97, 5, 56, 1, true).translate(0, 2.5, 0), amat); wall.renderOrder = 4; wall.visible = false; wall.frustumCulled = false; scene.add(wall);
+  const wall2 = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.42, r * 0.6, 3.6, 40, 1, true).translate(0, 1.8, 0), amat); wall2.renderOrder = 4; wall2.visible = false; wall2.frustumCulled = false; wall2.rotation.y = 1.3; scene.add(wall2);
+  const h = { alive: true, ending: false, at: null, bt: -1,
+    set(p) { h.at = p; m.position.set(p[0], p[1] + 0.14, p[2]); wall.position.set(p[0], p[1], p[2]); wall2.position.set(p[0], p[1], p[2]); m.visible = wall.visible = wall2.visible = true; },
+    burst() { if (h.bt < 0) h.bt = 0; },
+    end() { h.ending = true; } };
+  let a = 0, acc = 0;
+  fx.add({ dur: 1e9, update: (dt, t) => {
+      if (h.bt >= 0) { h.bt += dt; if (h.bt > 0.55) h.ending = true; }
+      const B = h.bt >= 0 ? Math.max(0, 1 - h.bt / 0.55) : 0;
+      a = h.ending ? a - dt * 3.2 : Math.min(1, a + dt * 5);
+      const A = Math.max(0, a);
+      mat.uniforms.uT.value = amat.uniforms.uT.value = t; mat.uniforms.uA.value = A; amat.uniforms.uA.value = A; mat.uniforms.uB.value = amat.uniforms.uB.value = B;
+      wall.scale.y = wall2.scale.y = 1 + B * 1.6; wall.rotation.y = t * 0.25; wall2.rotation.y = 1.3 - t * 0.4;
+      acc += dt;
+      if (h.at && !h.ending && acc > 0.05) { acc = 0; /* black smoke rolling up off the floor of it, a few green motes */
+        for (let i = 0; i < fx.n(5); i++) { const an = Math.random() * 6.283, rr = r * Math.sqrt(Math.random()) * 0.95; fx.smoke.emit({ p: [h.at[0] + Math.cos(an) * rr, h.at[1] + 0.2, h.at[2] + Math.sin(an) * rr], v: [rnd(-0.3, 0.3), rnd(1.6, 3.4), rnd(-0.3, 0.3)], life: rnd(1.1, 1.9), s0: 0.9, s1: 2.8, c0: [0.015, 0.02, 0.015, 0.7], c1: [0.02, 0.05, 0.02, 0] }); }
+        const an = Math.random() * 6.283; fx.glow.emit({ p: [h.at[0] + Math.cos(an) * r * 0.93, h.at[1] + 0.2, h.at[2] + Math.sin(an) * r * 0.93], v: [0, rnd(1.5, 3.5), 0], life: rnd(0.5, 1), s0: 0.3, s1: 0.04, c0: [0.35, 1, 0.4, 0.9], c1: [0.1, 0.6, 0.15, 0] }); }
+      return !(h.ending && a <= 0); },
+    dispose: () => { scene.remove(m); scene.remove(wall); scene.remove(wall2); m.geometry.dispose(); wall.geometry.dispose(); wall2.geometry.dispose(); mat.dispose(); amat.dispose(); h.alive = false; } });
+  return h;
+}
 // Finger of Death: the soul leaves the body at p (its feet), drifts up, sways, thins and is gone. h = the body's height.
 export function soul(g, p, h = 2.2) {
   const fx = g.fx, scene = g.scene;
@@ -940,7 +997,7 @@ export function soul(g, p, h = 2.2) {
   fx.add({
     dur,
     update: (dt, t) => {
-      const k = t / dur, e = k * k * (3 - 2 * k), y = p[1] + h * 0.15 + e * (h + 4.2);
+      const k = t / dur, e = k * k * (3 - 2 * k), y = p[1] + h * 0.8 + e * (h * 0.4 + 4.2); /* the ghost leaves through the head the moment they die (Nutty 2026-11-16) */
       const sx = Math.sin(t * 2.3 + ph) * 0.35 * k, sz = Math.cos(t * 1.9 + ph) * 0.3 * k;
       sp.position.set(p[0] + sx, y, p[2] + sz);
       const w = h * 0.62 * (1 - k * 0.25) * (1 + Math.sin(t * 7 + ph) * 0.04);

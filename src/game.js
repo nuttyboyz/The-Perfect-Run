@@ -1,5 +1,6 @@
 // Game orchestrator: renderer, parties/lobby, the per-frame loop, networking
 // sync, combat helpers, events, HUD feeding and round flow.
+import { plasmaBody } from './plasmashot.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -1501,11 +1502,11 @@ export class Game {
       }
       case 'p': {
         const [, , x, y, z, vx, vy, vz, dmg, style] = e;
-        const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(style === 4 ? 0x3aa0ff : style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet, 4: the Visitor's bursting plasma
+        const pl = style === 4 || style === 5; /* purple plasma: 4 the Visitor's, 5 the Lizard man's smaller ball */ const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(pl ? 0x6a3cc4 : style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet, 4: the Visitor's bursting plasma
         let hit = false, back = false, held = null;
-        const body = style === 2 || style === 3 ? this.mobShot(style, x / 10, y / 10, z / 10, vx / 10, vy / 10, vz / 10) : null;
+        const body = style === 2 || style === 3 ? this.mobShot(style, x / 10, y / 10, z / 10, vx / 10, vy / 10, vz / 10) : pl ? plasmaBody(this.scene, style === 5 ? 1.05 : 1.7) : null; /* (4: The Visitor's Halo blaster throws the same purple plasma the players' one does, bigger) */
         this.el.orb([x / 10, y / 10, z / 10], [vx / 10, vy / 10, vz / 10], {
-          body, color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
+          body, color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 5 ? 0.85 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
           onUpdate: (pos, vel) => {
             if (hit || !p.alive) return;
             { // Absolute Zero: a shot inside the frozen air hangs where it is until the cold lets go.
@@ -1525,12 +1526,12 @@ export class Game {
               if (t) { hit = true; this.damage(t, 30 * p.stats.dmg * p.mm('eye'), { kx: vel.x * 0.3, kz: vel.z * 0.3, at: [pos.x, pos.y, pos.z] }); this.el.windDeflect([pos.x, pos.y, pos.z]); return false; }
               return;
             }
-            if (style === 4) {
+            if (pl) {
               // Plasma bursts where it lands: a small blast that catches anyone standing close.
               const gy = this.world.heightAt(pos.x, pos.z);
               if (pos.y <= gy + 0.3) {
                 hit = true;
-                this.fx.explosion([pos.x, gy + 0.5, pos.z], 0.5, { color: [0.25, 0.6, 1], smoke: false });
+                this.fx.explosion([pos.x, gy + 0.5, pos.z], 0.5, { color: [0.45, 0.2, 0.9], smoke: false }); this.fx.plasmaBurst([pos.x, gy + 0.5, pos.z], 1.6);
                 this.audio.play('slam', this.distVol(pos.x, pos.z) * 0.35);
                 if (Math.hypot(pos.x - p.pos.x, pos.z - p.pos.z) < 3.2 && p.pos.y - gy < 2.5) p.takeDamage(Math.round(dmg * 0.6), 'proj');
                 return false;
@@ -1551,13 +1552,13 @@ export class Game {
               hit = true;
               p.takeDamage(dmg, 'proj');
               this.fx.impact([pos.x, pos.y, pos.z], [col.r, col.g, col.b]);
-              if (style === 4) this.fx.explosion([pos.x, pos.y, pos.z], 0.5, { color: [0.25, 0.6, 1], smoke: false });
+              if (pl) { this.fx.explosion([pos.x, pos.y, pos.z], 0.5, { color: [0.45, 0.2, 0.9], smoke: false }); this.fx.plasmaBurst([pos.x, pos.y, pos.z], 1.6); }
               return false;
             }
           },
         });
         if (style === 0) this.audio.play('spit', this.distVol(x / 10, z / 10));
-        if (style === 4) this.audio.play('shot_alienblaster', this.distVol(x / 10, z / 10) * 0.7);
+        if (pl) this.audio.play('shot_alienblaster', this.distVol(x / 10, z / 10) * 0.7);
         break;
       }
       case 's': {
@@ -2044,6 +2045,7 @@ export class Game {
           this.fx.laserBeams(rig ? rig.eyesWorld() : [P(0), P(0)], P(3), 'r' + v.id, false, 0.2);
           if (Math.random() < 0.5) this.fx.laserHit(P(3));
         } else if (wp.energy) { this.fx.shotFx(wp, P(0), P(3), 'r' + v.id, false, 0.2); this.fx.pulseMuzzle(P(0)); }
+        else if (wp.blast) this.fx.blast(P(0), P(3));
         else { const hot = !!(v.flameUntil && this.now < v.flameUntil); this.fx.tracer(P(0), P(3), hot ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen); if (hot) this.fx.fireShot(P(0), P(3), true); if (!wp.quiet) { const o = P(0), e = P(3); this.fx.muzzle(o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], undefined, flashSize(wp.id)); } }
         this.audio.play('shot_' + a[6], vol * (wp.quiet ? 0.5 : 0.7));
         break;
@@ -2096,6 +2098,7 @@ export class Game {
       }
       case 'nc': Vault.crows(this, P(0), 8, 5); this.audio.play('wind', vol); break;
       case 'ns': { const until = this.now + 8; Vault.supper(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 8); break; }
+      case 'nk': { const pm = Vault.deathPortal(this, 10); pm.set(P(0)); pm.burst(); this.fx.shockwave(P(0), 10, 0x2bff5a, 0.5); this.audio.play('thunder', 0.5 * vol); break; } /* Finger of Death let go: the portal flares where it was */
       case 'nd': { for (let i = 0; i + 3 < a.length; i += 4) Vault.soul(this, P(i), a[i + 3] / 10); this.audio.play('necro_fall', vol); break; }
       case 'nr': { const until = this.now + 10; Vault.raise(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 10); this.audio.play('necro_rise', vol); break; }
       case 'tf': { // Tesla Fence: 1 = first post, 2 = both posts (strung), 3 = health % and where it was hit, 0 = destroyed
@@ -2205,7 +2208,7 @@ export class Game {
   }
 
   queueHit(id, dmg, o = {}) {
-    const h = [++this.hitSeq, id, Math.round(dmg), o.slow || 0, o.freeze || 0, o.burn || 0, q10(o.kx || 0), q10(o.kz || 0), o.lock || 0, o.launch || 0];
+    const h = [++this.hitSeq, id, Math.round(dmg), o.snare ? -o.snare : o.slow || 0 /* (a negative slow = held fast for that long: thorns) */, o.freeze || 0, o.burn || 0, q10(o.kx || 0), q10(o.kz || 0), o.lock || 0, o.launch || 0];
     this.hits.push(h);
   }
 

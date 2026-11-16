@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadScan } from './scan.js';
 
 const cache = new Map();
-export const ASSET_FILES = ['veteran.glb', 'xbot.glb', 'clown.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'blitz.glb', 'warlord.glb', 'archmage.glb', 'flayed.glb', 'rotgut.glb', 'king.glb', 'aldric.glb', 'ragmon.glb', 'gus.glb', 'surgeon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb', 'm12.glb', 'm13.glb', 'm16.glb', 'm17.glb', 'm21.glb', 'm04.glb', 'm07.glb', 'm14.glb', 'm11.glb', 'm10.glb', 'm19.glb', 'm03.glb', 'm05.glb', 'm23.glb', 'm06.glb', 'm18.glb', 'm29.glb', 'm43.glb', 'm42.glb', 'm40.glb'];
+export const ASSET_FILES = ['m35.glb', 'm39.glb', 'm37.glb', 'veteran.glb', 'xbot.glb', 'clown.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'blitz.glb', 'warlord.glb', 'archmage.glb', 'flayed.glb', 'rotgut.glb', 'king.glb', 'aldric.glb', 'ragmon.glb', 'gus.glb', 'surgeon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb', 'm12.glb', 'm13.glb', 'm16.glb', 'm17.glb', 'm21.glb', 'm04.glb', 'm07.glb', 'm14.glb', 'm11.glb', 'm10.glb', 'm19.glb', 'm03.glb', 'm05.glb', 'm23.glb', 'm06.glb', 'm18.glb', 'm29.glb', 'm43.glb', 'm42.glb', 'm40.glb'];
 
 function b64ToBytes(b64) {
   const bin = atob(b64);

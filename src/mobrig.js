@@ -13,6 +13,7 @@ import { MOB_SIZE, MOB_TALL } from './data.js';
 import { animateTail } from './lizard.js';
 import { necroRobe, necroStaffParts } from './necrogear.js';
 import { real } from './realmat.js';
+import { solidOf } from './solid.js';
 import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 
 // h: standing height in metres. hunch: forward lean of the spine (radians).
@@ -68,6 +69,7 @@ export const MOB_LOOKS = {
   deadcop: { file: 'm13.glb', tposeArms: true, h: 1.85, hunch: 0.35 }, // #13 zombie police officer
   convict: { file: 'm42.glb', tposeArms: true, h: 1.85, hunch: 0.38, rough: 0.8 }, // #42 zombie prisoner in stripes
   trooper: { file: 'm16.glb', tposeArms: true, h: 1.85, hunch: 0.12 }, // #16 helmeted infantryman
+  lizardman: { file: 'xbot.glb', build: 'reptilian', h: 1.95, hunch: 0.12 }, /* the old playable Scalefang, now an enemy (Nutty 2026-11-16): one carries a spear, one throws purple plasma */
   warmaiden: { file: 'm17.glb', tposeArms: true, h: 1.85, hunch: 0.1 }, // #17 armoured warrior woman
   riot: { file: 'm21.glb', tposeArms: true, h: 1.9, hunch: 0.1, bulk: 1.05 }, // #21 SWAT trooper
   surgeon: { file: 'surgeon.glb', tposeArms: true, h: 2.6, hunch: 0.2, fly: true, wings: { membrane: 0xd8f0f4, bone: 0x3a4a50, span: 1.2, alpha: 0.75 } },
@@ -82,6 +84,7 @@ export const MOB_LOOKS = {
   boss12: { file: 'rotgut.glb', tposeArms: true, h: 7.0, hunch: 0.35, bulk: 1.0, slam: true, hands: 0x9aff4a },
   boss13: { file: 'king.glb', tposeArms: true, h: 8.8, hunch: 0.05, bulk: 1.0, slam: true, hands: 0xffd04a },
   boss14: { file: 'gus.glb', tposeArms: true, h: 8.2, hunch: 0.1, bulk: 1.0, slam: true, hands: 0xffa040 },
+  boss15: { file: 'm37.glb', tposeArms: true, h: 8.4, hunch: 0.08, bulk: 1.0, slam: true, gear: ['zweihander'], oneHand: true, two: true }, // Nutty 2026-11-14: Mixamo #37 with a two-handed sword
   // Knights: the player's own plate-armour build as an enemy; the dread knight is bigger, blackened and smashes the ground.
   knight: { file: 'veteran.glb', tposeArms: true, build: 'knight', h: 2.0, hunch: 0.1, bulk: 0.95, gear: ['sword', 'kite'], tele: [0.9, 0.9, 1] },
   dreadknight: { file: 'veteran.glb', tposeArms: true, build: 'knight', h: 2.4, hunch: 0.12, bulk: 1.1, tint: 0x3a2a3a, lift: 0.12, slam: true, gear: ['greatsword'], tele: [1, 0.2, 0.2] },
@@ -106,7 +109,7 @@ for (const [k, l] of Object.entries(MOB_LOOKS)) {
 
 for (const [k, l] of Object.entries(MOB_LOOKS)) if (k.startsWith('boss')) delete l.hands; // no balls of light on the bosses' hands (Nutty 2026-11-11)
 // Fear's echoes: the beaten bosses, back at roughly twice a mob's height.
-for (const i of [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14]) { const b = MOB_LOOKS['boss' + i]; if (b) MOB_LOOKS['echo' + i] = { ...b, h: (b.h || 8) * 0.5 }; }
+for (const i of [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15]) { const b = MOB_LOOKS['boss' + i]; if (b) MOB_LOOKS['echo' + i] = { ...b, h: (b.h || 8) * 0.5 }; }
 // Thermes: the shirtless demonic viking deity (src/thermes.js), purple pulsing skin, blue aura, laser eyes.
 // No short mobs (Nutty 2026-11-05): every regular mob stands at least MOB_MIN_H, and its hit size grows with it.
 for (const [k, l] of Object.entries(MOB_LOOKS)) {
@@ -165,9 +168,12 @@ function rv(bone, pitch, twist, roll) {
 }
 const { smoothstep: ss, clamp } = THREE.MathUtils;
 const _bw = Array.from({ length: 8 }, () => new THREE.Vector3());
+const _wl = Array.from({ length: 8 }, () => new THREE.Vector3());
 const _ik = Array.from({ length: 8 }, () => new THREE.Vector3()), _iq = Array.from({ length: 6 }, () => new THREE.Quaternion());
 const TAU = Math.PI * 2;
 // Attack/hit timing helpers.
+const TWOP = [0.1, -0.2, 0.16, 0.35, 0.1];
+const STAFFP = [-0.07, -0.3, 0.13, 0.08, -0.04]; // the staff hand: beside the hip, a little forward; the staff leans a touch forward and out
 export const BOWP = [0.3, 0.03, 0.12, -0.55, -0.75, 0.1, 0.06];
 const wrapPi = (d) => d - TAU * Math.round(d / TAU);
 
@@ -546,6 +552,8 @@ const GEAR_MATS = {
   alienLight: () => new THREE.MeshStandardMaterial({ color: 0x4a6a70, roughness: 0.3, metalness: 0.5 }),
   glowR: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a3a).multiplyScalar(2.4), toneMapped: false }),
   glowB: () => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4aa0ff).multiplyScalar(2.2), toneMapped: false }),
+  plasmaD: () => new THREE.MeshBasicMaterial({ color: 0x35106e, toneMapped: false }),
+  plasmaL: () => new THREE.MeshBasicMaterial({ color: 0x8a5cf0, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, side: THREE.BackSide }),
   // enemy hand weapons (mobarms.js): forged steel, leather and wood, rusted iron; the colours ride on the vertices
   wSteel: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.8, envMapIntensity: 1.2 }),
   wSoft: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.0 }),
@@ -559,7 +567,7 @@ const GEAR_MATS = {
   nFeather: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }),
 };
 // Weapons a mob carries from MOB_ARMS: on armed types the template leaves its old weapon out and each mob gets its own.
-const WEAPON_GEAR = new Set(['blade', 'dagger', 'sword', 'greatsword', 'club', 'rifle', ...Object.values(MOB_ARMS).map((a) => a.gear)]);
+const WEAPON_GEAR = new Set(['blade', 'dagger', 'sword', 'greatsword', 'zweihander', 'club', 'rifle', ...Object.values(MOB_ARMS).map((a) => a.gear)]);
 const SHARED_MATS = {};
 function buildGear(tpl, look, names = look.gear, shared = null) {
   const scene = tpl.scene;
@@ -592,21 +600,41 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
   const mark = (bone, name, p) => { const b = bones.get(bone); if (!b) return; const m = new THREE.Object3D(); m.name = name; m.position.copy(p).applyMatrix4(toT); scene.add(m); b.attach(m); };
   // The closed fist of a hand, from its own finger bones: d along the fingers, k along the knuckles (little finger to index), pn out of
   // the palm, palm = the middle of the grip (relative to the wrist). null on a body without finger bones.
-  const fist = (sd) => {
+  const fist = (sd, hr = 0.016, tilt = 0, hy = hr) => {
     const g = (n) => bones.get(sd + 'Hand' + n); if (!g('Middle1') || !g('Index1') || !g('Pinky1')) return null;
-    const H = bp(sd + 'Hand'), M = bp(sd + 'HandMiddle1'), d = M.clone().sub(H).normalize();
+    const H = bp(sd + 'Hand'), M = bp(sd + 'HandMiddle1'), d = M.clone().sub(H).normalize(), hm = M.distanceTo(H) / s;
     const k = bp(sd + 'HandIndex1').sub(bp(sd + 'HandPinky1')); k.addScaledVector(d, -k.dot(d)).normalize();
     const pn = V().crossVectors(k, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1);
-    return { H, d, k, pn, palm: H.clone().lerp(M, 0.82).addScaledVector(pn, 0.034 * s).sub(H) };
+    if (tilt === true) { const kk = bp(sd + 'HandIndex1').sub(bp(sd + 'HandPinky1')); tilt = Math.round(Math.min(0.4, Math.max(0, kk.dot(d) / (kk.dot(k) || 1))) * 20) / 20; } // (true: along this hand's own knuckle row)
+    // the handle rests on the palm's skin and the fingers are closed onto it (graspFit); hr in metres on a 1.8 m body
+    const G = graspFit(scene, sd, hr / hm, tilt, look.ck, hy / hm);
+    if (!G || !G.good || (NEW_HOLD.size && !NEW_HOLD.has(look.ck))) return { H, d, k, pn, hm, r: 0.016, old: true, tilt, palm: H.clone().lerp(M, 0.82).addScaledVector(pn, 0.034 * s).sub(H) };
+    mark(sd + 'Hand', 'grasp:' + G.key, H.clone());
+    return { H, d, k, pn, hm, r: G.r * hm, tilt, palm: d.clone().multiplyScalar(G.a * hm * s).addScaledVector(pn, G.b * hm * s) };
   };
+  // How thick a handle is where the hand closes on it: parts as [[mat, geo], ...], the handle running along axis ax (0 x, 1 y, 2 z) through c.
+  const gripR = (parts, ax = 1, c = [0, 0, 0], half = 0.035, wide = false) => { let m0 = 0, m1 = 0; const i0 = (ax + 1) % 3, i1 = (ax + 2) % 3;
+    for (const [, geo] of parts) { const p = geo.attributes.position; for (let i = 0; i < p.count; i++) { if (Math.abs(p.getComponent(i, ax) - c[ax]) > half) continue; m0 = Math.max(m0, Math.abs(p.getComponent(i, i0) - c[i0])); m1 = Math.max(m1, Math.abs(p.getComponent(i, i1) - c[i1])); } }
+    return m0 && m1 ? (wide ? Math.max(m0, m1) : Math.sqrt(m0 * m1)) : 0.016; };
+  // The handle's real cross-section where the hand closes on it: every triangle of the parts is cut by three planes across the grip and
+  // the cut's half size is taken along z (across the palm) and x (out of the palm). Guards and bows further than 3.5 cm out are not the handle.
+  const gripX = (parts) => { let mz = 0, mx = 0; const A = V(), B = V();
+    for (const [, geo] of parts) { const p = geo.attributes.position, ix = geo.index, n = ix ? ix.count : p.count;
+      for (let t = 0; t < n; t += 3) { const i = [0, 1, 2].map((q) => (ix ? ix.getX(t + q) : t + q));
+        for (const y of [-0.03, 0, 0.03]) for (let e = 0; e < 3; e++) { A.fromBufferAttribute(p, i[e]); B.fromBufferAttribute(p, i[(e + 1) % 3]); if ((A.y - y) * (B.y - y) > 0 || A.y === B.y) continue;
+          const k = (y - A.y) / (B.y - A.y), x = A.x + (B.x - A.x) * k, z = A.z + (B.z - A.z) * k; if (x * x + z * z > 0.035 * 0.035) continue; mz = Math.max(mz, Math.abs(z)); mx = Math.max(mx, Math.abs(x)); } } }
+    if (!mz || !mx) return [0.016, 0.016]; mz = Math.min(0.028, mz) + 0.001; mx = Math.min(0.028, mx) + 0.001; return Math.abs(mz - mx) < 0.0025 ? [Math.max(mz, mx), Math.max(mz, mx)] : [mz, mx]; };
+  // After a weapon's parts are hung in a hand: fit the thumb to the weapon's real shape and point the hand's grasp marker at the result.
+  const seal = (sd, wid, meshes) => { const hb = bones.get(sd + 'Hand'); if (!hb) return; let mk = null; for (const c of hb.children) if ((c.name || '').startsWith('grasp:')) mk = c; if (!mk) return;
+    const G = GRASP.get(mk.name.slice(6)); if (!G) return; mk.name = 'grasp:' + thumbFit(G, scene, sd, meshes.filter(Boolean), wid).key; };
   // A gun in the right fist (Nutty 2026-11-14: "make their guns fit inside their hands, gripped"). parts are built barrel along -Y,
   // sights +Z, pistol grip toward -Z; grip = the middle of the pistol grip, which lands in the palm with the fingers wrapped round it;
   // muz = the barrel tip, fore = where the other hand holds it (markers the rig reads).
   const gunPut = (parts, grip, muz, fore) => {
-    const F = fist('Right'); let fr, o;
+    const F = fist('Right', 0.032, 0, 0.023); let fr, o; // a pistol grip: about 6 cm deep and 4.5 cm thick
     if (F) { fr = { u: F.d.clone().negate(), f: F.k }; const x = V().crossVectors(fr.u, fr.f).normalize(); o = [F.palm.dot(x) / s - grip[0], F.palm.dot(fr.u) / s - grip[1], F.palm.dot(fr.f) / s - grip[2]]; }
     else { fr = limb('RightHand', 'RightForeArm'); o = [0, 0, 0.04]; }
-    for (const [mk, geo] of parts) put('RightHand', mk, geo, o, fr);
+    seal('Right', 'gun' + parts.map(([, g]) => g.attributes.position.count).join('.'), parts.map(([mk, geo]) => put('RightHand', mk, geo, o, fr)));
     const x = V().crossVectors(fr.u, fr.f).normalize(), at = (q) => bp('RightHand').addScaledVector(x, (o[0] + q[0]) * s).addScaledVector(fr.u, (o[1] + q[1]) * s).addScaledVector(fr.f, (o[2] + q[2]) * s);
     mark('RightHand', 'muzzle', at(muz)); if (fore) mark('RightHand', 'foregrip', at(fore));
     mark('RightHand', 'breech', at([muz[0], grip[1], muz[2]])); mark('RightHand', 'gunup', at([muz[0], grip[1], muz[2] + 0.3]));
@@ -651,30 +679,32 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     // Necromancer: a hooded mantle, a ragged robe and a skull-topped staff.
     robe() { necroRobe({ put, bp, s, has: (n) => !!bones.get(n) }); },
     staff() {
-      // Held upright in the right hand: the shaft runs through the closed fist when the body has finger bones, else beside the wrist.
-      const fr = limb('RightHand', 'RightForeArm'), F = fist('Right'); let o = [0, 0, 0.05];
-      const x = V().crossVectors(fr.u, fr.f).normalize(); if (F) o = [F.palm.dot(x) / s, F.palm.dot(fr.u) / s, F.palm.dot(fr.f) / s];
+      // Carried upright: the shaft lies along the knuckle row inside the closed fist (MobRig.twoPose stands it up); beside the wrist on a body without finger bones.
+      const parts = necroStaffParts(), [gz, gx] = gripX(parts), F = fist('Right', Math.max(gz, gx), true);
+      if (F && !F.old) { const w = F.k.clone().addScaledVector(F.d, F.tilt).normalize(), e = F.d.clone().addScaledVector(w, -F.d.dot(w)).normalize(), x = V().crossVectors(w, e).normalize(), palm = F.palm;
+        const o = [palm.dot(x) / s - 0.004, palm.dot(w) / s - 0.05, palm.dot(e) / s + 0.004];
+        seal('Right', 'staff', parts.map(([mk, geo]) => put('RightHand', mk, geo, o, { u: w, f: e })));
+        const at = F.H.clone().add(palm); mark('RightHand', 'staffat', at); mark('RightHand', 'stafftop', at.clone().addScaledVector(w, 0.5 * s)); return; }
+      const fr = limb('RightHand', 'RightForeArm'); let o = [0, 0, 0.05];
+      const x = V().crossVectors(fr.u, fr.f).normalize();
       o[0] += 0.045 * Math.sign(x.x * bp('RightHand').x || 1); // a hand's width clear of the robe
-      for (const [mk, geo] of necroStaffParts()) put('RightHand', mk, geo, o, fr);
+      for (const [mk, geo] of parts) put('RightHand', mk, geo, o, fr);
     },
-    // Archer: a recurve bow in the left hand and a quiver of arrows.
-    // Gripped at its handle in the left fist: the stave runs along the knuckles, the belly faces down the arm, the string toward the archer.
-    // Two strings (drawn and loose) and a nocked arrow, switched by the rig as it draws and looses.
     bow() {
-      const F = fist('Left'); let fr, o;
+      const F = fist('Left', 0.0215); let fr, o; const bm = []; // (the bow's grip: 4 cm through with its wrap)
       if (F) { fr = { u: F.k, f: F.d }; const x = V().crossVectors(fr.u, fr.f).normalize(); o = [F.palm.dot(x) / s, F.palm.dot(fr.u) / s, F.palm.dot(fr.f) / s + 0.02]; }
       else { fr = limb('LeftHand', 'LeftForeArm'); o = [0, 0.0, 0.06]; }
       const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12 * 2 - 1; pts.push(V(0, t * 0.74, -0.34 * t * t)); }
       const line = (a, b, r = 0.005) => { const d = b.clone().sub(a), g = cyl(r, r, d.length(), 4); g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d.clone().normalize())); const c = a.clone().add(b).multiplyScalar(0.5); return g.translate(c.x, c.y, c.z); };
       const top = V(0, 0.74, -0.34), bot = V(0, -0.74, -0.34), pull = V(0, 0, -0.66);
-      put('LeftHand', 'wood', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.022, 6), cone(0.02, 0.07, 6).translate(0, 0.76, -0.35), cone(0.02, 0.07, 6).rotateX(Math.PI).translate(0, -0.76, -0.35)]), o, fr);
-      put('LeftHand', 'rag', cyl(0.03, 0.03, 0.17, 8), o, fr);
+      bm.push(put('LeftHand', 'wood', merge([new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.017, 6), cone(0.016, 0.07, 6).translate(0, 0.76, -0.35), cone(0.016, 0.07, 6).rotateX(Math.PI).translate(0, -0.76, -0.35)]), o, fr));
+      bm.push(put('LeftHand', 'rag', cyl(0.0205, 0.0205, 0.17, 8), o, fr)); if (F) seal('Left', 'bow', bm);
       const sd = put('LeftHand', 'bone', merge([line(top, pull), line(bot, pull)]), o, fr); if (sd) sd.name = 'strDrawn';
       const sl = put('LeftHand', 'bone', line(top, bot), o, fr); if (sl) { sl.name = 'strLoose'; sl.visible = false; }
-      const ar = put('LeftHand', 'wood', merge([cyl(0.009, 0.009, 0.8, 5).rotateX(Math.PI / 2).translate(0.03, 0.02, -0.26), new THREE.BoxGeometry(0.002, 0.06, 0.12).translate(0.03, 0.02, -0.6), new THREE.BoxGeometry(0.06, 0.002, 0.12).translate(0.03, 0.02, -0.6)]), o, fr); if (ar) ar.name = 'nock';
-      const ah = put('LeftHand', 'steel', cone(0.022, 0.08, 4).rotateX(Math.PI / 2).translate(0.03, 0.02, 0.18), o, fr); if (ah) ah.name = 'nockHead';
+      const ar = put('LeftHand', 'wood', merge([cyl(0.009, 0.009, 0.8, 5).rotateX(Math.PI / 2).translate(0.044, 0.02, -0.26), new THREE.BoxGeometry(0.002, 0.06, 0.12).translate(0.044, 0.02, -0.6), new THREE.BoxGeometry(0.06, 0.002, 0.12).translate(0.044, 0.02, -0.6)]), o, fr); if (ar) ar.name = 'nock';
+      const ah = put('LeftHand', 'steel', cone(0.022, 0.08, 4).rotateX(Math.PI / 2).translate(0.044, 0.02, 0.18), o, fr); if (ah) ah.name = 'nockHead';
       const x = V().crossVectors(fr.u, fr.f).normalize();
-      mark('LeftHand', 'pull', bp('LeftHand').addScaledVector(x, (o[0] + 0.03) * s).addScaledVector(fr.u, (o[1] + 0.02) * s).addScaledVector(fr.f, (o[2] - 0.66) * s));
+      mark('LeftHand', 'pull', bp('LeftHand').addScaledVector(x, (o[0] + 0.044) * s).addScaledVector(fr.u, (o[1] + 0.02) * s).addScaledVector(fr.f, (o[2] - 0.66) * s));
       mark('LeftHand', 'muzzle', bp('LeftHand').addScaledVector(x, o[0] * s).addScaledVector(fr.u, o[1] * s).addScaledVector(fr.f, (o[2] + 0.2) * s));
     },
     quiver() {
@@ -697,9 +727,10 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     },
     // Blades. A sword or dagger in the right hand (blade along the forearm's up axis, like the staff), a two-hander for the dread knight.
     blade() {
+      const st = merge([new THREE.BoxGeometry(0.06, 0.95, 0.012).translate(0, 0.62, 0), cone(0.03, 0.12, 4).rotateY(Math.PI / 4).translate(0, 1.15, 0)]), gd = merge([new THREE.BoxGeometry(0.22, 0.04, 0.05).translate(0, 0.14, 0), cyl(0.015, 0.015, 0.2, 8).translate(0, 0.02, 0), ball(0.028).translate(0, -0.1, 0)]);
+      if (hold([['steel', st.clone().rotateY(-Math.PI / 2)], ['gold', gd.clone().rotateY(-Math.PI / 2)]], 'blade')) return; // in the fist when the body has finger bones
       const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'steel', merge([new THREE.BoxGeometry(0.06, 0.95, 0.012).translate(0, 0.62, 0), cone(0.03, 0.12, 4).rotateY(Math.PI / 4).translate(0, 1.15, 0)]), [0, 0, 0.05], fr);
-      put('RightHand', 'gold', merge([new THREE.BoxGeometry(0.22, 0.04, 0.05).translate(0, 0.14, 0), cyl(0.02, 0.02, 0.18, 6).translate(0, 0.02, 0), ball(0.035).translate(0, -0.08, 0)]), [0, 0, 0.05], fr);
+      put('RightHand', 'steel', st, [0, 0, 0.05], fr); put('RightHand', 'gold', gd, [0, 0, 0.05], fr);
     },
     dagger() {
       const fr = limb('RightHand', 'RightForeArm');
@@ -715,6 +746,27 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       const fr = limb('RightHand', 'RightForeArm');
       put('RightHand', 'steel', merge([new THREE.BoxGeometry(0.11, 1.5, 0.02).translate(0, 0.95, 0), cone(0.055, 0.2, 4).rotateY(Math.PI / 4).translate(0, 1.8, 0)]), [0, 0, 0.06], fr);
       put('RightHand', 'gold', merge([new THREE.BoxGeometry(0.36, 0.05, 0.07).translate(0, 0.2, 0), cyl(0.026, 0.026, 0.34, 6).translate(0, 0.0, 0), ball(0.05).translate(0, -0.2, 0)]), [0, 0, 0.06], fr);
+    },
+    // A true two-hander (Nutty 2026-11-14: "give #37 a two handed sword"): the long grip lies across the closed right fist, blade out past
+    // the thumb, and the left hand takes the grip below it (the 'foregrip' marker the rig reaches for).
+    zweihander() {
+      // The handle runs through the real channel of the closed fist (look.fistAt, measured on this body with pw/gripcheck.mjs: how far
+      // along the fingers, how far out of the palm, how wide, all in hand lengths), never through the palm or the fingers.
+      const F = fist('Right', 0.017); let fr, o, hm = 0.1, fr0 = 0.017;
+      if (F) { hm = F.hm; fr0 = F.r; const c = F.palm;
+        fr = { u: F.k, f: F.pn }; const x = V().crossVectors(fr.u, fr.f).normalize(); o = [c.dot(x) / s, c.dot(fr.u) / s - 0.1 * hm, c.dot(fr.f) / s]; } // (the four fingers are centred a little to the ring-finger side of the middle one)
+      else { fr = limb('RightHand', 'RightForeArm'); o = [0, 0, 0.06]; }
+      const hw = 0.5 * hm, gr = Math.min(0.019, fr0 * 0.93), gy = hw + 0.04, ly = -(2 * hw + 0.012), pe = ly - hw - 0.02; // half a fist, grip radius, guard, left fist, grip end
+      const blade = new THREE.BufferGeometry(), W = 0.058, T = 0.017, y0 = gy + 0.05, y1 = y0 + 1.04, y2 = y0 + 1.26; // a diamond-section blade tapering to the point
+      { const P = [], ring = (y, w, t) => [[-w, y, 0], [0, y, t], [w, y, 0], [0, y, -t]], a = ring(y0, W, T), b = ring(y1, W * 0.72, T * 0.8), tip = [0, y2, 0];
+        for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; P.push(...a[i], ...a[j], ...b[j], ...a[i], ...b[j], ...b[i], ...b[i], ...b[j], ...tip); }
+        blade.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); blade.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(P.length / 3 * 2), 2)); blade.computeVertexNormals(); }
+      const zm = []; zm.push(put('RightHand', 'wSteel', merge([blade, new THREE.BoxGeometry(0.085, 0.2, 0.03).translate(0, y0 + 0.02, 0).toNonIndexed()]), o, fr)); // (the unsharpened ricasso above the guard)
+      zm.push(put('RightHand', 'iron', merge([new THREE.BoxGeometry(0.56, 0.04, 0.05).translate(0, gy + 0.02, 0), ball(0.04).translate(0.28, gy + 0.02, 0), ball(0.04).translate(-0.28, gy + 0.02, 0), ball(0.042).scale(1, 0.8, 1).translate(0, pe - 0.03, 0)]), o, fr));
+      zm.push(put('RightHand', 'axeHaft', cyl(gr, gr, gy - pe, 12).translate(0, (gy + pe) / 2, 0), o, fr));
+      const x = V().crossVectors(fr.u, fr.f).normalize(), at = (y) => bp('RightHand').addScaledVector(x, o[0] * s).addScaledVector(fr.u, (o[1] + y) * s).addScaledVector(fr.f, o[2] * s);
+      mark('RightHand', 'foregrip', at(ly + 0.1 * hm)); mark('RightHand', 'bladeup', at(ly + 0.1 * hm + 0.5));
+      seal('Right', 'zwei', zm); fist('Left', gr); // (the other fist closes just as far)
     },
     // Knight Errant: a kite shield on the left forearm.
     kite() {
@@ -780,6 +832,12 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       put('RightHand', 'wood', cyl(0.024, 0.026, 0.7, 8).translate(0, 0.22, 0), [0, 0, 0.05], fr);
       put('RightHand', 'iron', merge([ball(0.09).translate(0, 0.66, 0), ...spikes, cyl(0.035, 0.035, 0.05, 8).translate(0, -0.12, 0)]), [0, 0, 0.05], fr);
     },
+    // The Lizard man's plasma: no gun, a ball of dark purple plasma gathered over his open hand (his body has no finger bones to hold a grip).
+    plasmaorb() {
+      const fr = limb('RightHand', 'RightForeArm');
+      put('RightHand', 'plasmaD', new THREE.SphereGeometry(0.06, 28, 20), [0, 0.2, 0.05], fr);
+      put('RightHand', 'plasmaL', new THREE.SphereGeometry(0.085, 28, 20), [0, 0.2, 0.05], fr);
+    },
     spear() {
       const fr = limb('RightHand', 'RightForeArm');
       put('RightHand', 'wood', cyl(0.022, 0.024, 2.0, 8).translate(0, 0.45, 0), [0, 0, 0.05], fr);
@@ -818,18 +876,15 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
   // Hand weapons from mobarms.js: gripped in the fist and tipped forward, the edge leading, so a swing of the arm is a swing of the weapon.
   // The grip sits in the palm, lying along the knuckles, where the closed fingers (MobRig.gripHand) wrap it: worked out from the hand's
   // own finger bones, so it fits every body. Bodies without finger bones fall back to a guess from the forearm.
-  for (const id in MOB_ARM_GEO) G['w_' + id] = () => {
-    const has = (n) => bones.get(n);
-    if (has('RightHandMiddle1') && has('RightHandIndex1') && has('RightHandPinky1')) {
-      const H = bp('RightHand'), M = bp('RightHandMiddle1'), d = M.clone().sub(H).normalize();               // d: along the fingers
-      const k = bp('RightHandIndex1').sub(bp('RightHandPinky1')); k.addScaledVector(d, -k.dot(d)).normalize(); // k: along the knuckles, little finger to index
-      const pn = V().crossVectors(k, d).normalize();                                                           // out of the palm
-      const w = k.clone().multiplyScalar(0.86).addScaledVector(d, 0.5).normalize(), e = d.clone().addScaledVector(w, -d.dot(w)).normalize(); // weapon axis, and where its edge faces
-      const x = V().crossVectors(w, e).normalize(), palm = H.clone().lerp(M, 0.82).addScaledVector(pn, 0.034 * s).sub(H);
-      const o = [palm.dot(x) / s, palm.dot(w) / s, palm.dot(e) / s];
-      for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, o, { u: w, f: e });
-    } else { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of mobArmParts(id)) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); }
-  };
+  // A one-hand weapon (parts built grip at the origin along +Y, edge toward +Z) laid in the right fist: the handle lies across the palm
+  // along the hand's own knuckle row and each finger closes onto it. false on a body without finger bones.
+  const hold = (parts, id) => { const has = (n) => bones.get(n); if (!has('RightHandMiddle1') || !has('RightHandIndex1') || !has('RightHandPinky1')) return false;
+    const [hr, hy] = gripX(parts), F = fist('Right', hr, true, hy), d = F.d, k = F.k; // d: along the fingers, k: along the knuckles (little finger to index)
+    const w = F.old ? k.clone().multiplyScalar(0.86).addScaledVector(d, 0.5).normalize() : k.clone().addScaledVector(d, F.tilt).normalize(), e = d.clone().addScaledVector(w, -d.dot(w)).normalize(); // weapon axis, and where its edge faces
+    const x = V().crossVectors(w, e).normalize(), palm = F.palm, o = [palm.dot(x) / s, palm.dot(w) / s, palm.dot(e) / s];
+    seal('Right', id, parts.map(([mk, geo]) => put('RightHand', mk, geo, o, { u: w, f: e }))); return true; };
+  for (const id in MOB_ARM_GEO) G['w_' + id] = () => { const parts = mobArmParts(id);
+    if (!hold(parts, id)) { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of parts) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); } };
   for (const n of names) if (G[n]) G[n]();
 }
 
@@ -840,6 +895,7 @@ function mobTemplate(kind) {
   if (!look) return null;
   const def = { id: 'mob_' + kind, file: look.file, tposeArms: look.tposeArms, build: look.build, design: look.design, body: look.body, lizard: look.lizard, eye: look.eye, height: look.h };
   const tpl = getTemplate(def);
+  look.ck = kind;
   if (tpl) { if (look.rot) rotDress(tpl, look); dress(tpl, look); if (look.gear) buildGear(tpl, look, MOB_ARM_POOL[kind] ? look.gear.filter((n) => !WEAPON_GEAR.has(n)) : look.gear.filter((n) => n !== 'bow')); collapse(tpl.scene); }
   tplCache.set(kind, tpl);
   return tpl;
@@ -878,25 +934,185 @@ function wingGeometry(boneCol, memCol) {
   mem.deleteAttribute('uv');
   return mergeGeometries([mem, ...bones]);
 }
+// ---- How a hand really holds something (Nutty 2026-11-15: "all characters, present and future, all have realistic grip, no overlapping
+// and fits correctly"). The fingers are closed by fistCurl; fistChannel then MEASURES, on the body's own skin, the empty channel the
+// closed fingers and the palm enclose. Every handle is laid through that channel and the fist is closed only as far as the handle's
+// thickness allows, so nothing passes through the palm or the fingers. pw/gripcheck.mjs counts any skin left inside a weapon.
+const CURLS = [1, 0.85, 0.7, 0.55];
+function fistCurl(B, sd, curl = 1) {
+  const H = B.get(sd + 'Hand'), g = (n) => B.get(sd + 'Hand' + n), out = [];
+  if (!H || !g('Middle1') || !g('Index1') || !g('Pinky1')) return out;
+  const wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  const d = wp(g('Middle1')).sub(wp(H)).normalize(), k = wp(g('Index1')).sub(wp(g('Pinky1'))); k.addScaledVector(d, -k.dot(d)).normalize();
+  const pn = new THREE.Vector3().crossVectors(k, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
+  const turn = (b, ax, ang) => { if (!b) return; const la = ax.clone().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+    out.push([b, b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(la, ang))]); };
+  for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) [1.2, 1.35, 0.9].forEach((ang, j) => turn(g(f + (j + 1)), axis, ang * curl));
+  const t1 = g('Thumb1'), t2 = g('Thumb2');
+  if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang * curl)); }
+  return out;
+}
+// graspFit: the handle (a round bar of radius hr, in hand lengths, along the knuckle line tipped `tilt` toward the fingers) is laid on
+// the palm's own skin, then every finger joint in turn is closed until that finger's skin touches the bar, and the thumb after them.
+// Returns where the bar's middle sits (a along the fingers, b out of the palm, hand lengths from the wrist) and each bone's closed turn.
+export const GRASP = new Map();
+// Bodies whose new hold has been checked in close-up pictures AND reads 0 in pw/gripcheck.mjs. Every other body keeps its old hold
+// until it has been looked at the same way (2026-11-15: knight, goblin and the soldier bodies came out with an open hand, so they wait).
+const NEW_HOLD = new Set(); // empty = every body with finger bones (2026-11-15: all read 0 or near 0; bandit, warmaiden, knight, dread knight, shambler and the soldier gun hands are clear of the weapon but still loose round it, see pw/rigshot.mjs tag x-1)
+export function handVerts(o, sd) {
+  const ge = o.geometry, ud = ge.userData.graspV || (ge.userData.graspV = {}); if (ud[sd]) return ud[sd];
+  const si = ge.attributes.skinIndex, sw = ge.attributes.skinWeight, out = { palm: [], Thumb: [], Index: [], Middle: [], Ring: [], Pinky: [] }, bones = o.skeleton.bones;
+  if (si && sw) for (let i = 0; i < si.count; i++) { let bi = 0, bw = -1; for (let q = 0; q < 4; q++) { const w = sw.getComponent(i, q); if (w > bw) { bw = w; bi = si.getComponent(i, q); } }
+    const m = bones[bi] && new RegExp(sd + 'Hand(Thumb|Index|Middle|Ring|Pinky)?\\d?$').exec(bones[bi].name); if (m) out[m[1] || 'palm'].push(i); }
+  for (const k in out) if (out[k].length > 500) { const a = out[k], st = a.length / 500, t = []; for (let q = 0; q < 500; q++) t.push(a[Math.floor(q * st)]); out[k] = t; }
+  return (ud[sd] = out);
+}
+export function graspFit(root, sd, hr, tilt = 0, key = null, hy = hr, bfix = null) { /* bfix: the bar's height off the palm is given (the palm has been seated on the real weapon), not measured here */ // hr: half the handle's size across the palm, hy: half its size out of the palm (hy !== hr: a flat-sided grip)
+  hr = Math.max(0.06, Math.round(hr * 50) / 50); hy = Math.max(0.06, Math.round(hy * 50) / 50);
+  const ck = key && [key, sd, hr, tilt, hy].join('|') + (bfix != null ? '|b' + bfix : ''); if (ck && GRASP.has(ck)) return GRASP.get(ck);
+  const B = bonesOf(root), g = (n) => B.get(sd + 'Hand' + n), H = g(''); let res = null;
+  if (H && g('Middle1') && g('Middle2') && g('Index1') && g('Pinky1')) {
+    root.updateMatrixWorld(true);
+    const wp = (b) => b.getWorldPosition(new THREE.Vector3()), Hp = wp(H), M = wp(g('Middle1')), hm = M.distanceTo(Hp), d = M.clone().sub(Hp).normalize();
+    const kv = wp(g('Index1')).sub(wp(g('Pinky1'))), kl = kv.length() / hm; kv.addScaledVector(d, -kv.dot(d)).normalize();
+    const pn = new THREE.Vector3().crossVectors(kv, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
+    const w = kv.clone().addScaledVector(d, tilt).normalize(), u = d.clone().addScaledVector(w, -d.dot(w)).normalize(); // the bar's axis, and across it in the palm's plane
+    const sk = []; root.traverse((o) => { if (o.isSkinnedMesh && o.geometry.attributes.skinIndex) sk.push([o, handVerts(o, sd)]); });
+    const s0 = wp(g('Pinky1')).sub(Hp).dot(w) / hm - 0.3 * kl, s1 = wp(g('Index1')).sub(Hp).dot(w) / hm + 0.3 * kl, v = new THREE.Vector3();
+    // every skin point of a group, as [across, out of palm, along] in hand lengths from the wrist
+    let pivot = null; // while a joint is being closed, skin right at that joint (which hardly moves) does not stop it
+    const each = (grp, fn, all = false) => { for (const [o, V] of sk) for (const i of V[grp]) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); if (pivot && v.distanceToSquared(pivot) < 0.04 * hm * hm) continue; v.sub(Hp); const al = v.dot(w) / hm; if (!all && (al < s0 || al > s1)) continue; if (fn(v.dot(u) / hm, v.dot(pn) / hm) === false) return false; } return true; };
+    const A = Math.min(0.8, Math.max(0.55, 0.88 - hr)); // the bar's middle sits its own thickness and a finger's back from the knuckles
+    const a0 = A * d.dot(u), aw = A * d.dot(w); let b0 = 0.1; // (the bar's middle, across and along its own axis)
+    const boxy = hy !== hr, sk2 = 0.025, inside = (x, y) => (boxy ? ((x - a0) / (hr + sk2)) ** 4 + ((y - b0) / (hy + sk2)) ** 4 < 1 : (x - a0) * (x - a0) + (y - b0) * (y - b0) < (hr + sk2) * (hr + sk2)); // (sk2: a hair of air between skin and handle)
+    if (bfix != null) b0 = bfix; else { const tops = []; each('palm', (x, y) => { const t = Math.abs(x - a0) / hr; if (t < 1) tops.push(y + hy * (boxy ? Math.pow(1 - t ** 4, 0.25) : Math.sqrt(1 - t * t))); }); tops.sort((p, q) => p - q);
+      if (tops.length) b0 = Math.max(b0, tops[tops.length - 1] + 0.02); } // rest it on the palm's skin
+    const clear = (grp, all) => each(grp, (x, y) => !inside(x, y), all);
+    // Each finger is closed by its BONES: a joint turns until the bone it carries (fattened by the finger's own measured thickness)
+    // lies against the bar. Skin creasing at a bending joint cannot stop it early, which is what left open hands beside the weapon.
+    const P2 = (p) => { const q = p.clone().sub(Hp); return [q.dot(u) / hm, q.dot(pn) / hm]; }, kid = (b) => b.children.find((c) => c.isBone);
+    const endOf = (b) => { const c = kid(b); if (c) return wp(c); const p = wp(b); return p.clone().add(p.clone().sub(wp(b.parent)).multiplyScalar(0.8)); };
+    const fat = {}, _l3 = new THREE.Line3(), _cp = new THREE.Vector3(); // each finger's own half thickness: how far its skin sits from its bones
+    for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) { const bs = [1, 2, 3].map((n) => g(f + n)).filter(Boolean), segs = bs.map((b) => [wp(b), endOf(b)]), ds = [];
+      for (const [o, V] of sk) for (const i of V[f]) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); let m = 1e9; for (const [p, e] of segs) { _l3.set(p, e).closestPointToPoint(v, true, _cp); m = Math.min(m, _cp.distanceTo(v)); } ds.push(m / hm); }
+      ds.sort((p, q) => p - q); fat[f] = Math.min(0.14, Math.max(0.05, ds.length ? ds[Math.floor(ds.length * 0.5)] : 0.09)); }
+    const segClear = (f, bone) => { const A = P2(wp(bone)), E = P2(endOf(bone)), t = fat[f] + 0.008, rx = hr + t, ry = hy + t;
+      for (let i = 2; i <= 8; i++) { const x = A[0] + (E[0] - A[0]) * i / 8 - a0, y = A[1] + (E[1] - A[1]) * i / 8 - b0; if (boxy ? (x / rx) ** 4 + (y / ry) ** 4 < 1 : x * x + y * y < rx * rx) return false; } return true; };
+    const openOk = () => ['Index', 'Middle', 'Ring', 'Pinky'].every((f) => [1, 2, 3].every((j) => !g(f + j) || segClear(f, g(f + j))));
+    const bt0 = b0; for (let n = 0; n < 30 && bfix == null && !openOk(); n++) b0 += 0.02; // (and clear of the open fingers' roots)
+    const quats = [], keep = [], shut = {}, fj = {}, dbg = {};
+    const close = (grp, bone, ax, max, first) => { if (!bone) return; keep.push([bone, bone.quaternion.clone()]);
+      const la = ax.clone().applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(), q0 = bone.quaternion.clone(), q = new THREE.Quaternion(); let ok = 0;
+      for (let ang = 0.05; ang <= max + 1e-6; ang += 0.05) { bone.quaternion.copy(q0).multiply(q.setFromAxisAngle(la, ang)); bone.updateWorldMatrix(false, true); let c = true; for (let b2 = bone; b2 && c; b2 = kid(b2)) c = segClear(grp, b2); if (!c) break; ok = ang; }
+      bone.quaternion.copy(q0).multiply(q.setFromAxisAngle(la, ok)); bone.updateWorldMatrix(false, true); (fj[grp] || (fj[grp] = [])).push({ bone, q0, la, ang: ok }); };
+    // All three joints of a finger are solved together (a thick handle needs the knuckle bent less and the next joint more, which closing
+    // them one after another never finds): of every bend that keeps the finger's bones clear of the bar, take the one that hugs it closest.
+    const cu = d.dot(u), solve = (f, lax = 0) => { const bs = [1, 2, 3].map((n) => g(f + n)).filter(Boolean); if (bs.length < 2) return [0, 0, 0];
+      const P = bs.map((b) => wp(b)); P.push(endOf(bs[bs.length - 1])); const pd = P.map((p) => { const q = p.clone().sub(Hp); return [q.dot(d) / hm, q.dot(pn) / hm]; }), x0 = P2(P[0])[0], n = bs.length;
+      const L = [], ph = []; for (let i = 0; i < n; i++) { const dx = pd[i + 1][0] - pd[i][0], dy = pd[i + 1][1] - pd[i][1]; L.push(Math.hypot(dx, dy)); ph.push(Math.atan2(dy, dx)); }
+      const t = lax ? (lax > 1 ? 0.02 : fat[f] * 0.5) : fat[f] + 0.008, rx = hr + t, ry = hy + t, lev = (X, Y) => (boxy ? Math.pow((X / rx) ** 4 + (Y / ry) ** 4, 0.25) : Math.hypot(X, Y) / rx), MX = [1.5, 1.65, 1.2]; let best = [0, 0, 0], bc = 1e9;
+      for (let t1 = 0; t1 <= MX[0]; t1 += 0.075) for (let t2 = 0; t2 <= MX[1]; t2 += 0.075) for (let t3 = 0; t3 <= (n > 2 ? MX[2] : 0); t3 += 0.1) { const th = [t1, t2, t3]; let px = pd[0][0], py = pd[0][1], acc = 0, cost = 0, ok = true, wx = (x0 - a0), wy = py - b0, wrap = 0;
+        for (let sg = 0; sg < n && ok; sg++) { acc += th[sg]; const an = ph[sg] + acc, ex = px + L[sg] * Math.cos(an), ey = py + L[sg] * Math.sin(an);
+          for (let i = sg ? 1 : lax > 2 ? 9 : 2; i <= 8; i++) { const X = x0 + (px + (ex - px) * i / 8 - pd[0][0]) * cu - a0, Y = py + (ey - py) * i / 8 - b0, lv = lev(X, Y); if (lv < 1 || (sg && Y + b0 < pd[0][1] + 0.04)) { ok = false; break; } if (sg) cost += lv - 1; }
+          const vx = x0 + (ex - pd[0][0]) * cu - a0, vy = ey - b0; wrap += Math.atan2(wx * vy - wy * vx, wx * vx + wy * vy); wx = vx; wy = vy; // (how far round the bar the finger has come)
+          px = ex; py = ey; }
+        if (ok && (cost = cost * 0.04 - wrap) < bc) { bc = cost; best = th; } }
+      if (!(bc > 1e8 && lax < 3)) { let px = pd[0][0], py = pd[0][1], acc = 0; for (let sg = 0; sg < n; sg++) { acc += best[sg]; px += L[sg] * Math.cos(ph[sg] + acc); py += L[sg] * Math.sin(ph[sg] + acc); } (solve.dbg || (solve.dbg = {}))[f] = [x0 + (px - pd[0][0]) * cu, py, lax, ...ph.map((x) => +x.toFixed(2))]; }
+      return bc > 1e8 && lax < 3 ? solve(f, lax + 1) : best; }; // (a knuckle that sits right against the bar: tried again with less and less room kept)
+    // then checked against the finger's real skin: any of it inside the bar and the finger is solved again a little fatter (a looser wrap, same shape)
+    const hard = (x, y) => (boxy ? ((x - a0) / hr) ** 4 + ((y - b0) / hy) ** 4 < 1 : (x - a0) * (x - a0) + (y - b0) * (y - b0) < hr * hr), q2 = new THREE.Quaternion();
+    for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) { const js = [1, 2, 3].map((j) => g(f + j)).filter(Boolean).map((bone) => ({ bone, q0: bone.quaternion.clone(), la: null, ang: 0 })); if (!js.length) continue;
+      for (const J of js) keep.push([J.bone, J.q0.clone()]);
+      const set = (th) => { for (const J of js) J.bone.quaternion.copy(J.q0); js[0].bone.updateWorldMatrix(false, true);
+        js.forEach((J, i) => { J.la = axis.clone().applyQuaternion(J.bone.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); J.ang = th[i]; J.bone.quaternion.copy(J.q0).multiply(q2.setFromAxisAngle(J.la, J.ang)); J.bone.updateWorldMatrix(false, true); }); };
+      let bt = null, bn = 1e9; const f0 = fat[f];
+      for (let n = 0; n < 5; n++) { for (const J of js) J.bone.quaternion.copy(J.q0); js[0].bone.updateWorldMatrix(false, true); const th = solve(f); set(th); /* (solved from the open hand every time) */ let c = 0; pivot = wp(js[0].bone); each(f, (x, y) => { if (hard(x, y)) c++; }); pivot = null; // (the soft skin right at the knuckle is pressed in by a handle, it does not count)
+        if (c < bn) { bn = c; bt = th; } if (!c) break; fat[f] += 0.015; }
+      fat[f] = f0; set(bt); fj[f] = js; { const e = P2(endOf(js[js.length - 1].bone)), k1 = P2(wp(js[0].bone)); (dbg[f] = ((solve.dbg || {})[f] || []).map((x) => +x.toFixed(2))).push('act', +e[0].toFixed(2), +e[1].toFixed(2), 'kn', +k1[0].toFixed(2), +k1[1].toFixed(2), 'bar', +a0.toFixed(2), +b0.toFixed(2)); } }
+    { // a finger the solver could not close (its knuckle sits right on the bar) closes like the finger next to it: a fist closes together
+      const FS = ['Index', 'Middle', 'Ring', 'Pinky'].filter((f) => fj[f]), sum = (f) => fj[f].reduce((p, J) => p + J.ang, 0), top = Math.max(...FS.map(sum));
+      for (const f of FS) { if (f === 'Pinky' || sum(f) >= Math.min(1.1, top * 0.6)) continue; /* (not the little finger: it ends beside the pommel or the butt) */ const i = FS.indexOf(f); let src = null; for (let k = 1; k < 4 && !src; k++) for (const o of [FS[i + k], FS[i - k]]) if (o && sum(o) >= top * 0.6 && !src) src = o; if (!src) continue;
+        const js = fj[f]; for (const J of js) J.bone.quaternion.copy(J.q0); js[0].bone.updateWorldMatrix(false, true);
+        js.forEach((J, n) => { J.la = axis.clone().applyQuaternion(J.bone.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(); J.ang = (fj[src][n] || fj[src][fj[src].length - 1]).ang; J.bone.quaternion.copy(J.q0).multiply(q2.setFromAxisAngle(J.la, J.ang)); J.bone.updateWorldMatrix(false, true); }); }
+      for (const f of FS) for (const J of fj[f]) { quats.push([J.bone.name, J.bone.quaternion.clone()]); shut[f] = (shut[f] || 0) + J.ang; } }
+    const fjo = {}; for (const f in fj) fjo[f] = fj[f].map((J) => [J.bone.name, J.q0.clone(), J.la.clone(), J.ang]);
+    const t1 = g('Thumb1'), t2 = g('Thumb2');
+    if (t1 && t2) { // the thumb: swung out of the handle's way first (it lies along it in the open hand), then closed onto it like the fingers
+      const ta = new THREE.Vector3().crossVectors(wp(t2).sub(wp(t1)).normalize(), pn).normalize(); keep.push([t1, t1.quaternion.clone()]);
+      const q0 = t1.quaternion.clone(), q = new THREE.Quaternion(), iq = t1.getWorldQuaternion(new THREE.Quaternion()).invert(), cnt = () => { let n = 0; each('Thumb', (x, y) => { if (inside(x, y)) n++; }, true); return n; };
+      let bestQ = q0.clone(), bestN = cnt();
+      if (bestN) for (const ax of [d, u, pn]) for (const sg of [1, -1]) for (let ang = 0.15; ang <= 1.5 && bestN; ang += 0.15) { const la = ax.clone().applyQuaternion(iq).normalize(); t1.quaternion.copy(q0).multiply(q.setFromAxisAngle(la, ang * sg)); t1.updateWorldMatrix(false, true); const n = cnt(); if (n < bestN) { bestN = n; bestQ = t1.quaternion.clone(); } }
+      t1.quaternion.copy(bestQ); t1.updateWorldMatrix(false, true);
+      const closeT = (bone, max) => { if (!bone) return; if (bone !== t1) keep.push([bone, bone.quaternion.clone()]); const la = ta.clone().applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(), b0q = bone.quaternion.clone(); let ok = 0;
+        if (!bestN) for (let ang = 0.07; ang <= max + 1e-6; ang += 0.07) { bone.quaternion.copy(b0q).multiply(q.setFromAxisAngle(la, ang)); bone.updateWorldMatrix(false, true); if (!clear('Thumb', true)) break; ok = ang; }
+        bone.quaternion.copy(b0q).multiply(q.setFromAxisAngle(la, ok)); bone.updateWorldMatrix(false, true); quats.push([bone.name, bone.quaternion.clone()]); };
+      closeT(t1, 0.6); closeT(g('Thumb2'), 0.55); closeT(g('Thumb3'), 0.65);
+    }
+    // round it: the fingertip has come back past the handle's middle, on its far side from the palm
+    let round = 0; for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) { const tb = g(f + '4') || g(f + '3'); if (!tb) continue; const q = wp(tb).sub(Hp); if (q.dot(u) / hm < a0 + hr * 0.6 && q.dot(pn) / hm > b0 - hr * 0.5) round++; }
+    for (const [b, q] of keep) b.quaternion.copy(q);
+    root.updateMatrixWorld(true);
+    // good: at least three fingers really closed and came round it. A body whose fingers will not close this way keeps its old hold.
+    dbg.bt = +bt0.toFixed(2); res = { a: A, b: b0, r: hr, kl, quats, key: ck, shut, fat, dbg, fj: fjo, good: ['Index', 'Middle', 'Ring', 'Pinky'].filter((f) => (shut[f] || 0) >= 1.0).length >= 3 };
+  }
+  if (ck) GRASP.set(ck, res);
+  return res;
+}
+// thumbFit: once the weapon itself hangs in the hand, the thumb is tested against the weapon's real shape (guard, receiver, blade root,
+// not just the handle) and swung to the nearest place where none of its skin is inside it, then closed until it touches.
+const _rc = new THREE.Raycaster(), _rd = new THREE.Vector3(0.36, 0.48, 0.8);
+/* is this point inside the weapon: an odd number of surfaces crossed looking three different ways (one way alone is fooled by a flat or open part, a slot, a rail tooth) */
+const _rds = [_rd, new THREE.Vector3(-0.62, -0.7, 0.35).normalize(), new THREE.Vector3(0.55, -0.3, -0.78).normalize()];
+export function inMesh(v, meshes) { return solidOf(meshes).inside(v); }
+export function thumbFit(G, root, sd, meshes, wid) {
+  const ck = G.key + '|' + wid; if (GRASP.has(ck)) return GRASP.get(ck);
+  const B = bonesOf(root), g = (n) => B.get(sd + 'Hand' + n), t1 = g('Thumb1'), t2 = g('Thumb2'), t3 = g('Thumb3'), out = { ...G, key: ck, quats: G.quats.slice() };
+  GRASP.set(ck, out); if (!t1 || !t2 || !meshes.length) return out;
+  const tb = [t1, t2, t3].filter(Boolean), keep = tb.map((b) => b.quaternion.clone()), byName = new Map(G.quats);
+  root.updateMatrixWorld(true);
+  const sk = []; root.traverse((o) => { if (o.isSkinnedMesh && o.geometry.attributes.skinIndex) { const V = handVerts(o, sd).Thumb, st = Math.max(1, V.length / 140), idx = []; for (let q = 0; q < V.length; q += st) idx.push(V[Math.floor(q)]); sk.push([o, idx]); } });
+  const sides = meshes.map((m) => m.material.side); for (const m of meshes) { m.material.side = THREE.DoubleSide; if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); }
+  const v = new THREE.Vector3(), cnt = () => { let n = 0; for (const [o, idx] of sk) for (const i of idx) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); if (inMesh(v, meshes)) n++; } return n; };
+  if (G.fj) { // the fingers, closed as the bare handle allowed, are eased back off anything else of the weapon they ended up inside (guard, receiver, a fat grip)
+    const byN = new Map(); root.traverse((o) => { if (o.isBone && !byN.has(o.name)) byN.set(o.name, o); });
+    const qq = new THREE.Quaternion(), all = [], fq = new Map();
+    for (const f in G.fj) { const js = G.fj[f].map(([n, q0, la, ang]) => ({ b: byN.get(n), q0, la, ang })).filter((J) => J.b); for (const J of js) { all.push([J.b, J.b.quaternion.clone()]); J.b.quaternion.copy(J.q0).multiply(qq.setFromAxisAngle(J.la, J.ang)); } if (js[0]) js[0].b.updateWorldMatrix(false, true);
+      const fs = []; for (const [o] of sk) { const V = handVerts(o, sd)[f], st = Math.max(1, V.length / 240), idx = []; for (let q = 0; q < V.length; q += st) idx.push(V[Math.floor(q)]); fs.push([o, idx]); }
+      const kn = js[0] ? js[0].b.getWorldPosition(new THREE.Vector3()) : null, k2 = kn ? 0.04 * kn.distanceToSquared(g('').getWorldPosition(new THREE.Vector3())) : 0;
+      const bad = () => { for (const [o, idx] of fs) for (const i of idx) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld); if (kn && v.distanceToSquared(kn) < k2) continue; if (inMesh(v, meshes)) return true; } return false; };
+      for (let n = 0; n < 62 && bad(); n++) { const J = js[2] && js[2].ang > 0 ? js[2] : js[1] && js[1].ang > 0 ? js[1] : js[0]; if (!J || J.ang <= -0.55) break; J.ang = J === js[0] ? J.ang - 0.1 : Math.max(0, J.ang - 0.1); /* (a finger that is still in the way when straight lifts back off the weapon, as a trigger finger lies along the frame) */ J.b.quaternion.copy(J.q0).multiply(qq.setFromAxisAngle(J.la, J.ang)); J.b.updateWorldMatrix(false, true); }
+      for (const J of js) fq.set(J.b.name, J.b.quaternion.clone()); }
+    out.quats = out.quats.map(([n, q]) => [n, fq.get(n) || q]);
+    for (const [b, q] of all) b.quaternion.copy(q); root.updateMatrixWorld(true); }
+  const wp = (b) => b.getWorldPosition(new THREE.Vector3()), H = g(''), d = wp(g('Middle1')).sub(wp(H)).normalize(), kv = wp(g('Index1')).sub(wp(g('Pinky1'))); kv.addScaledVector(d, -kv.dot(d)).normalize();
+  const pn = new THREE.Vector3().crossVectors(kv, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1), ta = new THREE.Vector3().crossVectors(wp(t2).sub(wp(t1)).normalize(), pn).normalize();
+  const q0 = keep[0], q = new THREE.Quaternion(), iq = t1.getWorldQuaternion(new THREE.Quaternion()).invert();
+  for (const b of tb) { const gq = byName.get(b.name); if (gq) b.quaternion.copy(gq); b.updateWorldMatrix(false, true); }
+  if (cnt()) { // where the handle alone put it is inside something: start again from the open thumb
+    tb.forEach((b, i) => { b.quaternion.copy(keep[i]); }); t1.updateWorldMatrix(false, true);
+    let bestQ = q0.clone(), bestN = cnt();
+    for (let ang = 0.15; ang <= 1.5 && bestN; ang += 0.15) for (const ax of [d, kv, pn]) for (const sg of [1, -1]) { if (!bestN) break; const la = ax.clone().applyQuaternion(iq).normalize(); t1.quaternion.copy(q0).multiply(q.setFromAxisAngle(la, ang * sg)); t1.updateWorldMatrix(false, true); const n = cnt(); if (n < bestN) { bestN = n; bestQ = t1.quaternion.clone(); } }
+    t1.quaternion.copy(bestQ); t1.updateWorldMatrix(false, true);
+    for (const [b, max] of [[t1, 0.5], [t2, 0.55], [t3, 0.65]]) { if (!b) continue; const la = ta.clone().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize(), b0 = b.quaternion.clone(); let ok = 0;
+      if (!bestN) for (let ang = 0.1; ang <= max + 1e-6; ang += 0.1) { b.quaternion.copy(b0).multiply(q.setFromAxisAngle(la, ang)); b.updateWorldMatrix(false, true); if (cnt()) break; ok = ang; }
+      b.quaternion.copy(b0).multiply(q.setFromAxisAngle(la, ok)); b.updateWorldMatrix(false, true); }
+    const names = new Set(tb.map((b) => b.name)); out.quats = out.quats.filter(([n]) => !names.has(n)); for (const b of tb) out.quats.push([b.name, b.quaternion.clone()]);
+  }
+  tb.forEach((b, i) => { b.quaternion.copy(keep[i]); }); root.updateMatrixWorld(true);
+  meshes.forEach((m, i) => { m.material.side = sides[i]; });
+  return out;
+}
 let _wingGeo = {};
 
 export class MobRig {
   // Close the right hand into a fist round a grip: each finger joint is turned toward the palm about the knuckle line, the thumb
   // folds over. The axes come from the hand's own bones in the rest pose, so it works on every rig. Held every frame in update().
   gripHand(sd = 'Right') {
-    const B = bonesOf(this.model), H = B.get(sd + 'Hand'), g = (n) => B.get(sd + 'Hand' + n);
-    if (!H || !g('Middle1') || !g('Index1') || !g('Pinky1')) return;
     this.model.updateMatrixWorld(true);
-    const wp = (b) => b.getWorldPosition(new THREE.Vector3());
-    const d = wp(g('Middle1')).sub(wp(H)).normalize(), k = wp(g('Index1')).sub(wp(g('Pinky1'))); k.addScaledVector(d, -k.dot(d)).normalize();
-    const pn = new THREE.Vector3().crossVectors(k, d).normalize().multiplyScalar(sd === 'Left' ? -1 : 1), axis = new THREE.Vector3().crossVectors(d, pn).normalize();
     this.grip = this.grip || [];
-    const turn = (b, ax, ang) => { if (!b) return; const la = ax.clone().applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
-      this.grip.push([b, b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(la, ang))]); };
-    for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) [1.2, 1.35, 0.9].forEach((ang, j) => turn(g(f + (j + 1)), axis, ang));
-    const t1 = g('Thumb1'), t2 = g('Thumb2');
-    if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang)); }
-    for (const [b, q] of this.grip) b.quaternion.copy(q);
+    const G = this.grasp && this.grasp[sd];
+    if (G) { const byName = new Map(); this.model.traverse((o) => { if (o.isBone && !byName.has(o.name)) byName.set(o.name, o); }); for (const [n, q] of G.quats) { const b = byName.get(n); if (b) { this.grip.push([b, q]); b.quaternion.copy(q); } } return; }
+    for (const e of fistCurl(bonesOf(this.model), sd)) { this.grip.push(e); e[0].quaternion.copy(e[1]); }
   }
   // Where this mob's shot leaves its weapon (world space); false when it carries nothing that shoots.
   muzzleWorld(out) { if (!this.muz) return false; this.muz.getWorldPosition(out); return true; }
@@ -929,6 +1145,42 @@ export class MobRig {
     const N = this.bn, H = this.b.get('LeftHand'); if (!N.lua || !N.lfa || !H || !this.fore) return;
     this.pivot.updateMatrixWorld(true);
     this.reach(N.lua, N.lfa, H, _ik[3].setFromMatrixPosition(this.fore.matrixWorld), 0.07 * this.h);
+  }
+  // A two-handed sword at rest: the sword hand in front of the belly, the forearm rolled and the wrist set until the blade stands up
+  // and a little forward, so the grip below the fist is where the other hand can close on it.
+  twoPose(P, upM = this.bup, atM = this.fore) {
+    const N = this.bn, RH = this.b.get('RightHand'); if (!N.rua || !N.rfa || !RH || !upM || !atM) return;
+    const fw = _bw[0].set(AXS[6], AXS[7], AXS[8]), lf = _bw[1].set(AXS[0], AXS[1], AXS[2]), up = _bw[2].set(AXS[3], AXS[4], AXS[5]);
+    this.pivot.updateMatrixWorld(true);
+    const G = _bw[3].setFromMatrixPosition(N.rua.matrixWorld).addScaledVector(lf, P[0] * this.h).addScaledVector(up, P[1] * this.h).addScaledVector(fw, P[2] * this.h);
+    this.reach(N.rua, N.rfa, RH, G, 0); N.rua.updateWorldMatrix(false, true);
+    const want = _bw[4].copy(up).addScaledVector(fw, P[3]).addScaledVector(lf, P[4]).normalize();
+    const cur = () => _bw[5].setFromMatrixPosition(upM.matrixWorld).sub(_bw[6].setFromMatrixPosition(atM.matrixWorld)).normalize();
+    const d = _bw[7].setFromMatrixPosition(RH.matrixWorld).sub(_bw[6].setFromMatrixPosition(N.rfa.matrixWorld)).normalize();
+    const k = cur(); k.addScaledVector(d, -k.dot(d)); const t = _bw[6].copy(want).addScaledVector(d, -want.dot(d));
+    if (k.lengthSq() > 1e-4 && t.lengthSq() > 1e-4) { k.normalize(); t.normalize(); this.turnBone(N.rfa, _iq[0].setFromAxisAngle(d, Math.atan2(d.dot(_ik[0].crossVectors(k, t)), k.dot(t)))); }
+    this.turnBone(RH, _iq[0].setFromUnitVectors(cur(), want));
+  }
+  // The left fist closes round the handle below the right one: its knuckle line is laid along the handle and the channel of the closed
+  // fist (look.fistAt) is brought onto the handle's axis, so the handle passes between palm and fingers and through neither.
+  wrapLeft() {
+    const N = this.bn, g = (n) => this.b.get('LeftHand' + n), LH = g(''), M = g('Middle1'), I = g('Index1'), K = g('Pinky1');
+    if (!N.lua || !N.lfa || !LH || !M || !I || !K || !this.fore || !this.bup) { this.reachLeft(); return; }
+    const ch = this.grasp && this.grasp.Left, FA = ch ? [ch.a, ch.b] : [0.82, 0.27], wp = (b, o) => o.setFromMatrixPosition(b.matrixWorld);
+    this.pivot.updateMatrixWorld(true);
+    const T = wp(this.fore, _wl[0]), A = wp(this.bup, _wl[1]).sub(T).normalize();
+    for (let it = 0; it < 4; it++) {
+      const H = wp(LH, _wl[2]), d = wp(M, _wl[3]).sub(H), hm = d.length(); d.normalize();
+      const k = wp(I, _wl[4]).sub(wp(K, _wl[5])); k.addScaledVector(d, -k.dot(d)).normalize();
+      this.turnBone(LH, _iq[0].setFromUnitVectors(k, A));
+      const d2 = wp(M, _wl[3]).sub(H).normalize(), k2 = wp(I, _wl[4]).sub(wp(K, _wl[5])); k2.addScaledVector(d2, -k2.dot(d2)).normalize();
+      const pn = _wl[5].crossVectors(k2, d2).normalize().negate();
+      const C = _wl[6].copy(H).addScaledVector(d2, FA[0] * hm).addScaledVector(pn, FA[1] * hm).addScaledVector(k2, -0.1 * hm);
+      const G = _wl[7].copy(H).add(T).sub(C);
+      this.reach(N.lua, N.lfa, LH, G, 0); N.lua.updateWorldMatrix(false, true);
+    }
+    const H = wp(LH, _wl[2]), d = wp(M, _wl[3]).sub(H).normalize(), k = wp(I, _wl[4]).sub(wp(K, _wl[5])); k.addScaledVector(d, -k.dot(d)).normalize();
+    this.turnBone(LH, _iq[0].setFromUnitVectors(k, A));
   }
   // Turn a bone (in world space) by R, or so that its child lies along dir.
   turnBone(b, R) { const Pw = b.parent.getWorldQuaternion(_iq[4]), Bw = b.getWorldQuaternion(_iq[3]); b.quaternion.copy(Pw.invert()).multiply(R).multiply(Bw); b.updateWorldMatrix(false, true); }
@@ -963,16 +1215,18 @@ export class MobRig {
     { const own = (this.look.gear || []).some((q) => !['fists', 'tower', 'robe', 'shield', 'staff', 'bow', 'quiver'].includes(q));
       if (!A && (this.look.gear || []).includes('bow')) this.look.bow = true;
       if ((A && !A.ranged) || (!A && own && !this.look.cast)) { this.look.oneHand = true; this.look.cast = false; } }
-    const tpl = mobTemplate(kb);
+    const tpl = mobTemplate(kb); this.look.ck = kb;
     this.root = new THREE.Group();
     this.ok = !!tpl;
     if (!tpl) return;
     this.model = SkeletonUtils.clone(tpl.scene);
-    if (A || this.look.oneHand) this.gripHand(); // the weapon hand closes round what it holds (worked out before the weapon is hung on it)
-    if (this.look.bow) this.gripHand('Left');
     if (A) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, [A.gear], SHARED_MATS);
     if (this.look.bow) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, ['bow'], SHARED_MATS);
-    this.muz = this.model.getObjectByName('muzzle') || null; this.fore = this.model.getObjectByName('foregrip') || null; this.pull = this.model.getObjectByName('pull') || null; this.breech = this.model.getObjectByName('breech') || null; this.gup = this.model.getObjectByName('gunup') || null;
+    this.grasp = {}; this.model.traverse((o) => { const n = o.name || ''; if (n.startsWith('grasp:')) { const G = GRASP.get(n.slice(6)); if (G) this.grasp[n.split('|')[1]] = G; } }); // how each fist closes on what it holds
+    this.sup = this.model.getObjectByName('stafftop') || null; this.sat = this.model.getObjectByName('staffat') || null;
+    if (A || this.look.oneHand || this.sup) this.gripHand(); // the weapon hand closes round what it holds
+    if (this.look.bow) this.gripHand('Left');
+    this.muz = this.model.getObjectByName('muzzle') || null; this.fore = this.model.getObjectByName('foregrip') || null; this.pull = this.model.getObjectByName('pull') || null; this.bup = this.model.getObjectByName('bladeup') || null; this.breech = this.model.getObjectByName('breech') || null; this.gup = this.model.getObjectByName('gunup') || null;
     if (this.fore) this.gripHand('Left');
     if (this.look.bow) this.bowBits = ['strDrawn', 'strLoose', 'nock', 'nockHead'].map((n) => this.model.getObjectByName(n));
     this.model.rotation.y = tpl.yaw;
@@ -1007,7 +1261,7 @@ export class MobRig {
     this.atkT = -1; this.atkArm = true; this.atkDur = 0.5; this.lungeZ = 0;
     this.pP = 0; this.pB = 0;
     this.tail = []; this.model.traverse((o) => { if (/^tail_\d+$/.test(o.name)) this.tail[+o.name.slice(5)] = o; });
-    if (this.tail.length) { this.model.userData.tail = this.tail; this.model.userData.tailBase = this.tail.map((s) => s.rotation.x); }
+    if (this.tail.length) { this.model.userData.tail = this.tail; this.model.userData.tailBase = this.tail.map((s) => s.rotation.x); if (this.model.userData.tailLift === undefined) this.model.userData.tailLift = 0; }
     this.atkDur = this.look.slam ? 1.25 : this.look.cast ? 0.7 : this.look.aim ? 0.35 : this.look.bow ? 1.1 : 0.5; // slams land near the 1.2 s ground telegraph
     this.hover = !!(this.look.fly || this.look.float);
     const g = (k) => this.b.get(k) || null;
@@ -1283,6 +1537,13 @@ export class MobRig {
       const rel = u >= 0 ? foreBend : 0, kick = u >= 0 ? armRaise : 0; // rel 1 just loosed -> 0 drawn again
       this.bowPose(rel, kick);
       const B = this.bowBits; if (B) { const drawn = rel < 0.25; if (B[0]) B[0].visible = drawn; if (B[1]) B[1].visible = !drawn; if (B[2]) B[2].visible = drawn; if (B[3]) B[3].visible = drawn; }
+    }
+    if (this.sup && u < 0 && !frozen && this.lod < 2) this.twoPose(STAFFP, this.sup, this.sat); // a staff stands upright in the fist at the bearer's side
+    // A two-handed sword: carried upright in front at rest, and whatever the sword arm does, the other hand stays on the grip.
+    if (L.two && this.fore) {
+      if (u < 0 && !frozen && this.lod < 2) this.twoPose(TWOP); else if (u < 0 && !frozen) { rv(N.rua, -0.45, 0.3, 0); rv(N.rfa, -1.05, 0, 0); }
+      rv(N.lua, -0.6, -0.45, 0); rv(N.lfa, -1.1, 0, 0);
+      if (this.lod < 2) this.wrapLeft();
     }
     // Zombies: arms hang out in front, uneven and swaying (one higher, one drooping), the head lolls to one side, and the gait is a
     // limp: one leg stiff and dragging, a hitch and a hip drop on every step on it, the whole body lurching.

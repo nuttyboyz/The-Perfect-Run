@@ -42,11 +42,12 @@ function axeHead({ L, h0, up, down, t0 = 0.045, bulge = 0.03, y = 0 }) {
   return flat(g);
 }
 // hilt pieces
-const grip = (y0, y1, r = 0.017, col = LEATHER) => { const out = [tint(cyl(r, r * 0.92, y1 - y0, 8).translate(0, (y0 + y1) / 2, 0), col)]; return out; };
-const wraps = (y0, y1, n, r = 0.0185, col = DARKLEATHER) => { const o = []; for (let i = 0; i < n; i++) o.push(tint(cyl(r, r, 0.007, 8).translate(0, y0 + (y1 - y0) * (i + 0.5) / n, 0), col)); return o; };
+// (grips, wraps and hafts are real sizes, about 3 cm through: Nutty 2026-11-15, a hand has to close round them)
+const grip = (y0, y1, r = 0.017, col = LEATHER) => { r *= 0.84; const out = [tint(cyl(r, r * 0.92, y1 - y0, 8).translate(0, (y0 + y1) / 2, 0), col)]; return out; };
+const wraps = (y0, y1, n, r = 0.0185, col = DARKLEATHER) => { r *= 0.84; const o = []; for (let i = 0; i < n; i++) o.push(tint(cyl(r, r, 0.007, 8).translate(0, y0 + (y1 - y0) * (i + 0.5) / n, 0), col)); return o; };
 const cross = (y, w, col = DARKSTEEL, r = 0.011, droop = 0) => [tint(cyl(r, r, w, 6).rotateZ(Math.PI / 2).translate(0, y, 0), col), tint(ball(r * 1.5).translate(w / 2, y - droop, 0), col), tint(ball(r * 1.5).translate(-w / 2, y - droop, 0), col), tint(box(0.03, 0.024, 0.03).translate(0, y, 0), col)];
 const wheel = (y, r = 0.026, col = DARKSTEEL) => tint(cyl(r, r, 0.02, 12).rotateX(Math.PI / 2).translate(0, y, 0), col);
-const haft = (y0, y1, r = 0.018, col = ASH, seg = 8) => tint(cyl(r * 1.08, r, y1 - y0, seg).translate(0, (y0 + y1) / 2, 0), col);
+const haft = (y0, y1, r = 0.018, col = ASH, seg = 8) => tint(cyl(r * 0.86 * 1.08, r * 0.86, y1 - y0, seg).translate(0, (y0 + y1) / 2, 0), col);
 const spike = (r, h, seg = 4) => new THREE.ConeGeometry(r, h, seg);
 const out = (metal, soft, rust) => ({ metal, soft, rust });
 

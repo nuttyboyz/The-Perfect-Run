@@ -11,6 +11,7 @@ import { SWORD_SHIELDS } from './shields.js';
 import { SILVER_VARIANTS } from './shields_silver.js';
 import { AXE_PICKS, grenadelModern } from './axes.js';
 import { LONGBOW_VARIANTS, longbowPick, rigBow } from './longbow.js';
+import { BLASTERS, setBlasterEnv } from './blasters.js';
 
 // ---------- materials ----------
 export function grainTexture(base, dark, lines = 60, w = 256, h = 256) {
@@ -42,7 +43,7 @@ function applyEnv() {
   if (!M || !ENV) return;
   for (const k of Object.keys(ENV_K)) { M[k].envMap = ENV; M[k].envMapIntensity = ENV_K[k]; M[k].needsUpdate = true; }
 }
-export function setWeaponEnv(tex) { ENV = tex; applyEnv(); }
+export function setWeaponEnv(tex) { ENV = tex; applyEnv(); setBlasterEnv(tex); }
 export function mats() {
   if (M) return M;
   const rough = noiseTexture();
@@ -334,12 +335,12 @@ Object.assign(GUNS, {
       [BX(0.04, 0.02, 0.07, 0, 0.026, 0.27), m.gunmetal],
       [slab([[-0.02, 0.118], [0.16, 0.118], [0.15, 0.16], [0.0, 0.16]], 0.016, 0.004), m.gunmetal], // carry handle
       [BX(0.03, 0.02, 0.012, 0, 0.14, 0.15), m.gunmetal],
-      [at(cyl(0.095, 0.095, 0.15, 24).rotateZ(Math.PI / 2), 0, -0.125, 0.07), m.olive], // ammo drum
-      ...[-0.05, 0.0, 0.05].map((x) => [at(cyl(0.0975, 0.0975, 0.009, 24).rotateZ(Math.PI / 2), x, -0.125, 0.07), m.gunmetal]),
-      [at(cyl(0.03, 0.03, 0.16, 12).rotateZ(Math.PI / 2), 0, -0.125, 0.07), m.polymer], // hub
-      [BX(0.05, 0.06, 0.07, 0, -0.04, 0.07), m.gunmetal], // feed chute
+      [at(cyl(0.082, 0.082, 0.15, 24).rotateZ(Math.PI / 2), 0, -0.125, 0.135), m.olive], // ammo drum (set forward of the rear grip so a hand closes round the grip)
+      ...[-0.05, 0.0, 0.05].map((x) => [at(cyl(0.0845, 0.0845, 0.009, 24).rotateZ(Math.PI / 2), x, -0.125, 0.135), m.gunmetal]),
+      [at(cyl(0.03, 0.03, 0.16, 12).rotateZ(Math.PI / 2), 0, -0.125, 0.135), m.polymer], // hub
+      [BX(0.05, 0.06, 0.07, 0, -0.03, 0.135), m.gunmetal], // feed chute
     ];
-    for (let i = 0; i < 9; i++) { const t = i / 8; p.push([at(cyl(0.0058, 0.0058, 0.024, 8).rotateZ(Math.PI / 2), 0.053, -0.045 + t * 0.1, 0.1 - t * 0.075), m.brass]); } // belt
+    for (let i = 0; i < 9; i++) { const t = i / 8; p.push([at(cyl(0.0058, 0.0058, 0.024, 8).rotateZ(Math.PI / 2), 0.053, -0.045 + t * 0.1, 0.165 - t * 0.075), m.brass]); } // belt
     // The rotor spins about the housing axis: built around the origin, then lifted onto the axis.
     const sp = [];
     for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; sp.push([at(cyl(0.0088, 0.0088, 0.58, 10), Math.cos(a) * 0.034, Math.sin(a) * 0.034, 0.5), m.blued]); }
@@ -594,6 +595,27 @@ function katana() {
   return { parts: P, reach: 0.8, support: [0, 0, -0.11], twoHanded: true };
 }
 
+// Fencing Sword: a duelling sword. A deep polished bell guard with a rolled rim and turned rings, a red felt pad inside it,
+// a leather grip bound with twisted wire, a faceted steel pommel, and a long stiff blade (grooved for its first half) to a needle point.
+function fencing() {
+  const m = mats(), P = [];
+  const S = [[0.118, 0.0078, 0.0048, 0.003], [0.16, 0.0074, 0.0046, 0.003], [0.4, 0.0062, 0.004, 0.0024], [0.62, 0.005, 0.0033, 0.0016], [0.8, 0.0038, 0.0026, 0], [0.93, 0.0027, 0.002, 0], [0.985, 0.0016, 0.0013, 0], [1.0, 0, 0, 0]];
+  P.push(...bladeParts(S.map((q) => q[0]), S.map(([, w, t, fw]) => ringD(w, t, w * 0.34, fw, Math.min(0.0016, t * 0.4))), TAG_D, m));
+  P.push([at(new THREE.BoxGeometry(0.017, 0.0105, 0.03), 0, 0, 0.108), m.steelDark]);                               // ricasso block where the blade leaves the guard
+  // the bell: a deep bowl open toward the hand (apex forward), its outside turned with three fine rings, its rim rolled
+  P.push([lathe([[0, 0.112], [0.02, 0.1105], [0.04, 0.103], [0.056, 0.089], [0.066, 0.07], [0.0695, 0.054], [0.0665, 0.054], [0.063, 0.069], [0.0535, 0.0855], [0.0385, 0.0985], [0.02, 0.1055], [0, 0.107]], 40), m.steel]);
+  P.push([at(new THREE.TorusGeometry(0.068, 0.0026, 8, 44), 0, 0, 0.054), m.steel]);                                  // rolled rim
+  for (const [r, z] of [[0.0305, 0.108], [0.049, 0.0975], [0.0625, 0.0805]]) P.push([at(new THREE.TorusGeometry(r, 0.0011, 5, 40), 0, 0, z), m.steelDark]); // turned rings
+  P.push([lathe([[0.0125, 0.1], [0.05, 0.0855], [0.05, 0.083], [0.0125, 0.0975]], 30), m.ito]);                       // red felt pad inside the bell
+  P.push([lathe([[0, 0.092], [0.0125, 0.092], [0.0135, 0.096], [0.0135, 0.104], [0, 0.104]], 14), m.brass]);          // brass socket the grip seats in
+  // the grip: leather over wood, swelling in the palm, bound with twisted brass wire; brass ferrules at each end
+  wrapped(P, -0.118, 0.09, [[-0.118, 0.0118], [-0.06, 0.0142], [0.0, 0.0148], [0.06, 0.0136], [0.09, 0.0126]], m.leather, m.brass, 22, 0.0011);
+  P.push([lathe([[0, -0.124], [0.0128, -0.124], [0.0136, -0.121], [0.0136, -0.116], [0, -0.116]], 14), m.brass]);
+  // the pommel: a faceted steel nut with a brass button, heavy enough to balance the blade
+  P.push([lathe([[0, -0.166], [0.008, -0.166], [0.0165, -0.158], [0.018, -0.146], [0.0165, -0.132], [0.012, -0.124], [0, -0.124]], 8), m.steel]);
+  P.push([at(new THREE.SphereGeometry(0.0052, 10, 8), 0, 0, -0.168), m.brass]);
+  return { parts: P, reach: 1.0, support: null, twoHanded: false };
+}
 function knife() {
   const m = mats(), P = [];
   // Clip-point fighting knife: straight spine, curved belly, ground edge bevel, short fuller.
@@ -803,7 +825,7 @@ function bare() {
 
 // Modern melee: a baseball bat, a chainsaw and a bullwhip.
 // How each weapon is swung: thrust (stabs out), whip (lash), smash (overhead), chop (overhead, a little aslant); anything else cuts across.
-const STYLE = { knife: 'thrust', spear: 'thrust', whip: 'whip', warhammer: 'smash', chainsaw: 'thrust', axe: 'chop', fireaxe: 'chop', sledge: 'smash' };
+const STYLE = { fencing: 'thrust', knife: 'thrust', spear: 'thrust', whip: 'whip', warhammer: 'smash', chainsaw: 'thrust', axe: 'chop', fireaxe: 'chop', sledge: 'smash' };
 export function bat() {
   const m = mats(), P = [];
   P.push([grainAlong(lathe([[0, -0.03], [0.026, -0.03], [0.026, -0.015], [0.0165, 0.0], [0.0155, 0.2], [0.019, 0.42], [0.028, 0.6], [0.0335, 0.72], [0.033, 0.82], [0.026, 0.9], [0.012, 0.935], [0, 0.94]], 16)), m.wood]);
@@ -816,8 +838,8 @@ function chainsaw() {
   // Engine housing and rear handle (the grip sits at the origin), front handle bar, then the guide bar and chain out front.
   P.push([at(new THREE.BoxGeometry(0.13, 0.17, 0.3), 0, 0.02, 0.17), orange]);
   P.push([at(new THREE.BoxGeometry(0.12, 0.04, 0.18), 0, 0.12, 0.12), m.polymer]);
-  P.push([lathe([[0, -0.1], [0.017, -0.1], [0.017, 0.12], [0, 0.12]], 8), m.polymer]);
-  P.push([at(new THREE.BoxGeometry(0.03, 0.05, 0.14), 0, -0.1, 0.0), m.polymer]);
+  P.push([lathe([[0, -0.122], [0.017, -0.122], [0.017, 0.12], [0, 0.12]], 8), m.polymer]);
+  P.push([at(new THREE.BoxGeometry(0.03, 0.05, 0.14), 0, -0.145, 0.0), m.polymer]); /* (hand guard under the rear handle, low enough to clear a gloved hand) */
   const hb = new THREE.CatmullRomCurve3([V3(0, 0.08, 0.1), V3(0, 0.2, 0.17), V3(0, 0.2, 0.3), V3(0, 0.1, 0.34)]);
   P.push([new THREE.TubeGeometry(hb, 10, 0.012, 6), m.polymer]);
   P.push([at(new THREE.CylinderGeometry(0.045, 0.045, 0.14, 12).rotateZ(Math.PI / 2), 0, 0.0, 0.34), m.gunmetal]); // clutch drum
@@ -990,8 +1012,10 @@ function sledge() {
   P.push([at(new THREE.BoxGeometry(0.06, 0.12, 0.012), 0, 0, 0.94), m.steel]);
   return { parts: P, reach: 1.06, support: [0, 0, 0.2], twoHanded: true };
 }
-// Alien Blaster: a glossy organic pistol with a glowing red emitter crystal.
-GUNS.alienblaster = function alienblaster() {
+// Alien Blaster = Halo (Nutty's pick, #5 of the ten in blasters.js): no barrel, a pearl shell, two rails and four rings.
+GUNS.alienblaster = function alienblaster() { return BLASTERS.ab5(); };
+/* the old red organic pistol, kept for reference */
+const alienblasterOld = function alienblasterOld() { /* eslint-disable-line no-unused-vars */
   const m = mats(), x = modern(), P = [];
   P.push([slab([[-0.04, 0.0], [0.1, -0.005], [0.2, 0.012], [0.24, 0.03], [0.2, 0.065], [0.08, 0.075], [-0.03, 0.06]], 0.032, 0.008), x.alien]); // body
   P.push([slab([[0.0, 0.06], [0.12, 0.074], [0.2, 0.062], [0.12, 0.092], [0.02, 0.088]], 0.014, 0.004), x.alienLight]);                        // dorsal fin
@@ -1003,7 +1027,7 @@ GUNS.alienblaster = function alienblaster() {
   return { parts: P, muzzle: [0, 0.03, 0.31], support: null, pistol: true };
 };
 
-const MELEE = { lucille, machete, fireaxe, sledge, bat, chainsaw, whip, knife, sword, spear, axe, katana, warhammer, claws, bare, zombiestaff, healstaff };
+const MELEE = { fencing, lucille, machete, fireaxe, sledge, bat, chainsaw, whip, knife, sword, spear, axe, katana, warhammer, claws, bare, zombiestaff, healstaff };
 // Sword-and-shield pairs (shields.js). Looked up lazily rather than spread into MELEE: shields.js imports this
 // module, so if data.js pulls SWORD_SHIELD_DATA in first the cycle would hit SWORD_SHIELDS before it is initialised.
 const meleeBuilder = (id) => AXE_PICKS[id] || MELEE[id] || SILVER_VARIANTS[id] || SWORD_SHIELDS[id]; // Nutty's axe and shield picks override the old builders
@@ -1043,8 +1067,8 @@ export function makeWeapon(id, { card = false } = {}) {
     g = build(d.parts); kind = 'gun'; muzzle = d.muzzle; support = d.support; twoHanded = true;
     Object.assign(extra, rigBow(g, d, id === 'longbow' ? longbowPick() : id));
     if (d.cardTilt) extra.cardTilt = d.cardTilt;
-  } else if (GUNS[id]) {
-    const d = (id === 'grenadel' ? grenadelModern : GUNS[id])(); // the modern gunmetal launcher replaces the revolver-style one
+  } else if (GUNS[id] || BLASTERS[id]) {
+    const d = (id === 'grenadel' ? grenadelModern : GUNS[id] || BLASTERS[id])(); // the modern gunmetal launcher replaces the revolver-style one
     { const sg = d.shoulder || d.fist ? null : sightOf(d); if (sg) extra.sight = new THREE.Vector3(...sg); }
     g = build(d.parts); kind = 'gun'; muzzle = d.muzzle; support = d.support; twoHanded = !d.pistol; pistol = !!d.pistol;
     // A rotor that spins (minigun) and a round that can be hidden when the gun is empty (rocket, crossbow bolt).

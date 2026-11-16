@@ -409,7 +409,7 @@ export function spawnDragon(g, o) {
         if (pos.y < gy + 4 && st.mode !== 'takeoff') { pos.y = gy + 4; st.vy = Math.max(st.vy, 0); }
         st.roll += (-st.yawRate * 0.62 - st.roll) * Math.min(1, dt * 3);
         st.pitch += (-Math.atan2(st.vy, Math.max(4, st.speed)) * 0.75 - st.pitch) * Math.min(1, dt * 3);
-        st.tuck += (1 - st.tuck) * Math.min(1, dt * 2.2); st.crouch += (0 - st.crouch) * Math.min(1, dt * 4);
+        st.tuck += (1 - st.tuck) * Math.min(1, dt * 4.2); st.crouch += (0 - st.crouch) * Math.min(1, dt * 4);
         // wingbeats: hard and fast to climb, slow and heavy to cruise, then a long glide on spread wings
         if (hard) { wantAmp = 1.0; wantFreq = st.mode === 'takeoff' ? 1.25 : 1.05; st.glide = 0; st.beats = 0; }
         else if (st.atk) { wantAmp = 0.7; wantFreq = 0.75; st.glide = 0; }
@@ -454,8 +454,11 @@ export function spawnDragon(g, o) {
       for (const L of D.legs) { const sw = Math.sin(t * 1.3 + (L.rear ? 1 : 0)) * 0.05 - cs * st.amp * 0.06; // tucked back, swaying a little with each beat, claws hanging
         const k = st.tuck, c = st.mode === 'summon' ? st.crouch : 0.3; // k 0: standing crouched on the ground, 1: tucked back in flight
         const ga = L.rear ? 0.75 + c * 0.25 : -0.6 - c * 0.2, gb = L.rear ? -1.45 - c * 0.45 : 1.1 + c * 0.4;
-        const ta = (L.rear ? 1.2 : 1.0) + sw, tb = (L.rear ? -1.55 : -1.5) - sw;
-        L.hip.rotation.x = ga + (ta - ga) * k; L.knee.rotation.x = gb + (tb - gb) * k; L.foot.rotation.x = (-(ga + gb) + 0.25) * (1 - k) + 0.95 * k; }
+        /* in the air the limbs lie back along the body the way a soaring animal carries them: thighs swept back under the belly and tail,
+           shins trailing almost straight behind them, feet relaxed with the talons pointing back (not held under him as if standing) */
+        const ta = (L.rear ? 1.52 : 1.46) + sw, tb = (L.rear ? -0.1 : -0.18) - sw * 1.4, tf = (L.rear ? 0.32 : 0.4) + sw;
+        const e = k * k * (3 - 2 * k); /* eased: the push off the ground, then the fold back */
+        L.hip.rotation.x = ga + (ta - ga) * e; L.knee.rotation.x = gb + (tb - gb) * e; L.foot.rotation.x = (-(ga + gb) + 0.25) * (1 - e) + tf * e; }
       // head: looks where he is going, rears back and opens wide before the fire, then follows the stream
       let hy = clamp(st.yawRate * 0.5, -0.5, 0.5), hp = st.mode === 'summon' ? st.hp : 0.3 - st.pitch * 0.6, jaw = st.mode === 'summon' ? st.jaw : 0.04, glow = 0;
       if (st.atk) {
