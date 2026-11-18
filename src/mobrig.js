@@ -834,9 +834,12 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     },
     // The Lizard man's plasma: no gun, a ball of dark purple plasma gathered over his open hand (his body has no finger bones to hold a grip).
     plasmaorb() {
-      const fr = limb('RightHand', 'RightForeArm');
-      put('RightHand', 'plasmaD', new THREE.SphereGeometry(0.06, 28, 20), [0, 0.2, 0.05], fr);
-      put('RightHand', 'plasmaL', new THREE.SphereGeometry(0.085, 28, 20), [0, 0.2, 0.05], fr);
+      /* The ball floats just off his PALM (Nutty 2026-11-16: it sat above his arm). Palm side = x of the hand frame; fingers run away from the forearm. The three markers let aimGun turn the palm at the target with the fingers up, and the shot leaves from the ball. */
+      const fr = limb('RightHand', 'RightForeArm'), x = V().crossVectors(fr.u, fr.f).normalize(), PS = globalThis.__ps || [0.13, -0.085, 0];
+      put('RightHand', 'plasmaD', new THREE.SphereGeometry(0.05, 28, 20), PS, fr);
+      put('RightHand', 'plasmaL', new THREE.SphereGeometry(0.07, 28, 20), PS, fr);
+      const base = bp('RightHand').addScaledVector(fr.u, PS[1] * s).addScaledVector(fr.f, PS[2] * s);
+      mark('RightHand', 'breech', base); mark('RightHand', 'muzzle', base.clone().addScaledVector(x, PS[0] * s)); mark('RightHand', 'gunup', base.clone().addScaledVector(fr.u, -0.1 * s));
     },
     spear() {
       const fr = limb('RightHand', 'RightForeArm');
@@ -1209,7 +1212,7 @@ export class MobRig {
     this.kind = kind;
     // 'type@weapon': an armed mob (MOB_ARMS). Same body template; the weapon is glued to this mob's own hand bone.
     const [kb, arm] = kind.split('@'), A = arm && MOB_ARMS[arm];
-    this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged } : { ...(MOB_LOOKS[kb] || {}) };
+    this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged, palm: A.gear === 'plasmaorb' } : { ...(MOB_LOOKS[kb] || {}) };
     // Whoever holds a weapon strikes with it (Nutty 2026-11-13: sword carriers were smashing down with both fists). A mob given a melee
     // weapon, or whose own kit has one, swings the weapon hand: big "slam" bodies use the one-handed overhead cleave, the rest the cross cut.
     { const own = (this.look.gear || []).some((q) => !['fists', 'tower', 'robe', 'shield', 'staff', 'bow', 'quiver'].includes(q));
@@ -1528,7 +1531,7 @@ export class MobRig {
     // Shooters hold their gun at the hip, pointed ahead, the other hand on the fore-grip; foreBend carries the recoil.
     if (L.aim && !frozen) {
       const k = u >= 0 ? foreBend : 0;
-      rv(N.rua, -0.3 - 0.15 * k, 0.2, 0); rv(N.rfa, -1.22 - 0.3 * k, 0, 0);
+      if (L.palm) { const PP = globalThis.__pp || [-0.75, 0.55, -1.1]; rv(N.rua, PP[0] - 0.35 * k, PP[1], 0); rv(N.rfa, PP[2], 0, 0); } /* the plasma thrower holds his hand up in front, palm at the target, and shoves it forward as he lets go */ else { rv(N.rua, -0.3 - 0.15 * k, 0.2, 0); rv(N.rfa, -1.22 - 0.3 * k, 0, 0); }
       if (this.lod < 2) this.aimGun(k);
       if (this.fore) { rv(N.lua, -0.7, -0.5, 0); rv(N.lfa, -1.25, 0, 0); if (this.lod < 2) this.reachLeft(); }
     }

@@ -44,6 +44,7 @@ export const EXTRA_GOALS = { speed: { name: 'Game speed', how: 'Win 4 runs. Then
 export const speedUnlocked = () => { const [a, b] = EXTRA_GOALS.speed.p(); return a >= b; };
 
 export function gearUnlocked(id) {
+  if (id === 'wings') return false; /* deleted gear (Nutty 2026-11-17): a saved loadout that still lists it drops it */
   const g = GEAR_GOALS[id];
   if (!g) return true; // nothing to earn for this item
   const [a, b] = g.p();

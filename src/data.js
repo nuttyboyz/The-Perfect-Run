@@ -187,7 +187,6 @@ export const WEAPONS = [
   // Laser Vision is a weapon of its own that key 3 selects. eyes: fired from the eyes, nothing held in the hands.
   { id: 'webswing', name: 'Web Swing', kind: 'gear', tier: 3, gear: 'swing', how: 'Passive · press Jump again in the air', hud: 'Jump again in the air', desc: 'Jump, then hold Jump in the air: a web line shoots up into the sky and you swing on it. Let go to fly on, press Jump again for the next line.' },
   { id: 'jetpack', name: 'Jetpack', kind: 'gear', tier: 3, gear: 'jet', how: 'Passive · double-tap Jump to fly', hud: 'Double-tap Jump', desc: 'Double-tap Jump to light the jets: hold Jump to climb, hold Shift (L3 on a controller) to descend, tap it twice to drop straight down. Fuel refills on the ground.' },
-  { id: 'wings', name: 'Wings', kind: 'gear', tier: 3, gear: 'wings', how: 'Passive · X to flap, hold Sprint to soar', hud: 'X flap · Sprint soar', desc: 'Feathered wings on your back. Tap X in the air or on the ground to flap and climb bit by bit, then hold Sprint to spread them and soar across the sky. Stamina refills on the ground. X no longer dashes while you wear them.' },
   { id: 'drone', name: 'Guardian Drone', kind: 'gear', tier: 3, gear: 'drone', how: 'Passive · hovers at your side', hud: 'Auto-fires nearby', desc: 'A quad-rotor that hovers at your shoulder and locks on to anything within 22 m of you, raking it with a fast gatling gun. Needs no input.' },
   { id: 'turret', name: 'Turret Pack', kind: 'gun', tier: 3, deploy: true, how: 'Active · shoot to drop it · 9 s recharge', dmg: 0, rate: 0.5, mag: 1, reload: 9, spread: 0, auto: false, quiet: true, kick: 0.3, desc: 'Shoot to drop one huge sentry turret where you aim. It tears apart everything within 38 m for 10 seconds. 9 second recharge.' },
   { id: 'zombiestaff', name: 'Zombie Staff', kind: 'melee', tier: 3, how: 'Active · attack to slam · 60 s recharge', cane: true, summon: 5, cd: 60, dmg: 0, rate: 1.0, range: 0, arc: 0, desc: 'Hold it upright like a cane, then slam it into the ground: five zombies claw out and hunt everything around you for 25 seconds. 60 second recharge.' },
@@ -199,6 +198,7 @@ export const WEAPONS = [
 ];
 // Taken off the weapon wall (Nutty 2026-11-12). Kept here only so old references still resolve; never offered.
 export const RETIRED = [
+  { id: 'wings', name: 'Wings', kind: 'gear', tier: 3, gear: 'wings', how: 'Passive · X to flap, hold Sprint to soar', hud: 'X flap · Sprint soar', desc: 'Feathered wings on your back. Tap X in the air or on the ground to flap and climb bit by bit, then hold Sprint to spread them and soar across the sky. Stamina refills on the ground. X no longer dashes while you wear them.' }, /* Wings deleted from the game (Nutty 2026-11-17): kept here only so old saves still resolve */
   { id: 'revolver', tap: true, name: 'Combat Revolver', kind: 'gun', dmg: 55, rate: 0.55, mag: 6, reload: 1.8, spread: 0.004, auto: false, desc: 'Railed tactical wheelgun. Six heavy rounds.' },
   { id: 'lever', scope: true, scopeFov: 16, name: 'Battle Rifle', kind: 'gun', dmg: 40, rate: 0.36, mag: 20, reload: 2.2, spread: 0.004, auto: false, desc: 'Hard-hitting semi-auto .308 with a low-power scope.' },
   { id: 'lmg', name: 'Machine Gun', kind: 'gun', dmg: 17, rate: 0.095, mag: 80, reload: 4.2, spread: 0.028, auto: true, adsBack: 1.5, adsUp: 0.1, desc: 'Belt-fed, with a red dot up top. Hold the trigger down.' },
@@ -875,8 +875,8 @@ export function stageIdx(runSeed, round) {
 // field: how many are alive at once. bosses: BOSSES indices a boss wave can draw (never Thermes or The Visitor).
 export const HORDE = {
   rest: 30, bossEvery: 5, grow: 1.2, pcKill: 2, bossWaveK: 0.5, // bossWaveK: while a boss is up, its extra enemies pay half the coins
-  quota: (w) => 50 * w, // wave 1 is 50 enemies, and every wave adds 50 (Nutty 2026-11-13)
-  field: (w, n) => Math.round(Math.min(150, 30 + 10 * w) * (0.6 + 0.4 * n)),
+  quota: (w) => Math.round(37.5 * w), // was 50 a wave (Nutty 2026-11-13); a quarter fewer everywhere (Nutty 2026-11-16): wave 1 is 38, wave 2 is 75
+  field: (w, n) => Math.round(Math.min(150, 30 + 10 * w) * (0.6 + 0.4 * n) * 0.75),
   crate: 15, bossPc: 500, flyFrom: 7, // chests are a flat 15 PC; a boss pays 500 PC and one Deity Blessing
   // Durability: every weapon wears out and must be repaired or replaced at a stall. A gun lasts gunMags magazines, a blade meleeSwings swings.
   gunMags: 20, gunMinShots: 80, meleeSwings: 400, repair: 0.5,

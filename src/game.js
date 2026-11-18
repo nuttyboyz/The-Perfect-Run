@@ -1504,8 +1504,18 @@ export class Game {
         const [, , x, y, z, vx, vy, vz, dmg, style] = e;
         const pl = style === 4 || style === 5; /* purple plasma: 4 the Visitor's, 5 the Lizard man's smaller ball */ const col = style === 1 && this.views.boss ? new THREE.Color(this.views.boss.def.glow) : new THREE.Color(pl ? 0x6a3cc4 : style === 3 ? 0xfff2c0 : style === 2 ? 0xffc860 : 0x7dff3a); // 2: archer arrow, 3: a soldier's bullet, 4: the Visitor's bursting plasma
         let hit = false, back = false, held = null;
+        const P0 = [x / 10, y / 10, z / 10], V0 = [vx / 10, vy / 10, vz / 10];
+        if (style === 5) { /* the Lizard man's plasma leaves from the ball at his palm, re-aimed at the same spot */
+          let best = null, bd = 9; for (const v of this.views.mobs.values()) { if (!v.rig || !v.rig.muz) continue; const d = (v.x - P0[0]) ** 2 + (v.z - P0[2]) ** 2; if (d < bd) { bd = d; best = v; } }
+          const m = this._ms || (this._ms = new THREE.Vector3());
+          if (best && best.rig.muzzleWorld(m) && (m.x - P0[0]) ** 2 + (m.y - P0[1]) ** 2 + (m.z - P0[2]) ** 2 < 16) {
+            const sp = Math.hypot(V0[0], V0[1], V0[2]) || 1, t = Math.max(0.15, ((p.pos.x - P0[0]) * V0[0] + (p.pos.z - P0[2]) * V0[2]) / (V0[0] * V0[0] + V0[2] * V0[2] || 1));
+            const ax = P0[0] + V0[0] * t - m.x, ay = P0[1] + V0[1] * t - m.y, az = P0[2] + V0[2] * t - m.z, L = Math.hypot(ax, ay, az) || 1;
+            P0[0] = m.x; P0[1] = m.y; P0[2] = m.z; V0[0] = ax / L * sp; V0[1] = ay / L * sp; V0[2] = az / L * sp;
+          }
+        }
         const body = style === 2 || style === 3 ? this.mobShot(style, x / 10, y / 10, z / 10, vx / 10, vy / 10, vz / 10) : pl ? plasmaBody(this.scene, style === 5 ? 1.05 : 1.7) : null; /* (4: The Visitor's Halo blaster throws the same purple plasma the players' one does, bigger) */
-        this.el.orb([x / 10, y / 10, z / 10], [vx / 10, vy / 10, vz / 10], {
+        this.el.orb(P0, V0, {
           body, color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 5 ? 0.85 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
           onUpdate: (pos, vel) => {
             if (hit || !p.alive) return;

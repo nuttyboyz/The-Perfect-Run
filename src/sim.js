@@ -645,7 +645,7 @@ export class HostSim {
   capOf(B, n = 1) { return B.cap == null ? null : Math.min(B.hard ?? Infinity, Math.ceil(B.cap * this.mobBudget(n) / 16)); } // hard: never more, whatever the budget (the heavy hero-built bodies)
 
   // How many mobs the field holds at once (small swarmers and minions count for less, see cost).
-  mobBudget(n) { return Math.min(this.duel ? 230 : 560, Math.round((48 + this.round * 8 + n * 10) * 1.6 * (this.duel ? 1 : 3) * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.55 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
+  mobBudget(n) { return Math.min(this.duel ? 172 : 420, Math.round((48 + this.round * 8 + n * 10) * 0.75 /* Nutty 2026-11-16: a quarter fewer enemies everywhere */ * 1.6 * (this.duel ? 1 : 3) * (this.hard() ? 1.25 : 1) * (this.round === 0 && !this.duel ? 0.55 : 1)) + (this.roundLen === 0 ? Math.floor(this.rt / 60) : 0)); }
 
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {

@@ -6,6 +6,7 @@ import { FX } from './fx.js';
 import { CLASSES } from './data.js';
 import { makeHumanoid } from './models.js';
 import { CHARACTERS, makeCharacterModel } from './characters.js';
+import { whenAssets } from './assets.js';
 import { DEFAULT_SKIN } from './skins.js';
 import { rockMaterial } from './elements.js';
 import { makeNoise } from './rng.js';
@@ -24,6 +25,8 @@ const PAINT_HOME = new URLSearchParams(location.search).get('home') === 'paint';
 export class MenuScene {
   constructor(game) {
     this.game = game;
+    /* Heroes whose body file streams in behind the menu (Vanta, Amara) were first built as the plain stand-in figure and never swapped (Nutty 2026-11-16: "twin blobs"). When the rest of the files are in, rebuild them and redraw their cards. */
+    whenAssets().then(() => { try { for (const h of this.heroes || []) { if (!h.mesh || h.mesh.userData.rig) continue; this.buildHero(h, h.skin); if (!h.mesh.userData.rig) continue; const r = this.game && this.game.renderer; if (this._portraits && r) { const vis = this.heroes.map((o) => o.mesh.visible); const url = this.portrait(r, h.ch.id); this.heroes.forEach((o, i) => (o.mesh.visible = vis[i])); const img = document.querySelector('.char-card[data-ch="' + h.ch.id + '"] .portrait'); if (img) img.src = url; } } } catch (e) { console.warn('hero refresh', e); } });
     const s = (this.scene = new THREE.Scene());
     s.environment = game.envTex;
     s.environmentIntensity = 0.3;
@@ -237,7 +240,7 @@ export class MenuScene {
     for (let k = 0; k < 4; k++) h.mesh.userData.anim({ speed: 0, pitch: 0.05, gun: true }, 0.05, k);
     h.mesh.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(h.mesh);
-    const p = h.mesh.position, top = isFinite(box.max.y) ? box.max.y : p.y + (h.ch.height || 1.85); // a skinned part with no usable bounds (the ninja's gear) would otherwise aim the camera at NaN
+    const p = h.mesh.position; let top = isFinite(box.max.y) ? box.max.y : p.y + (h.ch.height || 1.85); /* a body whose bounds reach above its real head (Vanta, Amara: the card showed empty air and a sliver of helmet) is framed from the head bone instead */ { let hb = null, ht = null; h.mesh.traverse((o) => { if (o.isBone && /HeadTop_End$/.test(o.name)) ht = ht || o; else if (o.isBone && /Head$/.test(o.name)) hb = hb || o; }); const _v = new THREE.Vector3(); const hy = ht ? ht.getWorldPosition(_v).y + 0.03 : hb ? hb.getWorldPosition(_v).y + 0.25 : null; if (hy != null) { if (top > hy + 0.12) top = hy; } } // a skinned part with no usable bounds (the ninja's gear) would otherwise aim the camera at NaN
     const fwd = new THREE.Vector3(Math.sin(h.mesh.rotation.y), 0, Math.cos(h.mesh.rotation.y));
     const look = new THREE.Vector3(p.x, top - 0.42, p.z);
     cam.position.copy(look).addScaledVector(fwd, 2.3).add(new THREE.Vector3(0, 0.12, 0));
