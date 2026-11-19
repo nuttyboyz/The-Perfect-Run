@@ -50,7 +50,7 @@ import { Bot } from './bot.js';
 import { Dailies } from './dailies.js';
 import { ChestFx } from './chest.js';
 import { MutatorFx } from './mufx.js';
-import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY, BULLET_TIME } from './mutators.js';
+import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY, BULLET_TIME, DRUNK, DRUNK_DMG } from './mutators.js';
 
 const QUALITY = { low: 0, medium: 1, high: 2 };
 // Shared by both couch seats so they always run at the same speed.
@@ -2490,6 +2490,7 @@ export class Game {
     const pos = o.at || [t.x, t.y + t.h * 0.7, t.z];
     if (t.kind === 'demon') { this.ui.damageNumber(this.project(pos), 'IMMUNE', 'immune'); return; }
     if (t.kind === 'summon') { if (t.sm && t.sm.live) this.summonHurt(t.sm, dmg, !o.silentNum); return; }
+    if (muOn(DRUNK)) dmg *= DRUNK_DMG; /* Drunk Aim mutator: everything you land hits twice as hard */
     // Physical power-ups: Killer Instinct crits, Executioner finishes the wounded, Heavy Rounds shove.
     if (!o.chain) { // the other duelist is an enemy like any other: crits, executes and shoves land on them too (Nutty 2026-11-11)
       if (p.stats.crit && Math.random() < p.stats.crit) { dmg *= 2; o = { ...o, crit: true }; }

@@ -7,11 +7,15 @@ export const MUTATORS = [
   { id: 'pinata', bit: 4, name: 'Piñata', desc: 'Enemies pop in confetti and spill candy that heals you.' },
   { id: 'bottomless', bit: 8, name: 'Bottomless Clip', desc: 'Your guns never run dry. No reloading, ever.' },
   { id: 'bullettime', bit: 64, name: 'Bullet Time', desc: 'Hold aim and the whole world drops into slow motion while you move, shoot and fight at full speed. Hold it in the air to hang there.' },
+  { id: 'roulette', bit: 128, name: 'Weapon Roulette', desc: 'Every minute the weapon in your hands turns into a random one off the Weapon Wall.' },
+  { id: 'drunk', bit: 256, name: 'Drunk Aim', desc: 'Your aim sways all on its own, but every hit you land does double damage. Shots always go exactly where the crosshair is.' },
   { id: 'lowgrav', bit: 32, name: 'Low Gravity', desc: 'Moon jumps, a slower moon-walk, floaty falls, and enemies drift away when they die.' },
 ];
 export const MU_MASK = MUTATORS.reduce((a, m) => a | m.bit, 0);
 export const MU_BY_ID = Object.fromEntries(MUTATORS.map((m) => [m.id, m]));
-export const BIG_HEAD = 1, JACKPOT = 2, PINATA = 4, BOTTOMLESS = 8, NECRO = 16, LOWGRAV = 32, BULLET_TIME = 64;
+export const BIG_HEAD = 1, JACKPOT = 2, PINATA = 4, BOTTOMLESS = 8, NECRO = 16, LOWGRAV = 32, BULLET_TIME = 64, ROULETTE = 128, DRUNK = 256;
+export const DRUNK_DMG = 2; // Drunk Aim: damage multiplier
+export const ROULETTE_EVERY = 60; // Weapon Roulette: seconds between swaps (Nutty 2026-11-19: every minute)
 
 // The mutators in play right now on this device (set from each world snapshot, cleared in the lobby).
 // Views, rigs and the player read it directly, so nothing has to be passed down to them.

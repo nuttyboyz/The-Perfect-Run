@@ -1,6 +1,6 @@
 // The local player: movement, weapons, abilities, damage, revives and death.
 import * as THREE from 'three';
-import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME } from './mutators.js';
+import { muOn, BOTTOMLESS, LOWGRAV, GRAV_K, LOWGRAV_WALK, BULLET_TIME, ROULETTE, ROULETTE_EVERY, DRUNK } from './mutators.js';
 import * as Vault from './vault.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { updateWeaponFlames } from './flameweapon.js';
@@ -213,6 +213,13 @@ export class LocalPlayer {
     // Look.
     const lookK = g.settings.sens * 0.0022 * (1 - 0.45 * this.ads) * (1 + ((g.settings.sensAds ?? 1) - 1) * this.ads) * (g.scope && g.scope.zoomed ? Math.min(1, g.camera.fov / 36) : 1); // behind a scope the view turns slower, in step with the zoom
     this.yaw -= input.dx * lookK;
+    /* Drunk Aim mutator (Nutty 2026-11-19): the aim itself sways, so the view and the crosshair move together and every shot still goes
+       exactly where the crosshair is. Two slow waves on each axis keep the drift from feeling regular. */
+    if (muOn(DRUNK) && this.alive && !this.isBot) {
+      const T = (this.drT = (this.drT || 0) + dt), k = 1 - 0.4 * this.ads;
+      const sy = (Math.sin(T * 0.9) * 0.05 + Math.sin(T * 2.3 + 1.7) * 0.018) * k, sp = (Math.sin(T * 1.3 + 0.6) * 0.032 + Math.sin(T * 3.1) * 0.01) * k;
+      this.yaw += sy - (this.drY || 0); this.pitch = Math.max(-1.1, Math.min(1.25, this.pitch + sp - (this.drP || 0))); this.drY = sy; this.drP = sp;
+    } else this.drY = this.drP = 0;
     { const dp = input.dy * lookK * (g.settings.invertY ? -1 : 1);
       this.pitch = Math.max(-1.1, Math.min(1.25, this.pitch + dp));
       if (g.rcl && dp > 0 && g.rcl.p > 0) g.rcl.p = Math.max(0, g.rcl.p - dp); } // pulling down against the kick is your own correction: it is not undone
@@ -299,6 +306,21 @@ export class LocalPlayer {
     if (input.pressed.has('Digit4')) this.swap(2);
     if (input.wheel) this.swap(this.nextSlot(input.wheel < 0 ? -1 : 1));
     if (input.pressed.has('KeyR')) this.reload();
+    if (muOn(ROULETTE) && this.alive) { /* Weapon Roulette mutator (Nutty 2026-11-19): every minute the held weapon becomes a random one off the wall, full and good as new */
+      this.rouT = (this.rouT || 0) + dt;
+      if (this.rouT >= ROULETTE_EVERY) {
+        this.rouT = 0;
+        let i = this.cur; if (!WEAPON_BY_ID[this.weapons[i]] || WEAPON_BY_ID[this.weapons[i]].kind === 'gear') i = this.weapons.findIndex((w) => WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind !== 'gear');
+        const pool = WEAPONS.filter((w) => (w.kind === 'gun' || w.kind === 'melee') && w.id !== 'bare' && !this.weapons.includes(w.id));
+        if (i >= 0 && pool.length) {
+          const nw = pool[Math.floor(Math.random() * pool.length)], ids = [...this.weapons]; ids[i] = nw.id;
+          this.fists = false; this.setWeapons(ids, nw.id);
+          const j = this.weapons.indexOf(nw.id); if (this.dur) this.dur[j] = 1; this.ammo[j] = nw.kind === 'gun' ? this.magOf(nw) : nw.mag || 0;
+          this.model.userData.setWeapon(this.heldId());
+          const g = this.game; if (g.ui && !this.isBot) { g.ui.toast('Weapon Roulette: ' + nw.name, 'good'); g.audio.play('buy', 0.7); }
+        }
+      }
+    } else this.rouT = 0;
     if (muOn(BOTTOMLESS)) { // Bottomless Clip mutator: every gun stays topped up, so there is never a reload
       for (let i = 0; i < this.weapons.length; i++) { const w = WEAPON_BY_ID[this.weapons[i]]; if (w && w.kind === 'gun') this.ammo[i] = this.magOf(w); }
       if (this.reloadT > 0 && this.weapon.kind === 'gun') this.reloadT = 0;
