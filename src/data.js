@@ -206,7 +206,7 @@ export const RETIRED = [
   { id: 'sawedoff', name: 'Shorty Pump', kind: 'gun', dmg: 11, pellets: 10, rate: 0.55, mag: 5, reload: 2.2, spread: 0.115, auto: false, kick: 1.2, desc: 'Fourteen-inch pump with a bird\'s-head grip. Devastating up close.' },
 ];
 // Bare hands: what you fight with when the loadout is all gear. Not on the weapon wall.
-export const BARE = { id: 'bare', name: 'Bare Hands', kind: 'melee', fist: true, dmg: 24, rate: 0.3, range: 6.2, arc: 146, desc: 'Nothing but your fists.' };
+export const BARE = { id: 'bare', name: 'Bare Hands', kind: 'melee', fist: true, dmg: 12 /* Nutty 2026-11-18: fists hit far softer than a real melee weapon (about a third) */, rate: 0.3, range: 6.2, arc: 146, desc: 'Nothing but your fists.' };
 export const WEAPON_BY_ID = Object.fromEntries([...WEAPONS, ...RETIRED, BARE].map((w) => [w.id, w]));
 // The weapon wall has three tiers: 1 melee, 2 guns, 3 gear. A loadout is two picks from tiers 1-2 and one from tier 3,
 // kept in that order ([weapon, weapon, gear]).

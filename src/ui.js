@@ -298,6 +298,7 @@ export class UI {
     const h = !!this.game.hordeMode;
     this.$('#play-host b').textContent = h ? 'Host a Horde' : 'Host a Run';
     this.$('#play-private b').textContent = h ? 'Private Horde' : 'Private Game';
+    this.$('#play-quick b').textContent = h ? 'Quickplay Horde' : 'Quickplay';
     this.screen('s-play');
   }
 
@@ -343,7 +344,7 @@ export class UI {
       this.busy('Finding an opponent…');
       try {
         const r = await g.quickplay(true);
-        if (r === 'created') this.toast('Nobody is waiting right now, so you are hosting an open duel. The next Quick Play fighter lands here.', 'good');
+        if (r === 'created') { this.duelWait(); return; } /* nobody is waiting: you wait, and the fighter select opens when an opponent arrives */
       } catch (e) { g.duelMode = false; this.screen('s-donline'); this.toast(e.message || 'Quick Play could not connect', 'bad'); }
       this.busy(null);
     };
@@ -363,6 +364,18 @@ export class UI {
       this.busy(null);
     };
     this.$('#play-host').onclick = () => create(true);
+    /* Quickplay from the Play / Horde screen (Nutty 2026-11-18): straight into a game of that kind that is open or already being played. */
+    this.$('#play-quick').onclick = async () => {
+      g.audio.unlock(); g.audio.play('ui'); g.duelMode = false;
+      const horde = !!g.hordeMode;
+      this.busy(horde ? 'Finding a Horde game…' : 'Finding an open game…');
+      try {
+        g.hordeMode = horde;
+        const r = await g.quickplay(false);
+        if (r === 'created') this.toast('No ' + (horde ? 'Horde games' : 'games') + ' are open right now, so you are hosting one. Players who Quickplay will land here.', 'good');
+      } catch (e) { g.hordeMode = horde; this.playScreen(); this.toast(e.message || 'Quickplay could not connect', 'bad'); }
+      this.busy(null);
+    };
     this.$('#play-private').onclick = () => create(false);
     this.$('#join-quick').onclick = async () => {
       g.audio.unlock(); g.audio.play('ui');
@@ -566,6 +579,18 @@ export class UI {
 
   autoJoin(code) { this.join(code); }
 
+  /* Duel Quick Play with nobody waiting: a "Waiting for an opponent" screen until a second fighter joins, then the fighter select. */
+  duelWait() {
+    const g = this.game, b = this.$('#busy'), cancel = this.$('#busy-cancel');
+    const stop = () => { clearInterval(this._dwI); this._dwI = null; b.classList.remove('solid'); cancel.hidden = true; this.busy(null); };
+    this.busy('Waiting for an opponent…'); b.classList.add('solid'); cancel.hidden = false;
+    cancel.onclick = () => { g.audio.play('ui'); stop(); g.leaveParty(); g.duelMode = false; this.screen('s-donline'); };
+    clearInterval(this._dwI);
+    this._dwI = setInterval(() => {
+      if (!g.party || g.mode !== 'lobby') return stop();
+      if (g.party.peers().filter((q) => q.p && q.p.n).length >= 2) { stop(); g.audio.play('buy'); this.toast('Opponent found. Pick your fighter.', 'good'); }
+    }, 300);
+  }
   busy(text) {
     const b = this.$('#busy');
     b.classList.toggle('on', !!text);

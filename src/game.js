@@ -284,6 +284,7 @@ export class Game {
   initInput() {
     const I = this.input;
     window.addEventListener('gamepadconnected', (e) => this.detectLayout(e.gamepad));
+    window.addEventListener('pagehide', () => this.stashRejoin()); /* closing the tab mid-match: you can come back to it */
     for (const pd of connectedPads()) this.detectLayout(pd);
     if (!this.keyboard) return; // the second couch seat plays on a controller only
     window.addEventListener('keydown', (e) => {
@@ -775,7 +776,7 @@ export class Game {
      "no open games"), so it can be joined at any time. Private parties are never listed; a duel is listed only while it waits for a fighter. */
   advertiseTick() {
     if (!this.isHost || !this.lobby || !this.partyCode || !this.party) return;
-    const n = this.party.peers().length, open = this.partyPublic !== false && (this.mode === 'lobby' || (this.mode === 'game' && !this.duel && !this.duelMode));
+    const n = this.party.peers().length, open = (this.mode === 'lobby' && this.partyPublic !== false) || (this.mode === 'game' && !this.duel && !this.duelMode); /* a match being played can always be found by Quickplay, private or not (Nutty 2026-11-18) */
     this.lobby.advertise(open ? { code: this.partyCode, host: this.myName, n, dm: this.duelMode ? 1 : 0, hm: this.hordeMode ? 1 : 0, ig: this.mode === 'game' ? 1 : 0, pub: 1 } : null);
   }
 
@@ -787,11 +788,13 @@ export class Game {
   // Quickplay: join a random open public party (co-op first, not full); if none is open, host a public one for others to find.
   // duel = true is the Duel Arena's Quick Play: only open duels with one fighter waiting; if none, host an open duel.
   async quickplay(duel = false) {
+    const horde = !duel && !!this.hordeMode;
     if (this.lobby && this.lobby.scan) await this.lobby.scan();
     const open = (this.lobby ? this.lobby.parties() : []).filter((p) => !p.me && p.code && p.pub !== 0 && (p.n || 1) < (duel ? 2 : 5));
-    const pool = open.filter((p) => !!p.dm === duel && (duel || !!p.hm === !!this.hordeMode)); /* Quickplay from the Horde menu finds Horde games, from the run menu runs */
-    if (pool.length) { const p = pool[Math.floor(Math.random() * pool.length)]; await this.joinParty(p.code); return 'joined'; }
-    this.duelMode = duel;
+    const pool = open.filter((p) => !!p.dm === duel && (duel || !!p.hm === horde)); /* Quickplay from the Horde menu finds Horde games, from the run menu runs */
+    pool.sort((a, b) => (b.ig || 0) - (a.ig || 0)); /* games already being played first */
+    if (pool.length) { const live = pool.filter((p) => p.ig), from = live.length ? live : pool, p = from[Math.floor(Math.random() * from.length)]; await this.joinParty(p.code); return 'joined'; }
+    this.duelMode = duel; this.hordeMode = horde;
     await this.createParty(true);
     return 'created';
   }
@@ -808,7 +811,64 @@ export class Game {
     this.party.set({ lb: this.lbInfo() });
   }
 
+  /* Coming back to a match you left (Nutty 2026-11-18): whoever leaves a match that is still being played, host or not, has their exact
+     state kept on this device (character and loadout, health, weapons with ammo and wear, power-ups, cooldowns, PC, level). When they join
+     that same match again they skip the select screen and drop straight back in with all of it. A finished match forgets it. */
+  stashRejoin() {
+    try {
+      const p = this.player, pk = this.party && this.party.kind;
+      if (!p || this.mode !== 'game' || !this.party || pk === 'solo' || pk === 'local' || this.bot || this.duel || this.duelMode || this.ranOver) return;
+      const rs = this.isHost && this.sim ? this.sim.runSeed : this.lastW ? this.lastW.rs : null;
+      if (rs == null || ['over', 'win'].includes(this.phase)) return;
+      const lo = this.loadout;
+      const st = {
+        hp: p.hp, pc: p.pc, xp: p.xp, level: p.level, kills: p.kills, totalKills: p.totalKills, damageDealt: p.damageDealt, deaths: p.deaths | 0, beds: p.beds, revives: p.revives,
+        weapons: [...p.weapons], ammo: [...p.ammo], dur: p.dur ? [...p.dur] : null, cur: p.cur, fists: !!p.fists,
+        pu: p.powerups.map((q) => q.id), bl: p.blessings.map((b) => b.id), ab: ['q', 'r', 'e'].map((k) => (p.cls[k] ? p.cls[k].id : null)), dashEl: p.dashEl || null,
+        pos: [p.pos.x, p.pos.z], sd: this.world ? this.world.seed : null, down: !p.alive || p.out, rerolls: p.rerolls | 0, crates: p.cratesOpened | 0, rsStats: { pcEarned: this.runStats.pcEarned, roundsCleared: this.runStats.roundsCleared, bosses: this.runStats.bosses, pp: this.runStats.pp | 0 },
+      };
+      const stash = { code: this.partyCode, rs, t: Date.now(), horde: !!this.hordeMode, lo: { ch: lo.ch, sk: lo.sk, c: lo.c, w: [...(lo.w || [])] }, st };
+      this.rejoinStash = stash;
+      try { localStorage.setItem('perfectrun.rejoin', JSON.stringify(stash)); } catch {}
+    } catch (e) { console.warn('rejoin stash', e); }
+  }
+  rejoinFor(hostW) {
+    let s = this.rejoinStash;
+    if (!s) { try { s = JSON.parse(localStorage.getItem('perfectrun.rejoin') || 'null'); } catch { s = null; } }
+    if (!s || !hostW || s.code !== this.partyCode || s.rs !== hostW.rs || Date.now() - s.t > 3 * 3600 * 1000 || !s.st || !s.lo) return null;
+    return s;
+  }
+  forgetRejoin() { this.rejoinStash = null; try { localStorage.removeItem('perfectrun.rejoin'); } catch {} }
+  applyRejoin(s) {
+    const p = this.player, st = s.st;
+    try {
+      if (this.hordeMode) { p.setAbils(st.ab); p.dashEl = st.dashEl; this.party.set({ ha: st.ab.filter(Boolean), c: p.cls.id }); }
+      const ids = st.weapons.filter((id) => WEAPON_BY_ID[id]);
+      if (ids.length) {
+        p.setWeapons(ids);
+        p.ammo = ids.map((id, i) => { const j = st.weapons.indexOf(id); return st.ammo[j] ?? p.ammo[i]; });
+        if (st.dur) p.dur = ids.map((id) => { const j = st.weapons.indexOf(id); return st.dur[j] ?? 1; });
+        p.cur = Math.max(0, Math.min(ids.length - 1, st.cur | 0)); p.fists = !!st.fists;
+      }
+      p.powerups = st.pu.map((id) => POWERUP_BY_ID[id]).filter(Boolean);
+      p.blessings = st.bl.map((id) => BLESSINGS.find((b) => b.id === id)).filter(Boolean);
+      p.level = st.level | 0; p.xp = st.xp || 0; p.xpNeed = XP.need(p.level);
+      p.pc = st.pc | 0; p.kills = st.kills | 0; p.totalKills = st.totalKills | 0; p.damageDealt = st.damageDealt || 0; p.deaths = st.deaths | 0;
+      p.beds = st.beds | 0; p.revives = st.revives | 0; p.rerolls = st.rerolls | 0; p.cratesOpened = st.crates | 0;
+      p.recomputeStats();
+      p.hp = Math.max(1, Math.min(p.stats.maxHp, st.down ? p.stats.maxHp * 0.25 : st.hp));
+      this._rj = { pos: st.pos, sd: st.sd, hp: p.hp }; /* placed once the map is up (syncWorld) */
+      Object.assign(this.runStats, st.rsStats || {});
+      if (this.hordeMode) this.waveBase = { k: p.totalKills, pc: this.runStats.pcEarned };
+      p.reloadT = 0; p.model.userData.setWeapon(p.heldId());
+      p.invulnUntil = this.now + 4;
+      this.ui.hudAbilities();
+      this.ui.toast('Welcome back. Everything you had is with you.', 'good');
+    } catch (e) { console.warn('rejoin apply', e); }
+  }
+
   leaveParty() {
+    this.stashRejoin();
     this.timers = []; if (this.blessOpen) { this.blessOpen = false; try { this.ui.bless(null); } catch {} }
     if (this.seat === 2 && this.opts.onLeave) { this.opts.onLeave(); return; }
     this.couchWait = false;
@@ -1149,6 +1209,11 @@ export class Game {
       this.party.set({ w: this.sim.snapshot() });
       if (this.sim.phase !== 'lobby' && this.waitAssets()) this.enterGame();
       else if (this.party.kind === 'local') this.couchCountdown();
+    } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && this.rejoinFor(host.p.w)) {
+      /* back in a match you left: no select screen, straight in with what you had */
+      const rj = this.rejoinFor(host.p.w);
+      if (!this._rjSet) { this._rjSet = true; this.hordeMode = !!rj.horde; Object.assign(this.loadout, rj.lo); this.party.set({ ch: rj.lo.ch, sk: rj.lo.sk, c: rj.lo.c, wp: rj.lo.w }); this.ui.busy('Rejoining your match…'); }
+      if (this.waitAssets()) { this._rjSet = false; this.ui.busy(null); this.enterGame(); this.applyRejoin(rj); }
     } else if (host && host.p.w && host.p.w.ph && host.p.w.ph !== 'lobby' && !['over', 'win', 'dend'].includes(host.p.w.ph) && this.loadOk(this.loadout.w) && (this.ready || !this.ui.flipOn())) {
       if (this.waitAssets()) this.enterGame(); // a late joiner goes in when they press Ready Up on the Element page
     }
@@ -1195,7 +1260,23 @@ export class Game {
     } else this.hostLostT = 0;
     if (!this.isHost && this.party.kind === 'peer') {
       if (host && host.p.lb) this.lastHostLb = host.p.lb;
-      if (this.party.promoted) { this.becomeHost('The host left. You are the host now: everyone is back in the lobby.'); return; }
+      if (this.party.promoted) {
+        /* The host left in the middle of a match: the next player who joined carries the same match on from where it was (Nutty 2026-11-18),
+           and the game stays on the Quickplay list. Only when that is impossible does everyone go back to the lobby. */
+        let carried = false;
+        try {
+          if (this.lastW && !this.duel) {
+            const lb = this.lastHostLb || {};
+            this.sim = HostSim.fromSnapshot(this, this.lastW);
+            this.isHost = true; this.partyPublic = lb.pub !== 0; this.party.promoted = false;
+            this.party.set({ host: 1, lb: this.lbInfo(), w: this.sim.snapshot() });
+            this.advertiseTick();
+            this.ui.toast('The host left. You are the host now and the match goes on.', 'good');
+            carried = true;
+          }
+        } catch (e) { console.warn('host handover', e); }
+        if (!carried) { this.becomeHost('The host left. You are the host now: everyone is back in the lobby.'); return; }
+      }
       if (!host && this.party.status !== 'ok' && !this.hostGoneShown) { this.hostGoneShown = true; this.ui.toast(this.party.status === 'migrating' ? 'The host left. Moving the party to a new host…' : 'Lost connection to the host.', 'bad'); }
       if (host) this.hostGoneShown = false;
     }
@@ -1363,7 +1444,9 @@ export class Game {
       this.horde = !!w.hw; this.hw = w.hw || null;
       if (this.horde && this.hw[0] !== was) this.onWave(this.hw[0], was);
     }
-    if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) this.loadRound(w.sd, w.rd);
+    if (!this.world || this.world.seed !== w.sd || (this.duel && this.world.arenaIdx !== this.duelArena)) { this.loadRound(w.sd, w.rd);
+      /* a returning player stands where they left (same map only) with the health they left with, not a fresh map's full heal */
+      const rj = this._rj; if (rj && this.player) { this._rj = null; const p = this.player; if (rj.sd === w.sd && rj.pos && isFinite(rj.pos[0])) p.placeAt(rj.pos[0], rj.pos[1]); p.hp = Math.max(1, Math.min(p.stats.maxHp, rj.hp)); } }
     if (this.horde && this.player) { // the break has just begun: every player posts their wave numbers, and the summary goes up
       const rest = this.hw[3] > 0 && this.hw[0] > 0;
       if (rest && this._hsWave !== this.hw[0]) {
@@ -3135,6 +3218,7 @@ export class Game {
 
   // ---------------- end of run ----------------
   endRun(win) {
+    this.forgetRejoin(); /* a finished match is not rejoined: next time it is the select screen again */
     this.ranOver = true; this.timers = []; if (this.blessOpen) { this.blessOpen = false; this.ui.bless(null); }
     const p = this.player;
     if (this.horde) {
