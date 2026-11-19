@@ -490,11 +490,17 @@ export class CharacterRig {
     }
     const pitch = THREE.MathUtils.clamp(st.pitch || 0, -1.1, 1.2);
     this.pitch = pitch;
+    /* Shield (Nutty 2026-11-19): the block eases up and down instead of snapping, and a parry is a short punch of the shield with the body
+       leaning in behind it. st.parry = seconds since the parry landed. */
+    this._bk = (this._bk || 0) + ((st.block ? 1 : 0) - (this._bk || 0)) * Math.min(1, (dt || 0.016) * 16);
+    const parryK = st.parry != null && st.parry >= 0 && st.parry < 0.36 ? Math.sin(Math.PI * Math.pow(st.parry / 0.36, 0.6)) : 0;
+    this._parryK = parryK;
     const spine = ['Spine', 'Spine1', 'Spine2'].map((k) => B.get(k)).filter(Boolean);
     for (const sb of spine) {
       rotateWorld(sb, up, (-this.legYaw + twist) / spine.length);
       rotateWorld(sb, right, -(isGun || melee > 0 ? pitch * 0.7 : pitch * 0.35) / spine.length);
       if (lungeK) { rotateWorld(sb, right, -lungeK * 0.3 / spine.length); } /* leaning in, sword shoulder leading */
+      if (!this.firstPerson && (this._bk > 0.01 || parryK)) rotateWorld(sb, right, -(this._bk * 0.08 + parryK * 0.3) / spine.length); /* braced behind the shield; a parry leans right in */
     }
     if (this.firstPerson) lungeK = 0;
     this._lunge = lungeK;
@@ -607,6 +613,11 @@ export class CharacterRig {
             } else {
             gp = eye.clone().add(V(-0.25 + bobX, -0.34 + bob, 0.42).multiplyScalar(K).applyQuaternion(aimQ));
             gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.55, 0.2, -0.45, 'YXZ')));
+            if (wd.shield) { /* held low on the right with the blade turned across to the side, clear of the shield (Nutty 2026-11-19) */
+              const b = this._bk || 0;
+              gp = eye.clone().add(V(-0.3 + bobX - 0.04 * b, -0.36 + bob - 0.03 * b, 0.4 - 0.06 * b).multiplyScalar(K).applyQuaternion(aimQ));
+              gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.95 - 0.5 * b, -0.9 + 0.3 * b, 'YXZ')));
+            }
             if (st.sprint) gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.2, 0.5, 'YXZ')));
             }
           }
@@ -741,10 +752,30 @@ export class CharacterRig {
       // Left hand: support point or free. With a shield: held at the side, or raised square in front of the chest to block.
       const supP = wd.cane ? (melee > 0 ? V(0, 0, 0.34) : null) : wd.support;
       if (wd.shield) {
-        const eyeP = B.get('Head').getWorldPosition(new THREE.Vector3());
-        const bk = st.block ? 1 : 0;
-        const pt = eyeP.clone().add(V(0.16 - 0.1 * bk, -0.55 + 0.25 * bk, 0.12 + 0.3 * bk).multiplyScalar(h).applyQuaternion(yaw));
-        this.grab('Left', pt, V(0, -1, 0.2 + bk * 0.8).normalize().applyQuaternion(yaw), V(1, 0, 0).applyQuaternion(yaw), 0.95, right.clone().negate(), h);
+        /* Carried: on the forearm at the left side, face turned outward. Blocking: the forearm comes across the body and the shield
+           stands square to the front, covering chest and chin. Parry: it punches forward. The shield's face is then set squarely on the
+           forearm for whatever body this is, so it never hangs at the angle the arm happened to roll to. */
+        const fp = this.firstPerson, bk = this._bk || 0, pk = this._parryK || 0, e = bk * bk * (3 - 2 * bk);
+        const eyeP = fp ? this.eyeWorld() : B.get('Head').getWorldPosition(new THREE.Vector3());
+        const fr = fp ? aimQ : yaw, K2 = fp ? this.k : h;
+        const idle = fp ? V(0.36, -0.5, 0.5) : V(0.3, -0.62, 0.26), blk = fp ? V(0.14, -0.42, 0.5) : V(0.08, -0.4, 0.34);
+        const off = idle.lerp(blk, e); off.z += pk * (fp ? 0.09 : 0.3); off.y += pk * (fp ? 0.05 : 0.02);
+        const pt = eyeP.clone().add(off.multiplyScalar(K2).applyQuaternion(fr));
+        const fDir = V(-0.25 - 0.75 * e, 0.25 + 0.2 * e, 1 - 0.85 * e).normalize().applyQuaternion(fr); /* fingers forward at the side; across the body when blocking */
+        this.grab('Left', pt, fDir, V(-1 + e, 0, -e).normalize().applyQuaternion(fr), 0.95, V(0.5, -0.6 - 0.3 * e, -0.6 + 0.6 * e).normalize().applyQuaternion(fr), h);
+        const sh = this.shield, fa = B.get('LeftForeArm'), lh = B.get('LeftHand');
+        if (sh && fa && lh) {
+          fa.updateWorldMatrix(true, false); lh.updateWorldMatrix(true, false);
+          const ep = fa.getWorldPosition(new THREE.Vector3()), hp = lh.getWorldPosition(new THREE.Vector3()), ax = hp.clone().sub(ep), al = ax.length() || 1; ax.divideScalar(al);
+          const n0 = V((fp ? 0.45 : 0.9) * (1 - e), 0.05, 0.45 + 0.55 * e).normalize().applyQuaternion(fr), n = n0.clone().addScaledVector(ax, -ax.dot(n0) * (1 - e)).normalize(); /* (carried it lies along the forearm; raised it is turned square to the front by the grip) */
+          if (Math.abs(ax.y) < 0.85) { const nv = new THREE.Vector3().crossVectors(ax, V(0, 1, 0)).normalize(); if (nv.dot(n0) < 0) nv.negate(); n.lerp(nv, 0.85 * (1 - e)).normalize(); } /* it stands upright, never lying flat like a tray */ /* its face: out to the side when carried, to the front when blocking */
+          const yv = V(0, 1, 0).addScaledVector(n, -n.y).normalize(), zv = new THREE.Vector3().crossVectors(n, yv).normalize(); /* (the shield's face looks down its own x axis, its top is y) */
+          const wq2 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, yv, zv));
+          const fq = fa.getWorldQuaternion(new THREE.Quaternion()), fs = fa.getWorldScale(new THREE.Vector3()).y || 1;
+          sh.quaternion.copy(fq.invert().multiply(wq2));
+          const wp = hp.clone().addScaledVector(ax, 0.05 * h * (1 - e)).addScaledVector(n, 0.085 * h); /* a round shield is held by the grip behind its boss: the fist sits inside the dome */
+          sh.position.copy(fa.worldToLocal(wp)); sh.scale.setScalar(1 / fs);
+        }
       } else if (supP) {
         let f, p, gun2 = false; const topBar = !globalThis.__oldHold && wd.id === 'chainsaw'; const vg = !globalThis.__oldHold && isGun && VGRIP[wd.id];
         if (wd.bow) { f = V(-0.25 * mir, 0.05, 1).normalize(); p = V(-mir, 0, -0.15).normalize(); } // fist round the riser, arm straight at the target

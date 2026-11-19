@@ -1094,6 +1094,11 @@ export function makeWeapon(id, { card = false } = {}) {
       // Sword-and-shield: the shield is its own group (not added to g) in shield space: centred at the origin,
       // lying in the Y/Z plane, front face toward +X, up +Y. The character rig mounts it on the off arm.
       extra.shield = build(d.shield.parts); extra.shieldSize = d.shield.size;
+      { /* the inside of the shield is lined with leather and has two arm straps, so in first person you look at a real shield back, not a black mirror (Nutty 2026-11-19) */
+        const lm = mats().leather, R = d.shield.size / 2 - 0.012, lin = new THREE.Mesh(new THREE.CircleGeometry(R, 40).rotateY(-Math.PI / 2).translate(-0.0135, 0, 0), lm);
+        const strap = (z) => new THREE.Mesh(new THREE.BoxGeometry(0.004, R * 1.5, 0.034).translate(-0.016, 0, z), lm);
+        lin.receiveShadow = true; extra.shield.add(lin, strap(-R * 0.42), strap(R * 0.42));
+      }
       if (card) {
         // Weapon-wall card: the blade's flat faces the camera, tipped up to the right, with the shield standing
         // behind it to the left. After the card's own Ry(90°) weapon +z runs right, weapon -x is toward the camera.

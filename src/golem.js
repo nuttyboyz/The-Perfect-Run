@@ -241,6 +241,7 @@ export function spawnGolem(g, o) {
     dur: dur + 1,
     update: (dt, t) => {
       const own = o.owner(), pos = root.position;
+      if (g.summonTick) g.summonTick(o, st, pos.x, pos.y, pos.z, 2.1, 5.2, 6.2, st.mode !== 'emerge'); /* health bar; can be shot (Nutty 2026-11-19) */
       if ((!own || t > dur || st.hp <= 0) && !st.done) { st.done = true; crumble(); return false; }
       let O = own || own0;
       if (st.roam && st.mode !== 'emerge') { // roaming: he goes where the fight is, or wanders on his own, instead of keeping to his summoner

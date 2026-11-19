@@ -355,7 +355,9 @@ export function spawnDragon(g, o) {
     update: (dt, t) => {
       const own = o.owner();
       if (!own && !st.gone) { st.gone = true; st.goneAt = t; }
-      if (t > dur && !st.gone) { st.gone = true; st.goneAt = t; }
+      if (st.maxHp == null) { st.maxHp = 900; st.life = 900; } /* (st.hp is its head pitch, so its health is st.life) */
+      if (g.summonTick) g.summonTick(o, st, root.position.x, root.position.y - 1.6, root.position.z, 3.4, 4.2, 5.4, !st.gone && t > 1.2, 'life'); /* health bar; can be shot down (Nutty 2026-11-19) */
+      if ((t > dur || st.life <= 0) && !st.gone) { st.gone = true; st.goneAt = t; }
       const O = own || own0;
       D.U.uT.value = t;
       let wantAmp = 0.5, wantFreq = 0.85, hard = false;

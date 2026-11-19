@@ -1473,7 +1473,9 @@ export class UI {
     const local = g.party && g.party.kind === 'local' && !g.bot;
     this.$('#pause-sub').textContent = local ? 'Player ' + g.seat + ' menu' : g.party && !g.alone && !g.bot ? 'The run keeps going while you are here.' : 'Paused';
     this.$('#pause').classList.remove('asking');
-    this.$('#pause-note').textContent = !local ? (g.party && g.party.code && !g.alone && !g.bot ? 'Join code: ' + String(g.party.code).toUpperCase() : '') /* friends can be given the code from the pause menu (Nutty 2026-11-18) */ : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
+    const code = !local && g.party && !['solo', 'local'].includes(g.party.kind) && !g.bot ? String(g.party.code || g.partyCode || '').toUpperCase() : ''; /* pressing Start always shows the code of an online game (Nutty 2026-11-19) */
+    this.$('#pause-note').classList.toggle('code', !!code);
+    this.$('#pause-note').textContent = !local ? (code ? 'Join code: ' + code : '') /* friends can be given the code from the pause menu (Nutty 2026-11-18) */ : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
     if (!this.confirmTimer) this.$('#pause-leave').textContent = local ? (g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op') : g.hordeMode || g.horde ? 'Quit Game' : 'Leave Run'; /* Horde: Quit Game, then Return to Home (Nutty 2026-11-18) */
     if (show) this.renderShare();
   }
@@ -1565,7 +1567,7 @@ export class UI {
           this.setC(el, 'broken', d != null && d <= 0);
         }
       }
-      this.setT(el._am ||= this.$('.ws-ammo', el), w.deploy && p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : gear ? (w.id === 'turret' ? (p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : p.turretCd > 0 ? 'Ready in ' + Math.ceil(p.turretCd) + ' s' : w.hud) : (w.hud || 'Passive')) : w.summon || w.heal ? (p.staffCd > 0 ? 'Ready in ' + Math.ceil(p.staffCd) + ' s' : w.heal ? 'Raise to heal' : 'Slam to summon') : w.kind === 'melee' || w.bow || (w.kind === 'gun' && muOn(BOTTOMLESS)) ? '∞' : (i === p.cur && p.reloadT > 0 ? (w.cool ? 'Cooling' : w.energy ? 'Recharging' : 'Reloading') : w.energy ? Math.round(p.ammo[i] / p.magOf(w) * 100) + '% charge' : p.ammo[i] + ' / ' + p.magOf(w)));
+      this.setT(el._am ||= this.$('.ws-ammo', el), w.deploy && p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : gear ? (w.id === 'turret' ? (p.turret ? 'Up · ' + Math.ceil(p.turret.life) + ' s' : p.turretCd > 0 ? 'Ready in ' + Math.ceil(p.turretCd) + ' s' : w.hud) : (w.hud || 'Passive')) : w.summon || w.heal ? (p.staffCd > 0 ? 'Ready in ' + Math.ceil(p.staffCd) + ' s' : w.heal ? 'Raise to heal' : 'Slam to summon') : w.kind === 'melee' || w.bow || (w.kind === 'gun' && muOn(BOTTOMLESS)) ? '∞' : (i === p.cur && p.reloadT > 0 ? (w.blast ? 'Overheated' : w.cool ? 'Cooling' : w.energy ? 'Recharging' : 'Reloading') : w.energy ? Math.round(p.ammo[i] / p.magOf(w) * 100) + '% charge' : p.ammo[i] + ' / ' + p.magOf(w)));
     });
     // Charge bar of an energy weapon (Pulse Cannon, Laser Vision).
     const eb = this.$k('#energybar'), en = !!wp.energy && p.alive;
@@ -1692,40 +1694,81 @@ export class UI {
 
   /* The scoreboard (hold Tab, or click the DualShock touchpad): time and progress, a big map, everyone's health, kills and PC, and your own
      numbers. It redraws itself while it is up, so players who join or leave appear and disappear on their own. */
-  board(on) {
-    const el = this.$('#board'); if (!el) return;
-    on = !!on && this.game.mode === 'game';
+  board(on, viaPad) {
+    const el = this.$('#board'), g = this.game; if (!el) return;
+    on = !!on && g.mode === 'game' && !g.duel && !g.duelMode; /* Runs and Horde only, never in a duel (Nutty 2026-11-19) */
     if (on === !!this.boardOn) return;
     this.boardOn = on; el.classList.toggle('on', on);
     clearInterval(this._bdI);
-    if (!on) return;
-    const draw = () => { try { if (this.game.mode !== 'game' || !this.game.player) return this.board(false); this.drawBoard(); } catch (e) { console.warn('board', e); } };
+    if (!on) {
+      el.querySelectorAll('.pad-focus').forEach((e) => e.classList.remove('pad-focus'));
+      if (this._bdFree) { this._bdFree = false; if (!this.$('#pause').classList.contains('on')) g.lockPointer(); } /* the mouse goes back to aiming */
+      return;
+    }
+    /* keyboard: the mouse is let go while the board is up, so power-ups can be pointed at and +10 clicked (you can still walk) */
+    if (!viaPad && g.keyboard && !(g.pad && g.pad.active) && document.pointerLockElement) { this._bdFree = true; try { document.exitPointerLock(); } catch {} }
+    this._bdRows = new Map(); this._bdPu = null; this.$('.bd-list', el).innerHTML = '<table><tr><th>Player</th><th>Health</th><th>Kills</th><th>PC</th><th></th></tr></table>'; this.$('.bd-tip', el).innerHTML = '';
+    const draw = () => { try { if (g.mode !== 'game' || !g.player) return this.board(false); this.drawBoard(); } catch (e) { console.warn('board', e); } };
     draw(); this._bdI = setInterval(draw, 120);
   }
   drawBoard() {
     const g = this.game, p = g.player, el = this.$('#board');
-    this.$('.bd-mode', el).textContent = this.$('#round-label').textContent;
-    this.$('.bd-time', el).textContent = this.$('#timer').textContent;
+    this.setT(this.$('.bd-mode', el), this.$('#round-label').textContent);
+    this.setT(this.$('.bd-time', el), this.$('#timer').textContent);
+    this.setT(this.$('.bd-lv', el), 'Level ' + ((p.level | 0) + 1));
+    { const online = g.party && !['solo', 'local'].includes(g.party.kind) && !g.bot, code = online ? String(g.party.code || g.partyCode || '').toUpperCase() : ''; this.setT(this.$('.bd-code', el), code ? 'Room ' + code : ''); }
     this.drawMinimap(this.$('#bd-map', el));
+    const SKULL = '<svg viewBox="0 0 24 24"><path fill="#ff2a3c" stroke="#5a0010" stroke-width="1" d="M12 2c-5 0-8.5 3.4-8.5 8 0 2.7 1.2 4.6 3 5.8V19c0 .8.7 1.5 1.5 1.5h.8v-2h1.4v2h1.1v-2h1.4v2h1.1v-2h1.4v2h.8c.8 0 1.5-.7 1.5-1.5v-3.2c1.800-1.2 3-3.100 3-5.800 0-4.600-3.500-8-8.500-8z"/><circle cx="8.6" cy="10.6" r="2.1" fill="#12060a"/><circle cx="15.4" cy="10.6" r="2.1" fill="#12060a"/><path d="M12 12.6l-1.300 2.600h2.600z" fill="#12060a"/></svg>';
     const rows = (g.party ? g.party.peers() : []).filter((q) => q.me || (q.p && q.p.n && q.p.ig)).map((q) => {
       const v = q.me ? null : g.views.players.get(q.id), d = q.p || {};
       const hp = q.me ? p.hp : d.hp || 0, mh = Math.max(1, q.me ? p.stats.maxHp : d.mh || 100);
       const out = q.me ? p.out : !!d.out, down = q.me ? !p.alive : d.al === 0;
-      return { me: q.me, name: q.me ? g.myName || d.n || 'You' : d.n, host: !!d.host, css: q.me ? p.cls.css : v && v.cls ? v.cls.css : '#bbb', hp: out || down ? 0 : Math.max(0, hp), mh, out, down, k: q.me ? p.totalKills : d.k || 0, pc: q.me ? p.pc : d.pc || 0 };
+      return { id: String(q.id), me: q.me, name: q.me ? g.myName || d.n || 'You' : d.n, host: q.me ? g.isHost : !!d.host, css: q.me ? p.cls.css : v && v.cls ? v.cls.css : '#bbb', hp: out || down ? 0 : Math.max(0, hp), mh, out, down, k: q.me ? p.totalKills : d.k || 0, pc: Math.floor(q.me ? p.pc : d.pc || 0) };
     });
-    rows.sort((a, b) => b.k - a.k);
-    const top = rows.length > 1 && rows[0].k > 0 && rows[0].k > rows[1].k ? rows[0] : null;
-    const html = '<table><tr><th>Player</th><th>Health</th><th>Kills</th><th>PC</th></tr>' + rows.map((r) => {
+    rows.sort((a, b) => (b.me ? 1 : 0) - (a.me ? 1 : 0) || (a.id < b.id ? -1 : 1)); /* a steady order: rows must not jump under the pointer */
+    const top = rows.length > 1 ? rows.reduce((m, r) => (r.k > m.k ? r : m), rows[0]) : null;
+    const tb = this.$('.bd-list table', el), seen = new Set();
+    for (const r of rows) {
+      seen.add(r.id);
+      let tr = this._bdRows.get(r.id);
+      if (!tr) { /* a player who joins gets a row the moment they are in */
+        tr = document.createElement('tr');
+        tr.innerHTML = '<td class="nm"><i></i><span></span><em class="h" hidden>Host</em><em class="t" hidden>Top hunter</em></td><td><span class="hpb"><u></u></span><span class="hpt"></span></td><td class="bd-k">' + SKULL + '<span></span></td><td class="bd-pc"><img alt="" src="' + this.coin + '"><span></span></td><td>' + (r.me ? '' : '<button type="button" class="bd-give">+10</button>') + '</td>';
+        const b = tr.querySelector('.bd-give');
+        if (b) b.onclick = () => { if (g.giftPC(r.id, 10)) this.toast('Sent 10 PC to ' + (tr._name || 'your teammate'), 'good'); else { this.toast('Not enough PC', 'bad'); g.audio.play('deny'); } };
+        tb.appendChild(tr); this._bdRows.set(r.id, tr);
+      }
+      tr._name = r.name;
       const f = r.hp / r.mh, col = f > 0.5 ? '#5fd86f' : f > 0.25 ? '#ffc94a' : '#ff5a5a';
-      const tag = (r.host && rows.length > 1 ? '<em>Host</em>' : '') + (r === top ? '<em>Top hunter</em>' : '');
-      const hpTxt = r.out ? 'Out' : r.down ? 'Down' : Math.ceil(r.hp) + ' / ' + Math.round(r.mh);
-      return `<tr class="${r.me ? 'me' : ''}${r.out || r.down ? ' dn' : ''}"><td class="nm"><i style="background:${r.css}"></i>${esc(r.name || 'Player')}${tag}</td><td><span class="hpb" style="--v:${Math.round(f * 100)}%;--c:${col}"><u></u></span>${hpTxt}</td><td>${r.k}</td><td>${r.pc}</td></tr>`;
-    }).join('') + '</table>';
-    const list = this.$('.bd-list', el); if (list._h !== html) { list._h = html; list.innerHTML = html; }
-    const tk = rows.reduce((n, r) => n + r.k, 0), mobs = g.views.mobs.size;
-    this.$('.bd-team', el).textContent = rows.length + (rows.length === 1 ? ' player' : ' players') + ' · ' + tk + ' team kills · ' + mobs + (mobs === 1 ? ' enemy' : ' enemies') + ' nearby' + (g.views.boss ? ' · Boss on the field' : '');
-    const me = [['Level', (p.level | 0) + 1], ['Damage', Math.round(p.damageDealt || 0).toLocaleString()], ['Deaths', p.deaths | 0], ['Power-ups', p.powerups.length]].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
-    const mine = this.$('.bd-me', el); if (mine._h !== me) { mine._h = me; mine.innerHTML = me; }
+      const cls = (r.me ? 'me' : '') + (r.out || r.down ? ' dn' : ''); if (tr.className !== cls) tr.className = cls;
+      const dot = tr.querySelector('.nm i'); if (dot._c !== r.css) { dot._c = r.css; dot.style.background = r.css; dot.style.color = r.css; }
+      this.setT(tr.querySelector('.nm span'), r.name || 'Player');
+      tr.querySelector('em.h').hidden = !(r.host && rows.length > 1); tr.querySelector('em.t').hidden = !(top === r && r.k > 0);
+      const hb = tr.querySelector('.hpb'), hk = Math.round(f * 100) + col; if (hb._k !== hk) { hb._k = hk; hb.style.setProperty('--v', Math.round(f * 100) + '%'); hb.style.setProperty('--c', col); }
+      /* status with its symbol: alive, dead (getting back up by themselves), or needs a revive at their tombstone */
+      const stK = r.out ? 'rv' : r.down ? 'dead' : 'ok', st = tr.querySelector('.hpt');
+      if (st._k !== stK) { st._k = stK; st.className = 'hpt ' + stK; }
+      this.setT(st, r.out ? '✚ Needs revive' : r.down ? '☠ Dead' : '♥ ' + Math.ceil(r.hp) + ' / ' + Math.round(r.mh));
+      this.setT(tr.querySelector('.bd-k span'), r.k); this.setT(tr.querySelector('.bd-pc span'), r.pc);
+      const gb = tr.querySelector('.bd-give'); if (gb) { const dis = p.pc < 10; if (gb.disabled !== dis) gb.disabled = dis; }
+    }
+    for (const [id, tr] of this._bdRows) if (!seen.has(id)) { tr.remove(); this._bdRows.delete(id); } /* and a player who leaves is gone from it */
+    /* every power-up you own, as its picture with how many you have; point at one (or steer to it) to read what it does */
+    const cnt = new Map(); for (const pu of p.powerups) { if (!pu || !pu.id) continue; const c = cnt.get(pu.id) || { pu, n: 0 }; c.n++; cnt.set(pu.id, c); }
+    const sig = [...cnt.values()].map((c) => c.pu.id + ':' + c.n).join(',');
+    if (sig !== this._bdPu) {
+      this._bdPu = sig;
+      const box = this.$('.bd-pus', el), tip = this.$('.bd-tip', el);
+      box.innerHTML = cnt.size ? '' : '<span class="bd-none">None yet. Open chests and level up.</span>';
+      for (const c of cnt.values()) {
+        const d = document.createElement('div'); d.className = 'bd-pu pad-nav';
+        let svg = ''; try { svg = hasPuIcon(c.pu) ? puIcon(c.pu) : ''; } catch {}
+        d.innerHTML = (svg || '<svg viewBox="0 0 64 64"><text x="32" y="43" font-size="30" text-anchor="middle" fill="#fff">' + esc(c.pu.icon || '★') + '</text></svg>') + (c.n > 1 ? '<b>×' + c.n + '</b>' : '');
+        const show = () => { const info = puInfo(c.pu, p.cls); tip.innerHTML = '<b>' + esc(info.name) + (c.n > 1 ? ' ×' + c.n : '') + '</b>' + esc(info.desc || ''); };
+        d.addEventListener('mouseenter', show); d.addEventListener('padfocus', show);
+        box.appendChild(d);
+      }
+    }
   }
 
   drawMinimap(cv) {

@@ -37,6 +37,15 @@ export class PadInput {
     return pads.find((p) => p.index === this.which) || null;
   }
   get active() { return this.sticky || performance.now() - this.lastUse < 8000; }
+  /* The scoreboard button: the DualShock touchpad click, or both sticks pressed together on an Xbox pad. True on the press. */
+  boardEdge() {
+    const p = this.get(); if (!p) { this._bdPrev = false; return false; }
+    const B = (i) => !!(p.buttons[i] && p.buttons[i].pressed);
+    const on = B(17) || (B(10) && B(11)), e = on && !this._bdPrev;
+    this._bdPrev = on;
+    if (e) { this.lastUse = performance.now(); this.sticky = true; }
+    return e;
+  }
 
   // Gameplay: merge this frame's controller state into the shared input object.
   apply(I, dt, now) {
@@ -51,7 +60,7 @@ export class PadInput {
     // Move: analog stick.
     I.ax = lx; I.ay = -ly;
     if (Math.hypot(lx, ly) < 0.3) this.sprint = false;
-    if (down(10) && !I.jetOn) this.sprint = !this.sprint; // with the jetpack lit, L3 means descend
+    if (down(10) && !I.jetOn && !b[11]) this.sprint = !this.sprint; // with the jetpack lit, L3 means descend
     I.padSprint = !I.jetOn && (this.sprint || (I.ay > 0.95 && b[10]));
     // Look: right stick with a response curve.
     const curve = (v) => Math.sign(v) * Math.pow(Math.abs(v), 1.7);
@@ -67,9 +76,9 @@ export class PadInput {
       }
     }
     // R3 flips the camera view. D-pad down is the speed-up button.
-    if (down(11)) I.pressed.add('KeyV');
-    const ev = { board: !!raw[17] && !this.prevTp /* the DualShock touchpad click */, pause: down(9), shop: down(8), back: down(1), a: down(0), dl: down(14), dr: down(15), du: down(12), dd: down(13) };
-    this.prev = b; this.prevTp = !!raw[17];
+    if (down(11) && !b[10]) I.pressed.add('KeyV');
+    const ev = { pause: down(9), shop: down(8), back: down(1), a: down(0), dl: down(14), dr: down(15), du: down(12), dd: down(13) };
+    this.prev = b;
     return ev;
   }
   release(I) { for (const c of this.held) I.keys.delete(c); this.held.clear(); I.ax = I.ay = 0; I.padFire = false; }
@@ -139,6 +148,7 @@ function visible(e) { if (!e) return false; const r = e.getBoundingClientRect();
 function focusables(root) {
   // The top-most open layer wins: an open overlay, else the open screen.
   const layers = [...root.querySelectorAll('.overlay.on:not(.soft), .screen.on, .overlay.on.soft')];
+  { const bd = root.querySelector('#board.on'); if (bd && !root.querySelector('.overlay.on:not(.soft)')) return [...bd.querySelectorAll('button, .pad-nav')].filter((e) => !e.disabled && visible(e)); } /* the scoreboard: +10 buttons and power-up pictures */
   const modal = [...root.querySelectorAll('.pad-modal.on')].find(visible); // e.g. the on-screen keyboard
   const layer = modal || layers.find((l) => l.classList.contains('overlay') && !l.classList.contains('soft')) || layers.find((l) => l.classList.contains('screen')) || layers[0] || (root.classList && root.classList.contains('pad-root') ? root : null);
   if (!layer) return [];

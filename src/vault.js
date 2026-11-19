@@ -713,6 +713,16 @@ export function snowball(g, follow, onEnd) {
 
 // ---- Tempest: Tesla Fence. Two coil posts and three live wires between them that follow the ground, however far apart.
 // Returns a handle: post(p) plants a post (the second one strings the fence), hp(f) sets the health bar (0..1), end(boom) removes it.
+/* A summon's health bar (Nutty 2026-11-19): floats over the Dragon, the Golem and Polaris. set(x, y, z, frac) each frame; dispose() when it is gone. */
+export function summonBar(g, color) {
+  const bgM = new THREE.MeshBasicMaterial({ color: 0x0a0a12, transparent: true, opacity: 0.8, depthTest: false }), fgM = new THREE.MeshBasicMaterial({ color, depthTest: false });
+  const geo = new THREE.PlaneGeometry(1, 0.16), bar = new THREE.Group(), bg = new THREE.Mesh(geo, bgM), fg = new THREE.Mesh(geo, fgM);
+  bg.scale.set(3.1, 1.6, 1); fg.position.z = 0.001; bg.renderOrder = fg.renderOrder = 9; bar.add(bg, fg); g.scene.add(bar);
+  return {
+    set(x, y, z, frac) { bar.visible = frac > 0; if (!bar.visible) return; bar.position.set(x, y, z); bar.quaternion.copy(g.camera.quaternion); bar.scale.setScalar(Math.min(7, Math.max(1.3, bar.position.distanceTo(g.camera.position) / 16))); const f = Math.max(0.001, Math.min(1, frac)); fg.scale.x = 3 * f; fg.position.x = -(3 - 3 * f) / 2; },
+    dispose() { g.scene.remove(bar); geo.dispose(); bgM.dispose(); fgM.dispose(); },
+  };
+}
 // onFrame(dt) runs every frame while the fence is strung (caster only).
 let POST_MAT = null, COIL_MAT = null, BAR_GEO = null, BAR_BG = null;
 export function fence(g, onFrame) {
@@ -1549,53 +1559,87 @@ export function sunlance(g, c, dur = 3, r = 7, onTick) {
 
 // ---- Gale: Airshot. A spinning ball of wind (radius r) flying from o along d. onHit(target, dir) once for each enemy it passes through
 // (caster only: pass targets()); it bursts on a wall or at the end of its range.
-export function airshot(g, o, d, { speed = 44, range = 75, r = 1.25, targets = null, onHit = null } = {}) {
-  const fx = g.fx, scene = g.scene;
+/* Air Slice (Nutty 2026-11-19, was the Airshot ball): one large crescent wave of cutting wind, wide as a road, that flies as far as
+   lightning reaches. It rides over the ground, goes through every enemy on its way and throws them into the air. */
+export function airshot(g, o, d, { speed = 72, range = 260, r = 3.3, targets = null, onHit = null, onGust = null } = {}) {
+  /* Nutty 2026-11-19: it stands UPRIGHT, shaped like a crescent moon: a tall curved blade of wind, horns trailing back at top and bottom. */
+  const fx = g.fx, scene = g.scene, A = 1.2, W = 1.6, H = Math.sin(A) * r;
   const mat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.NormalBlending,
     uniforms: { uT: { value: 0 }, uA: { value: 1 } },
-    vertexShader: 'varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
-    fragmentShader: `uniform float uT; uniform float uA; varying vec3 vP; varying vec3 vN; varying vec3 vV;
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform float uT; uniform float uA; varying vec2 vUv;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
-      void main(){ vec3 p = normalize(vP); float a = atan(p.x, p.y), h = p.z;
-        float n = noise(vec2(a * 2.5 + uT * 9., h * 5. - uT * 2.));
-        float band = sin(a * 4. + h * 7. - uT * 16. + n * 3.) * 0.5 + 0.5; // streaks winding round the ball
-        float streak = smoothstep(0.5, 0.95, band) * (0.55 + 0.45 * n);
-        float rim = pow(1. - abs(dot(normalize(vN), normalize(vV))), 1.6);
-        vec3 col = mix(vec3(0.72, 0.8, 0.86), vec3(1.), streak);
-        gl_FragColor = vec4(col, (streak * 0.75 + rim * 0.55 + 0.06) * uA); }`,
+      void main(){ float u = vUv.x, v = vUv.y;
+        float tip = pow(max(0., sin(u * 3.14159)), 0.55);
+        float n = noise(vec2(u * 16. + uT * 2., v * 4. - uT * 9.));
+        float lines = smoothstep(0.5, 0.92, sin(v * 24. - uT * 34. + n * 5. + u * 8.) * 0.5 + 0.5) * (0.5 + 0.5 * n);
+        float edge = exp(-v * 9.);
+        float body = (1. - v) * (1. - v);
+        float a = clamp((edge * 1.3 + lines * 0.95 * body + 0.22 * body) * tip, 0., 1.) * uA;
+        vec3 col = mix(vec3(0.62, 0.76, 0.86), vec3(1.), clamp(edge + lines * 0.7, 0., 1.));
+        gl_FragColor = vec4(col, a); }`,
   });
+  /* a crescent sheet: u runs along the arc, v from the cutting edge back into the trailing wind */
+  const sheet = (fn) => {
+    const NU = 40, NV = 6, pos = [], uv = [], idx = [];
+    for (let iu = 0; iu <= NU; iu++) for (let iv = 0; iv <= NV; iv++) { const u = iu / NU, v = iv / NV, q = fn(u, v); pos.push(q[0], q[1], q[2]); uv.push(u, q[3] ?? v); }
+    for (let iu = 0; iu < NU; iu++) for (let iv = 0; iv < NV; iv++) { const a = iu * (NV + 1) + iv, b = a + NV + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    const ge = new THREE.BufferGeometry(); ge.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); ge.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); ge.setIndex(idx); return ge;
+  };
+  const arc = (u, rad, x) => { const a = (u * 2 - 1) * A; return [x, Math.sin(a) * rad, Math.cos(a) * rad - r]; };
+  const taper = (u) => Math.pow(Math.max(0, Math.sin(u * Math.PI)), 0.6);
+  const flat = sheet((u, v) => arc(u, r - v * 2.3 * taper(u), Math.sin(u * 9.42 + v * 2) * 0.1 * v));                 /* the moon itself: thick in the middle, drawn out to two sharp horns */
+  const face = sheet((u, v) => { const vv = v * 2 - 1; return [...arc(u, r - Math.abs(vv) * 0.9 * taper(u), vv * 0.75 * taper(u)), Math.abs(vv)]; }); /* its cutting edge has some width, so it is seen from behind as well */
+  /* Air Splitter (Nutty 2026-11-19): the crescent's head, its curved cutting edge, leads and faces the enemies. Behind the edge the wind
+     is split to both sides like water off a ship's bow: two wings flaring back, and a far wider, fainter gust thrown out past them. */
+  const wing = (sd, wide, back) => sheet((u, v) => arc(u, r - v * back * taper(u), sd * v * wide * taper(u)));
+  const wings = [wing(1, 2.6, 2.8), wing(-1, 2.6, 2.8)], gusts = [wing(1, 7.5, 7), wing(-1, 7.5, 7)];
+  const gmat = mat.clone(); gmat.uniforms.uA.value = 0.62;
   const grp = new THREE.Group(); grp.position.set(o[0], o[1], o[2]); scene.add(grp);
   const dir = new THREE.Vector3(d[0], d[1], d[2]).normalize();
-  grp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
-  const geo = new THREE.SphereGeometry(1, 28, 20), ball = new THREE.Mesh(geo, mat), core = new THREE.Mesh(geo, mat);
-  ball.frustumCulled = core.frustumCulled = false; ball.renderOrder = core.renderOrder = 6; core.scale.setScalar(0.6); grp.add(ball, core); grp.scale.setScalar(0.2);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xf2f6fa, transparent: true, opacity: 0.55, depthWrite: false }), ringGeo = new THREE.TorusGeometry(1.22, 0.035, 6, 40);
-  const rings = [0, 1, 2].map((i) => { const m = new THREE.Mesh(ringGeo, ringMat); m.rotation.set(i * 1.1, i * 0.7, 0); grp.add(m); return m; });
+  { const yaw = Math.atan2(dir.x, dir.z), pitch = Math.asin(Math.max(-1, Math.min(1, dir.y))); grp.rotation.set(-pitch, yaw, 0, 'YXZ'); }
+  const meshes = [new THREE.Mesh(flat, mat), new THREE.Mesh(face, mat), new THREE.Mesh(wings[0], mat), new THREE.Mesh(wings[1], mat), new THREE.Mesh(gusts[0], gmat), new THREE.Mesh(gusts[1], gmat)];
+   /* two smaller waves following in its wake */
+  for (const m of meshes) { m.frustumCulled = false; m.renderOrder = 6; grp.add(m); }
+  grp.scale.setScalar(0.25);
   const hit = new Set(), p = grp.position;
+  const rl = Math.hypot(dir.x, dir.z) || 1, rx = dir.z / rl, rz = -dir.x / rl; /* to the right of its flight */
+  /* the gust that leaves with it: a great blast of wind out of the caster, fanning forward and to both sides, dust torn off the ground */
+  { const gy0 = g.world.heightAt(o[0], o[2]);
+    for (let i = 0; i < fx.n(70); i++) { const sd = rnd(-1, 1), sp = rnd(22, 58), up = rnd(-0.1, 0.5); fx.smoke.emit({ p: [o[0] + rx * sd * 1.2, o[1] + rnd(-1, 1.6), o[2] + rz * sd * 1.2], v: [(dir.x + rx * sd * 0.75) * sp, up * sp * 0.3, (dir.z + rz * sd * 0.75) * sp], life: rnd(0.45, 0.95), s0: 0.7, s1: rnd(2.6, 4.6), c0: [0.93, 0.96, 0.99, 0.34], c1: [0.93, 0.96, 0.99, 0], drag: 2.2 }); }
+    for (let i = 0; i < fx.n(26); i++) { const sd = rnd(-1, 1), sp = rnd(9, 22); fx.smoke.emit({ p: [o[0] + rx * sd * 2 + dir.x * rnd(0, 3), gy0 + 0.2, o[2] + rz * sd * 2 + dir.z * rnd(0, 3)], v: [(dir.x + rx * sd) * sp, rnd(1, 4), (dir.z + rz * sd) * sp], life: rnd(0.6, 1.2), s0: 0.8, s1: 3.2, c0: [0.62, 0.56, 0.48, 0.34], c1: [0.62, 0.56, 0.48, 0], drag: 2 }); }
+    fx.shockwave([o[0], gy0 + 0.15, o[2]], 3.5, 0xdfe4ea, 0.18); }
+  const gusted = new Set();
   let gone = 0;
-  const burst = () => { fx.shockwave([p.x, g.world.heightAt(p.x, p.z), p.z], 6, 0xdfe4ea, 0.35); for (let i = 0; i < fx.n(24); i++) { const a = Math.random() * 6.28, y = rnd(-1, 1), q = Math.sqrt(1 - y * y); fx.smoke.emit({ p: [p.x, p.y, p.z], v: [Math.cos(a) * q * 12, y * 8, Math.sin(a) * q * 12], life: rnd(0.35, 0.7), s0: 0.8, s1: 2.6, c0: [0.92, 0.95, 0.98, 0.4], c1: [0.92, 0.95, 0.98, 0], drag: 3 }); } };
+  const burst = () => { for (let i = 0; i < fx.n(26); i++) { const l = rnd(-W, W); fx.smoke.emit({ p: [p.x + rx * l, p.y + rnd(-H, H), p.z + rz * l], v: [dir.x * 9 + rnd(-3, 3), rnd(0, 4), dir.z * 9 + rnd(-3, 3)], life: rnd(0.35, 0.7), s0: 0.8, s1: 2.6, c0: [0.92, 0.95, 0.98, 0.4], c1: [0.92, 0.95, 0.98, 0], drag: 3 }); } };
   fx.add({
-    dur: range / speed + 0.3,
+    dur: range / speed + 0.4,
     update: (dt, t) => {
       mat.uniforms.uT.value = t;
-      if (gone) { gone += dt; const k = Math.max(0, 1 - gone / 0.25); mat.uniforms.uA.value = k; ringMat.opacity = 0.55 * k; grp.scale.setScalar(r * (1 + (1 - k) * 0.9)); return gone < 0.25; }
-      grp.scale.setScalar(r * Math.min(1, 0.2 + t * 6));
+      if (gone) { gone += dt; const k = Math.max(0, 1 - gone / 0.3); mat.uniforms.uA.value = k; grp.scale.setScalar(1 + (1 - k) * 0.5); return gone < 0.3; }
+      grp.scale.setScalar(Math.min(1, 0.25 + t * 7));
       p.addScaledVector(dir, speed * dt);
-      ball.rotation.z += dt * 15; core.rotation.z -= dt * 22;
-      rings[0].rotation.x += dt * 11; rings[1].rotation.y += dt * 13; rings[2].rotation.x -= dt * 9; rings[2].rotation.y += dt * 7;
-      for (let i = 0; i < fx.n(5); i++) { const a = Math.random() * 6.28, q = r * rnd(0.6, 1.1), sx = Math.cos(a) * q, sy = Math.sin(a) * q; fx.smoke.emit({ p: [p.x + sx, p.y + sy * 0.9, p.z + sx * 0.2], v: [-dir.x * 6 + rnd(-1, 1), rnd(-0.5, 1), -dir.z * 6 + rnd(-1, 1)], life: rnd(0.25, 0.5), s0: 0.5, s1: 1.5, c0: [0.93, 0.96, 0.99, 0.32], c1: [0.93, 0.96, 0.99, 0], drag: 2 }); }
       const gy = g.world.heightAt(p.x, p.z);
-      if (p.y - gy < 3 && Math.random() < 0.6) fx.smoke.emit({ p: [p.x + rnd(-1, 1), gy + 0.2, p.z + rnd(-1, 1)], v: [rnd(-2, 2), rnd(0.5, 2), rnd(-2, 2)], life: rnd(0.5, 0.9), s0: 0.6, s1: 2.2, c0: [0.6, 0.55, 0.48, 0.3], c1: [0.6, 0.55, 0.48, 0], drag: 2 }); // dust torn off the ground
+      if (p.y < gy + H * 0.86) p.y = Math.min(gy + H * 0.86, p.y + dt * 14); /* its lower horn cuts along the ground */
+      /* the windy aura: mist torn off both tips and streaming behind, dust ripped off the ground under it */
+      for (let i = 0; i < fx.n(6); i++) { const hy = rnd(-H, H), l = rnd(-0.5, 0.5), zb = Math.sqrt(Math.max(0, r * r - hy * hy)) - r - rnd(0, 2.2); fx.smoke.emit({ p: [p.x + rx * l + dir.x * zb, p.y + hy, p.z + rz * l + dir.z * zb], v: [dir.x * speed * 0.35 + rnd(-1, 1), hy * 0.5 + rnd(-0.5, 0.5), dir.z * speed * 0.35 + rnd(-1, 1)], life: rnd(0.25, 0.55), s0: 0.5, s1: 1.9, c0: [0.93, 0.96, 0.99, 0.3], c1: [0.93, 0.96, 0.99, 0], drag: 2.5 }); }
+      if (p.y - gy < H + 0.6) for (let i = 0; i < fx.n(2); i++) { const l = rnd(-0.6, 0.6); fx.smoke.emit({ p: [p.x + rx * l, g.world.heightAt(p.x + rx * l, p.z + rz * l) + 0.2, p.z + rz * l], v: [dir.x * 5 + rnd(-2, 2), rnd(1, 3), dir.z * 5 + rnd(-2, 2)], life: rnd(0.5, 0.9), s0: 0.6, s1: 2.4, c0: [0.6, 0.55, 0.48, 0.3], c1: [0.6, 0.55, 0.48, 0], drag: 2 }); }
       if (targets && onHit) for (const q of targets()) {
         if (hit.has(q.id) || q.kind === 'demon') continue;
-        const cy = clamp01y(p.y, q.y, q.y + q.h);
-        if (Math.hypot(q.x - p.x, q.z - p.z) < q.r + r + 0.3 && Math.abs(p.y - cy) < r + 0.4) { hit.add(q.id); onHit(q, dir); fx.shockwave([q.x, q.y + 0.2, q.z], 3, 0xdfe4ea, 0.25); }
+        const ex = q.x - p.x, ez = q.z - p.z, l = ex * rx + ez * rz;
+        if (Math.abs(l) > W + q.r) { /* beside its path: not cut, not drawn in, shoved out to that side by the gust */
+          const fb = ex * dir.x / rl + ez * dir.z / rl;
+          if (onGust && !gusted.has(q.id) && Math.abs(l) < 8.5 + q.r && fb < 2 && fb > -(5 + speed * dt) && Math.abs(q.y - (p.y - H)) < 7) { gusted.add(q.id); onGust(q, l > 0 ? 1 : -1, rx, rz, 1 - Math.abs(l) / 9.5); }
+          continue;
+        }
+        const f = ex * dir.x / rl + ez * dir.z / rl, cy = clamp01y(p.y, q.y, q.y + q.h), hy = Math.min(Math.abs(p.y - cy), r), zl = Math.sqrt(r * r - hy * hy) - r;
+        if (f - zl < 1.1 + q.r && f - zl > -(2.6 + q.r + speed * dt) && Math.abs(p.y - cy) < H + 0.5) { hit.add(q.id); onHit(q, dir); fx.impact([q.x, cy, q.z], [0.9, 0.95, 1]); }
       }
-      if (t * speed >= range || p.y < gy + 0.25 || g.world.solidMove(p, 0.5)) { gone = 0.001; burst(); }
+      if (t * speed >= range || g.world.solidMove(p, 0.5)) { gone = 0.001; burst(); }
     },
-    dispose: () => { scene.remove(grp); geo.dispose(); mat.dispose(); ringGeo.dispose(); ringMat.dispose(); },
+    dispose: () => { scene.remove(grp); flat.dispose(); face.dispose(); for (const w of [...wings, ...gusts]) w.dispose(); mat.dispose(); gmat.dispose(); },
   });
 }
 const clamp01y = (y, a, b) => Math.max(a, Math.min(b, y));

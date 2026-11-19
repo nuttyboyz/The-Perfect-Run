@@ -119,7 +119,7 @@ export class RemotePlayerView {
     if (w && WEAPON_BY_ID[w]) this.model.userData.setWeapon(WEAPON_BY_ID[w].kind === 'gear' ? 'bare' : w); // an all-gear loadout fights bare-handed
     // Web Swing: the anchor of the line they hang from (presence sw, tenths of a metre); the left arm reaches for it.
     const sw = Array.isArray(p.sw) && p.sw.length === 3 ? [p.sw[0] / 10, p.sw[1] / 10, p.sw[2] / 10] : null;
-    this.model.userData.anim({ speed: riding ? 0 : (p.sp || 0) / 10, pitch: (p.pt || 0) / 100, gun: true, reload: !p.gn && WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind === 'gun', weapon: true, melee: this.mlT || 0, move: this.mlMv | 0, arc: WEAPON_BY_ID[w] && WEAPON_BY_ID[w].arc, cast: p.ct ? 1 : 0, dead: !p.al, swing: sw, eyes: p.ey > 0, eyeGlow: p.ey === 2 ? 1 : 0.45 }, dt, this.t);
+    this.model.userData.anim({ speed: riding ? 0 : (p.sp || 0) / 10, pitch: (p.pt || 0) / 100, gun: true, reload: !p.gn && WEAPON_BY_ID[w] && WEAPON_BY_ID[w].kind === 'gun', weapon: true, melee: this.mlT || 0, move: this.mlMv | 0, arc: WEAPON_BY_ID[w] && WEAPON_BY_ID[w].arc, cast: p.ct ? 1 : 0, block: !!p.bk, parry: (this._py = p.bk === 2 ? (this._py < 0 || this._py == null ? 0 : this._py + dt) : -1), dead: !p.al, swing: sw, eyes: p.ey > 0, eyeGlow: p.ey === 2 ? 1 : 0.45 }, dt, this.t);
     { // Flaming Weapons on this fighter ('fw' event sets flameUntil)
       const hot = !!(p.al && this.flameUntil && this.game && this.game.now < this.flameUntil), kk = this.size || 1;
       this.model.userData.flaming = hot; this.model.userData.fwK = kk;

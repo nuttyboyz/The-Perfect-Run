@@ -27,6 +27,8 @@ export const MOVES = {
   // Stab: draw the hand back to the hip, drive straight out ahead, pull back.
   stab: M('thrust', [[0, 0, -0.08, 1], [0.28, -0.18, -0.02, 0.55], [0.45, 0, 0.02, 1.45], [0.6, 0, 0, 1.4], [1, 0, -0.1, 0.92]]),
   // Fencing lunge: the guard hand draws back a little, then the arm snaps straight and the whole body drives in behind the point; a quick recovery to guard.
+  /* Shield thrust (Nutty 2026-11-19): the fencing lunge done from behind a raised shield. A little shorter, so the fist never leaves the handle. */
+  sthrust: M('thrust', [[0, 0, 0.0, 0.95], [0.22, -0.08, 0.02, 0.6], [0.42, 0, 0.03, 1.36], [0.6, 0, 0.02, 1.32], [1, 0, 0, 0.95]], { lunge: 1, reachK: 1.3, dmgK: 1.25, arcK: 0.6 }),
   lunge: M('thrust', [[0, 0, 0.02, 1], [0.22, -0.1, 0.05, 0.62], [0.42, 0, 0.06, 1.62], [0.6, 0, 0.04, 1.58], [1, 0, 0, 0.95]], { lunge: 1, reachK: 1.35, dmgK: 1.25, arcK: 0.6 }),
   // Fencing cut: a fast diagonal slash from the high right down to the left, wrist-led.
   fcut: M('sweep', [[0, 0, 0.02, 1], [0.24, -0.8, 0.9, 0.95], [0.5, 0.7, -0.4, 1.12], [0.72, 0.95, -0.55, 1.02], [1, 0.15, -0.05, 0.95]]),
@@ -77,7 +79,9 @@ export const WEAPON_MOVES = {
   chainsaw: ['saw', 'sawdiag', 'sawrip'], // three attacks in turn: drive the bar straight in, a diagonal slash down, then a level rip across (hold the attack and it keeps going)
 };
 // Sword-and-shield sets (and any new one-handed sword) slash, then stab past the shield's rim.
-export const SHIELD_MOVES = ['fore', 'stab'];
+/* Nutty 2026-11-19: the stab belongs to the raised shield only. Shield down: a forehand cut, then a backhand cut. Shield up (blocking): the
+   attack is always the straight thrust past the shield's rim (player.js melee picks move 2). */
+export const SHIELD_MOVES = ['fore', 'back', 'sthrust'];
 // Any future melee weapon that isn't listed: forehand, then backhand.
 export const DEFAULT_MOVES = ['fore', 'back'];
 

@@ -27,7 +27,7 @@ export const ACTIONS = [
   { id: 'w3', name: 'Weapon 3', key: 'Digit3', kfix: ['Wheel'], kbOnly: true, hint: 'Swap weapon (the wheel cycles too)' },
   { id: 'camera', name: 'First / Third Person', key: 'KeyV', btn: 11, hint: 'Switch the camera view' },
   { id: 'shop', name: 'Shop', key: 'KeyM', btn: 8, hint: 'Open the shop' },
-  { id: 'board', name: 'Scoreboard', key: 'Tab', kbOnly: true, hint: 'Hold to see the map, the party and the score (DualShock: click the touchpad)' },
+  { id: 'board', name: 'Scoreboard', key: 'Tab', plabel: { ds: 'Touchpad', xbox: 'L3 + R3' }, hint: 'The map, the party, your power-ups and the score. Keyboard: hold. Controller: press to open, press again to close' },
   { id: 'speed', name: 'Game Speed', key: 'KeyT', btn: 13, hint: 'Solo and couch runs, once unlocked' },
   { id: 'cpu', name: 'CPU Takeover', key: 'KeyP', btn: 12, hint: 'CPU Run only: hand over or take back' },
   { id: 'pause', name: 'Pause Menu', kfix: ['Escape'], btn: 9, hint: 'Open this menu' },
@@ -91,6 +91,7 @@ export function actionInfo(a, tab) {
     return { parts, label, can: !!a.key, changed: !!a.key && kbPhys(a.key) !== a.key };
   }
   const N = PAD_NAMES[tab];
+  if (a.plabel) return { parts: tab === 'xbox' ? ['b10', 'b11'] : [], label: a.plabel[tab] || a.plabel.ds, can: false, changed: false }; /* a fixed controller button that is not one of the sixteen remappable ones */
   if (a.pcombo) { const p = a.pcombo.map(padPhys); return { parts: p.map((i) => 'b' + i), label: p.map((i) => N[i]).join(' + '), can: false, changed: false }; }
   if (a.btn !== undefined) { const p = padPhys(a.btn); return { parts: ['b' + p], label: N[p], can: true, changed: p !== a.btn }; }
   return { parts: a.pfix || [], label: (a.pfix || [])[0] === 'ls' ? 'Left stick' : 'Right stick', can: false, changed: false };

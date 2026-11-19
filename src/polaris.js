@@ -327,6 +327,7 @@ export function spawnPolaris(g, o) {
     dur: dur + 6,
     update: (dt, t) => {
       const own = o.owner(), pos = root.position, O = own || own0;
+      if (g.summonTick) g.summonTick(o, st, pos.x, pos.y, pos.z, 1.9, 2.8, 4, st.mode !== 'die' && st.mode !== 'arrive'); /* health bar; can be shot (Nutty 2026-11-19) */
       // the ice cluster
       for (const m of spikes) { const h = m.userData.h; if (t < 1.25) m.scale.y = h * ease(t / 0.28); else if (!m.userData.gone) { m.userData.gone = true; m.visible = false; for (let k = 0; k < 6; k++) chips(tmp.set(m.position.x, m.position.y + h * (k / 6), m.position.z), 3, 0.9); frost(tmp.set(m.position.x, m.position.y + h * 0.4, m.position.z), 2, 1.5); } }
       if (t >= 1.25 && !st.broke) { st.broke = true; g.audio.play('ice_big', vol()); g.audio.play('ice', vol()); if (near() < 25) g.shake(0.3); }

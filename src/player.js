@@ -310,10 +310,10 @@ export class LocalPlayer {
     const wp = this.weapon;
     this.gunSpin(dt, wp, (input.mouseDown || input.padFire) && !this.dash && this.reloadT <= 0);
     if (wp.bow) this.bowStep(dt, input);
-    else if ((input.mouseDown || input.padFire) && this.fireCd <= 0 && !this.dash && !this.blocking) {
+    else if ((input.mouseDown || input.padFire) && this.fireCd <= 0 && !this.dash && (!this.blocking || wp.shield)) { /* a sword-and-shield can thrust from behind the raised shield */
       if (wp.kind === 'melee') this.melee();
       else this.shoot(); // every weapon keeps attacking while the trigger is held
-    } else if (wp.tap && input.mouseClicked && this.fireCd > 0 && this.game.now - (this.tapT || -9) >= TAP_MIN && !this.dash && !this.blocking && this.reloadT <= 0) {
+    } else if (wp.tap && input.mouseClicked && this.fireCd > 0 && this.game.now - (this.tapT || -9) >= (wp.tapMin || TAP_MIN) && !this.dash && !this.blocking && this.reloadT <= 0) {
       this.fireCd = 0; this.shoot(); // handguns: a fresh pull of the trigger fires right away, as fast as you can pull it
     }
     if (this.meleePending > 0) {
@@ -382,7 +382,7 @@ export class LocalPlayer {
       speed: this.board ? 0 : this.speedNow, pitch: this.pitch, gun: wp.kind === 'gun', reload: this.reloadT > 0,
       weapon: true, melee: this.meleeT > 0 ? 1 - this.meleeT / Math.max(0.2, wp.rate / this.stats.rate) : 0, move: this.meleeMove | 0,
       cast: this.castT, dead: !this.alive, sprint: this.sprinting && this.recoilT === 0 && this.meleeT <= 0, recoil: this.recoilT, arc: wp.kind === 'melee' ? Math.min(360, wp.arc * this.stats.reach) : wp.arc,
-      block: !!this.blocking, swing: this.swing ? this.swing.a : null, ads: this.ads || 0, adsUp: wp.adsUp ?? 0.075, adsBack: wp.adsBack ?? 0.78, scope: !!wp.scope, eyes: !!wp.eyes && this.alive, eyeGlow: this.eyeGlow || 0.45,
+      block: !!this.blocking, parry: this.game.now - (this.parryT ?? -9), swing: this.swing ? this.swing.a : null, ads: this.ads || 0, adsUp: wp.adsUp ?? 0.075, adsBack: wp.adsBack ?? 0.78, scope: !!wp.scope, eyes: !!wp.eyes && this.alive, eyeGlow: this.eyeGlow || 0.45,
     }, dt, this.time);
     { // Flaming Weapons: the held weapon burns (and the swing trails turn to fire, see flushSwipes)
       const hot = this.alive && this.wf > 0, g = this.game, fp = g.settings.view === 'first' || !!g.fpNow;
@@ -548,7 +548,7 @@ export class LocalPlayer {
       }
       if (wp.energy && hits.length && n % 2 === 0) g.fx.pulseHit([end.x, end.y, end.z]);
       if (wp.energy) g.fx.shotFx(wp, [origin.x, origin.y, origin.z], [end.x, end.y, end.z], 'me', (g.settings.view === 'first' || !!g.fpNow));
-      else if (wp.blast) g.fx.blast([origin.x, origin.y, origin.z], [end.x, end.y, end.z]);
+      else if (wp.blast) g.fx.blast([origin.x, origin.y, origin.z], [end.x, end.y, end.z], 1.62); /* 20% bigger (Nutty 2026-11-19) */
       else if (!rapid || n % 2 === 0) { g.fx.tracer([origin.x, origin.y, origin.z], [end.x, end.y, end.z], this.wf ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen);
         if (this.wf) g.fx.fireShot([origin.x, origin.y, origin.z], [end.x, end.y, end.z], rapid || pellets > 1); } // Flaming Weapons: the bullets burn
       lastEnd = end;
@@ -712,7 +712,9 @@ export class LocalPlayer {
       // The pair alternates; after a pause the combo starts over from the first attack (fists: the right arm).
       const fresh = this.game.now - (this.meleeAt ?? -99) > wp.rate / this.stats.rate + 0.9;
       this.meleeAt = this.game.now;
+      const prevMove = this.meleeMove | 0;
       this.meleeMove = fresh ? 0 : ((this.meleeMove | 0) + 1) % movesFor(wp).length;
+      if (wp.shield) this.meleeMove = this.blocking ? 2 : fresh || prevMove !== 0 ? 0 : 1; /* behind the raised shield it is the thrust, and only there */
       this.stab = moveOf(wp, this.meleeMove).type === 'thrust';
     } else {
       if (wp.shield) { this.stab = !this.stab; const wo = this.model.userData.weapon; if (wo) wo.userData.style = this.stab ? 'thrust' : undefined; } // sword and shield: slash, stab, slash, stab
@@ -1351,25 +1353,23 @@ export class LocalPlayer {
     const c = [this.pos.x, this.pos.y, this.pos.z];
     let near = g.targets().filter((t) => t.kind !== 'demon' && Math.hypot(t.x - c[0], t.z - c[2]) < 14.5 + t.r);
     near.sort((u, v) => Math.hypot(u.x - c[0], u.z - c[2]) - Math.hypot(v.x - c[0], v.z - c[2]));
-    near = near.slice(0, 12);
-    const pts = near.map((t) => [t.x, t.y, t.z]);
-    if (!pts.length) {
-      // nobody near: a long wall of rock across your front (Nutty 2026-11-13: more pillars going sideways)
-      const f = this.forward(), fl = Math.hypot(f[0], f[2]) || 1, fx_ = f[0] / fl, fz_ = f[2] / fl;
-      for (let i = 0; i < 11; i++) { const s = (i - 5) * 2.5, dist = 5 - Math.abs(i - 5) * 0.12; pts.push([c[0] + fx_ * dist - fz_ * s, c[1], c[2] + fz_ * dist + fx_ * s]); }
+    near = near.slice(0, 10);
+    /* Nutty 2026-11-19: no more wall. The rock breaks out of the ground around you and runs OUTWARD in a line of spikes to every enemy
+       nearby, ending under its feet. With nobody near it bursts out all round you like the spokes of a wheel. */
+    const pts = [];
+    const add = (x, z, y) => { if (pts.length < 60 && !pts.some((o) => Math.hypot(o[0] - x, o[2] - z) < 1.5)) pts.push([x, y ?? c[1], z]); };
+    if (near.length) {
+      for (const t of near) add(t.x, t.z, t.y); /* the full clusters come up under the enemies themselves */
+      for (const t of near) { const dx = t.x - c[0], dz = t.z - c[2], dl = Math.hypot(dx, dz) || 1; for (let d = 2.4; d < dl - 1.4; d += 2.1) add(c[0] + (dx / dl) * d, c[2] + (dz / dl) * d); }
     } else {
-      // each rock that comes up under an enemy brings one up on either side of it, across your line of sight, so they join into a wall
-      const side = [];
-      for (const t of near.slice(0, 8)) { const dx = t.x - c[0], dz = t.z - c[2], dl = Math.hypot(dx, dz) || 1, px = -dz / dl, pz = dx / dl;
-        for (const s of [-2.8, 2.8]) { const q = [t.x + px * s, t.y, t.z + pz * s]; if (![...pts, ...side].some((o) => Math.hypot(o[0] - q[0], o[2] - q[2]) < 1.8)) side.push(q); } }
-      while (pts.length < 12 && side.length) pts.push(side.shift()); // (the first 12 are drawn as full clusters)
-      pts.push(...side);
+      const y0 = this.yaw;
+      for (let k = 0; k < 8; k++) { const an = y0 + (k / 8) * Math.PI * 2; for (let d = 2.4; d <= 9; d += 2.2) add(c[0] + Math.sin(an) * d, c[2] + Math.cos(an) * d); }
     }
     g.el.pillars(pts, c);
     const dmg = 154 * this.stats.dmg * this.mm('pillars'), hit = new Set(); // 140 + 10% (Nutty 2026-11-11)
     for (const t of g.targets()) {
       if (t.kind === 'demon' || hit.has(t.id)) continue;
-      const pt = pts.find((p) => Math.hypot(t.x - p[0], t.z - p[2]) < t.r + 2.2);
+      const pt = pts.find((p) => Math.hypot(t.x - p[0], t.z - p[2]) < t.r + 1.6);
       if (!pt) continue;
       hit.add(t.id);
       const dx = t.x - c[0], dz = t.z - c[2], dd = Math.hypot(dx, dz) || 1;
@@ -1831,7 +1831,7 @@ export class LocalPlayer {
     if (this.polaris && this.polaris.fx && !this.polaris.fx.done && this.polaris.until > g.now) return false; // one at a time
     const k = this.stats.dmg * this.mm('polaris'), fr = () => (Math.random() < POLARIS.freeze ? POLARIS.freezeFor : 0);
     const d = spawnPolaris(g, {
-      dur: POLARIS.dur, yaw: this.yaw,
+      dur: POLARIS.dur, yaw: this.yaw, key: g.party.myId + ':p', mine: true,
       owner: () => (this.alive ? this.pos : null),
       targets: () => g.targets(),
       hit: (kind, q, p) => {
@@ -1850,7 +1850,7 @@ export class LocalPlayer {
     if (this.golem && this.golem.fx && !this.golem.fx.done && this.golem.until > g.now) return false; // one at a time
     const dmg = GOLEM.dmg * this.stats.dmg * this.mm('golem');
     const d = spawnGolem(g, {
-      dur: GOLEM.dur, yaw: this.yaw,
+      dur: GOLEM.dur, yaw: this.yaw, key: g.party.myId + ':g', mine: true,
       owner: () => (this.alive ? this.pos : null),
       targets: () => g.targets(),
       hit: (p) => { g.areaDamage(p, GOLEM.radius, dmg, { kb: 12, freeze: 0.8, falloff: 0.3 }); },
@@ -1867,7 +1867,7 @@ export class LocalPlayer {
     const dur = 26, dmg = 70 * this.stats.dmg * this.mm('dragon');
     let n = 0;
     const d = spawnDragon(g, {
-      dur, yaw: this.yaw,
+      dur, yaw: this.yaw, key: g.party.myId + ':d', mine: true,
       owner: () => (this.alive ? this.pos : null),
       targets: () => g.targets(),
       burn: (c) => {
@@ -1882,7 +1882,7 @@ export class LocalPlayer {
     g.emitFx(['dg', Math.round(dur * 10), Math.round(this.yaw * 100)]);
   }
 
-  // Airshot: a spinning ball of wind flies 75 m along the crosshair. It goes through every enemy on its way, hits each one once,
+  // Air Splitter (was Airshot, then Air Slice; Nutty 2026-11-19): an upright crescent blade of wind flies 260 m along the crosshair. It goes through every enemy on its way, hits each one once,
   // hard, and throws it a long way back.
   ab_airshot() {
     const g = this.game, ray = this.aimRay(), d = ray.d, o = [ray.o[0] + d[0] * 1.6, ray.o[1] + d[1] * 1.6 - 0.15, ray.o[2] + d[2] * 1.6];
@@ -1895,19 +1895,17 @@ export class LocalPlayer {
       if (blown.has(t.id)) g.damage(t, dmg * 0.5, { at: [t.x, t.y + t.h * 0.6, t.z] }); // already in the air from the blast: hurt again, not thrown twice
       else g.damage(t, dmg, { kx: (dir.x + sx * 0.7) * 17, kz: (dir.z + sz * 0.7) * 17, launch: rnd(21, 26), freeze: 0.5, at: [t.x, t.y + t.h * 0.6, t.z] });
       blown.add(t.id);
-      for (const q of g.targets()) {
-        if (q.kind === 'demon' || blown.has(q.id)) continue;
-        const ex = q.x - t.x, ez = q.z - t.z, ed = Math.hypot(ex, ez);
-        if (ed > 6 + q.r || Math.abs(q.y - t.y) > 5) continue;
-        blown.add(q.id);
-        const a = ed > 0.2 ? Math.atan2(ez, ex) + rnd(-0.5, 0.5) : Math.random() * 6.28;
-        g.damage(q, dmg * 0.5, { kx: (Math.cos(a) + dir.x * 0.5) * rnd(10, 16), kz: (Math.sin(a) + dir.z * 0.5) * rnd(10, 16), launch: rnd(15, 23), freeze: 0.4, at: [q.x, q.y + q.h * 0.6, q.z] });
-      }
-      g.fx.shockwave([t.x, t.y + 0.3, t.z], 6, 0xdfe4ea, 0.35); g.fx.dustBurst([t.x, t.y, t.z], 1.4);
+      g.fx.shockwave([t.x, t.y + 0.3, t.z], 3, 0xdfe4ea, 0.2); g.fx.dustBurst([t.x, t.y, t.z], 1.4);
       g.audio.play('wind', 0.5); g.shake(0.2);
+    }, onGust: (t, sd, rx, rz, k) => {
+      /* Air Splitter: whoever stands to the left or right of its path is not pulled in. The gust shoves them out to their own side. */
+      if (blown.has(t.id)) return; blown.add(t.id);
+      const sp = 9 + 11 * Math.max(0, k);
+      g.damage(t, dmg * 0.2, { kx: (rx * sd + d[0] * 0.25) * sp, kz: (rz * sd + d[2] * 0.25) * sp, launch: 4 + 4 * Math.max(0, k), freeze: 0.35, at: [t.x, t.y + t.h * 0.6, t.z] });
+      g.fx.dustBurst([t.x, t.y, t.z], 1);
     } });
-    g.audio.play('wind');
-    g.shake(0.15);
+    g.audio.play('wind'); g.audio.play('wind', 0.8);
+    g.shake(0.3);
     g.emitFx(['ga', ...o.map(q10), Math.round(d[0] * 100), Math.round(d[1] * 100), Math.round(d[2] * 100)]);
   }
 
@@ -2486,6 +2484,15 @@ export class LocalPlayer {
     if (this.eyeOn()) {
       // Eye of the Storm: the wind turns the blow aside.
       if (g.now - (this.eyeT || 0) > 0.2) { this.eyeT = g.now; g.fx.impact([this.pos.x, this.pos.y + 1.2, this.pos.z], [0.8, 1, 0.9]); g.audio.play('deflect', 0.6); }
+      /* Duel: the other fighter's shot is thrown back at them for half of what it would have done (Nutty 2026-11-19). A blow struck from
+         arm's length is not a shot: that one is only turned aside. */
+      if (src === 'pvp' && g.duel) {
+        const foe = g.targets().find((q) => q.kind === 'player');
+        if (foe && Math.hypot(foe.x - this.pos.x, foe.z - this.pos.z) > 4.5) {
+          g.damage(foe, amount * 0.5 / DUEL.pvp, { at: [foe.x, foe.y + foe.h * 0.6, foe.z] });
+          g.el.windDeflect([this.pos.x, this.pos.y + 1.2, this.pos.z]);
+        }
+      }
       return;
     }
     let dmg = amount * (1 - this.stats.armor);
@@ -2680,7 +2687,7 @@ export class LocalPlayer {
       p: [q10(this.pos.x), q10(this.pos.y), q10(this.pos.z)], ry: Math.round(this.yaw * 100), pt: Math.round(this.pitch * 100),
       hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0, bt: this.btHold ? 1 : 0,
       hu: this.hitN | 0, wi: this.fists ? 9 : this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
-      ct: this.castT > 0 ? 1 : 0, hd: this.cloud && this.cloud.until > this.game.now ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
+      ct: this.castT > 0 ? 1 : 0, bk: this.blocking ? (this.game.now - (this.parryT ?? -9) < 0.36 ? 2 : 1) : 0, hd: this.cloud && this.cloud.until > this.game.now ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
       jp: this.jetEquipped() ? (this.jet.level > 0.1 ? 2 : 1) : this.hasGear('wings') ? (this.wing.soar ? 4 : this.game.now - this.wing.flapT < 0.45 ? 5 : 3) : 0,
       dr: this.drone && this.alive ? (this.drone.firing ? 2 : 1) : 0,
       tr: this.turret ? [q10(this.turret.obj.position.x), q10(this.turret.obj.position.y), q10(this.turret.obj.position.z), Math.round(this.yaw * 100)] : 0,

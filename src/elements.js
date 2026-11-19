@@ -487,14 +487,14 @@ export class Elements {
       const g = new THREE.Group();
       // a long needle of rock in the middle, a ring of leaning shards around it and broken boulders at its foot
       const base = new THREE.Mesh(geos[i % 4], mat);
-      base.scale.set(1.35, 0.9, 1.35); base.position.y = 0.5;
+      base.scale.set(0.95, 0.9, 0.95); base.position.y = 0.5; /* narrower clusters (Nutty 2026-11-19) */
       const spire = new THREE.Mesh(shards[i % 3], mat);
-      spire.scale.set(0.95, 7.4 + Math.random() * 1.2, 0.95); spire.rotation.z = (Math.random() - 0.5) * 0.1;
+      spire.scale.set(0.72, 7.4 + Math.random() * 1.2, 0.72); spire.rotation.z = (Math.random() - 0.5) * 0.1;
       base.castShadow = spire.castShadow = true;
       g.add(base, spire);
       const nS = i < 12 ? 6 : 3;
       for (let k = 0; k < nS; k++) {
-        const an = (k / nS) * 6.28 + Math.random() * 0.5, rr = 0.75 + Math.random() * 0.75;
+        const an = (k / nS) * 6.28 + Math.random() * 0.5, rr = 0.5 + Math.random() * 0.5;
         const sh = new THREE.Mesh(shards[(i + k) % 3], mat), w = 0.34 + Math.random() * 0.3;
         sh.scale.set(w, 2.6 + Math.random() * 3.0, w);
         sh.position.set(Math.cos(an) * rr, 0, Math.sin(an) * rr);
@@ -507,9 +507,9 @@ export class Elements {
       const y = this.h(p[0], p[2]);
       g.position.set(p[0], y - DEEP, p[2]);
       g.rotation.y = Math.random() * 6.28;
-      const delay = from ? Math.hypot(p[0] - from[0], p[2] - from[2]) * 0.02 : i * 0.03;
+      const delay = from ? Math.hypot(p[0] - from[0], p[2] - from[2]) * 0.045 : i * 0.03; /* it visibly runs outward from the caster */
       g.userData = { y, delay, up: false };
-      if (this.block) this.block(p[0], p[2], 1.9, y + 8, delay + dur + 0.2); // while it stands, no shot passes through it
+      if (this.block) this.block(p[0], p[2], 1.35, y + 8, delay + dur + 0.2); // while it stands, no shot passes through it
       scene.add(g);
       return g;
     });

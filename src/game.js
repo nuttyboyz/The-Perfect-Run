@@ -19,6 +19,7 @@ import { spawnDragon } from './dragon.js';
 import { spawnGolem } from './golem.js';
 import { spawnPolaris } from './polaris.js';
 import { classWith, FLAME, MOB_ARM_IDS, POWERUP_BY_ID } from './data.js';
+import { stoneMat } from './props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { igniteFx } from './flameweapon.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, STAGE_POOL, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf , HORDE, NO_CLASS, AB_CLASS, AB_BY_ID, mixClass, elemsOf, puOk, loadoutFull as loadoutFull3 } from './data.js';
@@ -328,7 +329,7 @@ export class Game {
     window.addEventListener('wheel', (e) => { if (this.mode === 'game' && document.pointerLockElement === this.canvas) I.wheel = Math.sign(e.deltaY); }, { passive: true });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
-      if (this.mode === 'game') this.ui.setLocked(locked, this.shopOpen || this.blessOpen || this.elemOpen);
+      if (this.mode === 'game') this.ui.setLocked(locked, this.shopOpen || this.blessOpen || this.elemOpen || this.ui.boardOn); /* the scoreboard frees the mouse without pausing */
       if (!locked) { I.mouseDown = false; I.aimHeld = false; }
     });
     window.addEventListener('pointerdown', () => this.audio.unlock(), { once: false });
@@ -1050,6 +1051,7 @@ export class Game {
     this.clearViews();
     this.fx.clearAll();
     this.timers = [];
+    if (this.tombs) { for (const m of this.tombs.values()) this.scene.remove(m); this.tombs.clear(); }
     if (this.player) { this.player.dispose(); this.player = null; }
     this.removeBedMesh();
     this.shopOpen = false;
@@ -1322,6 +1324,8 @@ export class Game {
       p.update(dt, inp);
       this.interactions();
     }
+    this.syncTombs();
+    this.summonSweep();
     if (quiet) { this.publish(); return; }
     if (this._healT > 0 && (this._healT -= dt) <= 0) { healNormals(this.scene); this._healT = 5; } // new enemy bodies arrive all round; already-checked geometry is skipped
     this.bulletTimeFx(dt);
@@ -1370,8 +1374,9 @@ export class Game {
   }
 
   pollPad(dt) {
+    if (this.mode === 'game' && this.pad.boardEdge()) this.ui.board(!this.ui.boardOn, true); /* touchpad (Xbox: both sticks): scoreboard on / off */
     const overlay = this.root.querySelector('.overlay.on:not(.soft)');
-    const inGame = this.mode === 'game' && !overlay && !this.shopOpen && !this.blessOpen;
+    const inGame = this.mode === 'game' && !overlay && !this.shopOpen && !this.blessOpen && !this.root.dataset.screen && !(this.ui.boardOn && this.pad.active); /* a menu screen opened over the game (Settings from the pause menu) is steered like any menu: the controller did nothing there (Nutty 2026-11-19) */
     if (!inGame) { this.pad.release(this.input); this.pad.nav(this.root, dt); return; }
     const wasActive = this.pad.active;
     const ev = this.pad.apply(this.input, dt, this.now);
@@ -1393,7 +1398,6 @@ export class Game {
     // the element picker those same presses stay the 1 / 2 choices, so only turn them into a cycle outside those.
     if ((ev.dl || ev.dr) && !this.elemOpen && this.phase !== 'vote') { const I = this.input; I.pressed.delete('Digit1'); I.pressed.delete('Digit2'); I.wheel = ev.dr ? 1 : -1; }
     if (ev.shop) this.toggleShop();
-    if (ev.board) this.ui.board(!this.ui.boardOn);
     if (ev.pause) { this.padPaused = true; this.ui.setLocked(false, false); }
   }
 
@@ -1637,6 +1641,7 @@ export class Game {
           body, color: [col.r, col.g, col.b], size: style === 1 ? 1.5 : style === 5 ? 0.85 : style === 4 ? 1.3 : style === 2 ? 0.95 : style === 3 ? 0.5 : 1.15, dur: style === 3 ? 1.2 : 4,
           onUpdate: (pos, vel) => {
             if (hit || !p.alive) return;
+            if (this.summons && this.summons.size) for (const sm of this.summons.values()) if (sm.mine && sm.live && Math.hypot(pos.x - sm.x, pos.z - sm.z) < sm.r && pos.y > sm.y - 0.4 && pos.y < sm.y + sm.h) { hit = true; this.summonHurt(sm, dmg * 3, false); this.fx.impact([pos.x, pos.y, pos.z], [col.r, col.g, col.b]); return false; } /* an enemy shot that reaches your summon hurts it */
             { // Absolute Zero: a shot inside the frozen air hangs where it is until the cold lets go.
               const zz = this.zeroZone;
               if (zz && this.now < zz.until && (pos.x - zz.x) ** 2 + (pos.z - zz.z) ** 2 < zz.r * zz.r) {
@@ -1651,7 +1656,7 @@ export class Game {
             if (back) {
               // Turned back by the Eye of the Storm: it strikes the first enemy in its way.
               const t = this.targets().find((q) => q.kind !== 'demon' && Math.hypot(q.x - pos.x, q.z - pos.z) < q.r + 0.8 && pos.y > q.y - 0.4 && pos.y < q.y + q.h + 0.4);
-              if (t) { hit = true; this.damage(t, 30 * p.stats.dmg * p.mm('eye'), { kx: vel.x * 0.3, kz: vel.z * 0.3, at: [pos.x, pos.y, pos.z] }); this.el.windDeflect([pos.x, pos.y, pos.z]); return false; }
+              if (t) { hit = true; this.damage(t, Math.max(1, dmg * 0.5) * p.stats.dmg * p.mm('eye') /* half of what the shot itself would have done (Nutty 2026-11-19) */, { kx: vel.x * 0.3, kz: vel.z * 0.3, at: [pos.x, pos.y, pos.z] }); this.el.windDeflect([pos.x, pos.y, pos.z]); return false; }
               return;
             }
             if (pl) {
@@ -2175,7 +2180,7 @@ export class Game {
           this.fx.laserBeams(rig ? rig.eyesWorld() : [P(0), P(0)], P(3), 'r' + v.id, false, 0.2);
           if (Math.random() < 0.5) this.fx.laserHit(P(3));
         } else if (wp.energy) { this.fx.shotFx(wp, P(0), P(3), 'r' + v.id, false, 0.2); this.fx.pulseMuzzle(P(0)); }
-        else if (wp.blast) this.fx.blast(P(0), P(3));
+        else if (wp.blast) this.fx.blast(P(0), P(3), 1.62);
         else { const hot = !!(v.flameUntil && this.now < v.flameUntil); this.fx.tracer(P(0), P(3), hot ? [1, 0.38, 0.06] : wp.tracer, wp.beamLen); if (hot) this.fx.fireShot(P(0), P(3), true); if (!wp.quiet) { const o = P(0), e = P(3); this.fx.muzzle(o, [e[0] - o[0], e[1] - o[1], e[2] - o[2]], undefined, flashSize(wp.id)); } }
         this.audio.play('shot_' + a[6], vol * (wp.quiet ? 0.5 : 0.7));
         break;
@@ -2259,22 +2264,23 @@ export class Game {
       case 'sl': Vault.sunlance(this, P(0)); this.audio.play('inferno', vol); break;
       case 'dg': { // another runner's dragon: the same animal with the same habits; in a duel it hunts you
         const me = this.player;
-        spawnDragon(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+        spawnDragon(this, { key: v.id + ':d', dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
       case 'pb': { // another runner's Polaris; in a duel he hunts you
         const me = this.player;
-        spawnPolaris(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+        spawnPolaris(this, { key: v.id + ':p', dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
       case 'gg': { // another runner's Golem: the same giant with the same habits; in a duel he throws at you
         const me = this.player;
-        v.golem = spawnGolem(this, { dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
+        v.golem = spawnGolem(this, { key: v.id + ':g', dur: a[0] / 10, yaw: a[1] / 100, owner: () => (v.alive && this.views.players.get(v.id) === v ? v.pos : null),
           targets: () => (this.duel ? (me && me.alive ? [{ id: 'me', kind: 'player', x: me.pos.x, y: me.pos.y, z: me.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size }] : []) : this.targets()) });
         break;
       }
+      case 'sd': { const sm = this.summons && this.summons.get(String(a[0])); if (sm) sm.st[sm.f] -= +a[1] || 0; break; } /* a summon was hurt on somebody else's screen */
       case 'gm': if (v.golem && v.golem.setRoam) v.golem.setRoam(!!a[0]); break; // their Golem switched between following and roaming
       case 'ga': Vault.airshot(this, P(0), D(3)); this.audio.play('wind', vol); break;
       case 'nv': this.fx.shockwave([v.pos.x, v.pos.y + 0.1, v.pos.z], a[0] / 10, a[1], 0.45); this.audio.play('gust', vol * 0.6); break; // an elemental power-up's burst
@@ -2367,6 +2373,7 @@ export class Game {
     if (this.views.boss) out.push(this.views.boss.target());
     if (this.views.demon) out.push(this.views.demon.target());
     // Duel Arena: the other fighter is a target.
+    if (this.duel && this.phase === 'duel' && this.summons) for (const s of this.summons.values()) if (!s.mine && s.live) out.push({ id: 'S:' + s.key, kind: 'summon', sm: s, x: s.x, y: s.y, z: s.z, r: s.r, h: s.h }); /* the other fighter's summon can be shot down */
     if (this.duel && this.phase === 'duel') for (const [id, v] of this.views.players) if (v.alive) out.push({ id: 'P:' + id, kind: 'player', x: v.pos.x, y: v.pos.y, z: v.pos.z, r: 0.42 * DUEL.size /* was 0.55: shots and fire beside a fighter counted as hits (Nutty 2026-11-18) */, h: 1.85 * DUEL.size, view: v });
     return out;
   }
@@ -2462,6 +2469,7 @@ export class Game {
     const p = this.player;
     const pos = o.at || [t.x, t.y + t.h * 0.7, t.z];
     if (t.kind === 'demon') { this.ui.damageNumber(this.project(pos), 'IMMUNE', 'immune'); return; }
+    if (t.kind === 'summon') { if (t.sm && t.sm.live) this.summonHurt(t.sm, dmg, !o.silentNum); return; }
     // Physical power-ups: Killer Instinct crits, Executioner finishes the wounded, Heavy Rounds shove.
     if (!o.chain) { // the other duelist is an enemy like any other: crits, executes and shoves land on them too (Nutty 2026-11-11)
       if (p.stats.crit && Math.random() < p.stats.crit) { dmg *= 2; o = { ...o, crit: true }; }
@@ -2722,7 +2730,8 @@ export class Game {
       // First person: eyes in the character's own head, which is hidden from view.
       const eye = rig.eyeWorld();
       const cam = this.camera;
-      cam.position.copy(eye).add(new THREE.Vector3(dx * CAM_LEAD, 0, dz * CAM_LEAD));
+      const pyT = this.now - (p.parryT ?? -9), pyK = pyT >= 0 && pyT < 0.36 ? Math.sin(Math.PI * Math.pow(pyT / 0.36, 0.6)) : 0; /* a parry: you lean in and bounce forward (Nutty 2026-11-19) */
+      cam.position.copy(eye).add(new THREE.Vector3(dx * (CAM_LEAD + pyK * 0.2), -pyK * 0.05, dz * (CAM_LEAD + pyK * 0.2)));
       // Looking through a scope: the weapon model would only block the view.
       const wm = p.model.userData.weapon;
       if (wm) { wm.visible = true; this.ghostSights(wm, wpn.adsHide ? ads : 0); } // sights, red dots and scopes stay solid: you look through them
@@ -2793,6 +2802,51 @@ export class Game {
   }
 
   // ---------------- interactions ----------------
+  /* Summons have health (Nutty 2026-11-19): the Dragon, the Golem and Polaris each carry a health bar and can be brought down before their
+     time is up. In a duel the other fighter's summon is a target for everything you have; in a run and in Horde enemy shots that reach
+     your summon hurt it (and enemies at the Golem's and Polaris' feet wear them down, as before). Every screen keeps its own copy, so
+     damage is passed round with fx 'sd'. */
+  summonTick(o, st, x, y, z, r, h, top, live, f = 'hp') {
+    if (!o.key || globalThis.__noSm) return;
+    const M = this.summons || (this.summons = new Map());
+    let s = M.get(o.key);
+    if (!s || s.st !== st) { if (s) s.bar.dispose(); s = { key: o.key, mine: !!o.mine, st, f, bar: Vault.summonBar(this, o.mine || !this.duel ? 0x58e07a : 0xff5a4a) }; M.set(o.key, s); }
+    if (st.maxHp == null) st.maxHp = st[f];
+    s.x = x; s.y = y; s.z = z; s.r = r; s.h = h; s.live = !!live && st[f] > 0; s.at = this.now;
+    s.bar.set(x, y + top, z, s.live ? st[f] / st.maxHp : 0);
+  }
+  summonSweep() { const M = this.summons; if (!M || !M.size) return; for (const [k, s] of M) if (this.now - s.at > 0.4 || this.mode !== 'game') { s.bar.dispose(); M.delete(k); } }
+  summonHurt(s, d, num) {
+    d = Math.max(0, +d || 0); s.st[s.f] -= d;
+    this.emitFx(['sd', s.key, Math.round(d)]);
+    if (num) { this.ui.damageNumber(this.project([s.x, s.y + s.h * 0.7, s.z]), Math.round(d), 'body'); this.ui.hitMarker && this.ui.hitMarker(false); }
+  }
+
+  /* A tombstone stands wherever a player has fallen for good (out of revives), their own screen included, until they are back. */
+  syncTombs() {
+    const T = this.tombs || (this.tombs = new Map()), want = new Map(), p = this.player;
+    if (this.mode === 'game' && this.world && p && this.party && !this.duel && !this.duelMode) {
+      if (p.out) want.set('me', [p.pos.x, p.pos.z]);
+      for (const q of this.party.peers()) if (!q.me && q.p && q.p.ig && q.p.out && Array.isArray(q.p.p)) want.set(String(q.id), [q.p.p[0] / 10, q.p.p[2] / 10]);
+    }
+    for (const [id, m] of T) if (!want.has(id)) { this.scene.remove(m); T.delete(id); }
+    for (const [id, at] of want) {
+      let m = T.get(id);
+      if (!m) {
+        if (!this._tombParts) {
+          const mat = stoneMat([0.6, 0.6, 0.58]);
+          this._tombParts = { mat, base: new THREE.BoxGeometry(1.0, 0.2, 0.5).translate(0, 0.1, 0), slab: new THREE.BoxGeometry(0.76, 0.85, 0.2).translate(0, 0.62, 0), top: new THREE.CylinderGeometry(0.38, 0.38, 0.2, 20, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2).translate(0, 1.045, 0) };
+        }
+        const P = this._tombParts; m = new THREE.Group();
+        for (const g of [P.base, P.slab, P.top]) { const o = new THREE.Mesh(g, P.mat); o.castShadow = true; o.receiveShadow = true; m.add(o); }
+        m.rotation.y = (at[0] * 7.3 + at[1] * 3.1) % 6.28; m.rotation.z = 0.04;
+        this.scene.add(m); T.set(id, m);
+        this.fx.dustBurst([at[0], this.world.heightAt(at[0], at[1]), at[1]], 0.7, [0.5, 0.5, 0.48]);
+      }
+      m.position.set(at[0], this.world.heightAt(at[0], at[1]) - 0.03, at[1]);
+    }
+  }
+
   interactions() {
     const p = this.player;
     if (!p.alive) { this.ui.prompt(null); return; }
@@ -2801,22 +2855,25 @@ export class Game {
       this.ui.prompt(this.ui.ctlB('jump') + ' Leap off'); /* Nutty 2026-11-18: far fewer instructions on the tree */
       return;
     }
-    /* Revive a fallen teammate (Nutty 2026-11-18): stand over where they fell and HOLD Use (Square / X button / E) for 2.5 s. */
-    if (!this.duel && this.party && this.party.kind !== 'solo') {
+    /* Revive a fallen teammate (Nutty 2026-11-19): a tombstone stands where they fell. Go to it and HOLD Use (Square / X button / E) for
+       10 seconds; it costs you half of the health you have. It can be done at any time while the match goes on. Runs and Horde only. */
+    if (!this.duel && !this.duelMode && this.party && this.party.kind !== 'solo') {
       let who = null, wd = 3.2;
       for (const q of this.party.peers()) {
         if (q.me || !q.p || !q.p.ig || !q.p.out || !Array.isArray(q.p.p)) continue;
         const fx = q.p.p[0] / 10, fy = q.p.p[1] / 10, fz = q.p.p[2] / 10, d = Math.hypot(fx - p.pos.x, fz - p.pos.z);
-        if (this.now - (this._fallT || 0) > 0.5) this.fx.glow.emit({ p: [fx, fy + 0.9, fz], life: 0.9, s0: 1.2, s1: 2.6, c0: [0.4, 1, 0.55, 0.7], c1: [0.2, 0.9, 0.4, 0] }); /* a soft green light marks the spot */
         if (d < wd && Math.abs(fy - p.pos.y) < 4) { wd = d; who = q; }
       }
-      if (this.now - (this._fallT || 0) > 0.5) this._fallT = this.now;
       if (who) {
-        const hold = this.input.keys.has('KeyE');
+        const NEED = 10, hold = this.input.keys.has('KeyE');
         this.rvT = hold && this.rvId === who.id ? (this.rvT || 0) + Math.min(0.1, Math.max(0, this.now - (this._rvNow || this.now))) : 0; this.rvId = who.id; this._rvNow = this.now;
         const nm = String(who.p.n || 'teammate').slice(0, 16).replace(/[&<>]/g, '');
-        this.ui.prompt(hold ? 'Reviving ' + nm + ' ' + Math.min(100, Math.round((this.rvT / 2.5) * 100)) + '%' : 'Hold ' + this.ui.ctlB('use') + ' Revive ' + nm);
-        if (this.rvT >= 2.5) { this.rvT = 0; this.emitFx(['rv', who.id]); this.audio.play('heal', 0.6); this.ui.toast('You revived ' + nm, 'good'); }
+        this.ui.prompt(hold ? 'Reviving ' + nm + ' · ' + Math.max(0, Math.ceil(NEED - this.rvT)) + ' s' : 'Hold ' + this.ui.ctlB('use') + ' 10 s to revive ' + nm + ' · costs half your health');
+        if (hold && this.now - (this._rvFx || 0) > 0.25) { this._rvFx = this.now; const fp = who.p.p; this.fx.glow.emit({ p: [fp[0] / 10, fp[1] / 10 + 1, fp[2] / 10], life: 0.7, s0: 0.8, s1: 2.4 * (0.4 + this.rvT / NEED), c0: [0.4, 1, 0.55, 0.8], c1: [0.2, 0.9, 0.4, 0] }); }
+        if (this.rvT >= NEED) {
+          this.rvT = 0; p.hp = Math.max(1, p.hp * 0.5); this.ui.hurt && this.ui.hurt(0.2);
+          this.emitFx(['rv', who.id]); this.audio.play('heal', 0.6); this.ui.toast('You revived ' + nm + ' for half your health', 'good');
+        }
         return;
       }
       this.rvT = 0;
