@@ -68,8 +68,8 @@ export class PadInput {
     }
     // R3 flips the camera view. D-pad down is the speed-up button.
     if (down(11)) I.pressed.add('KeyV');
-    const ev = { pause: down(9), shop: down(8), back: down(1), a: down(0), dl: down(14), dr: down(15), du: down(12), dd: down(13) };
-    this.prev = b;
+    const ev = { board: !!raw[17] && !this.prevTp /* the DualShock touchpad click */, pause: down(9), shop: down(8), back: down(1), a: down(0), dl: down(14), dr: down(15), du: down(12), dd: down(13) };
+    this.prev = b; this.prevTp = !!raw[17];
     return ev;
   }
   release(I) { for (const c of this.held) I.keys.delete(c); this.held.clear(); I.ax = I.ay = 0; I.padFire = false; }

@@ -25,12 +25,12 @@ export const MOB_LOOKS = {
   crawler: { file: 'xbot.glb', build: 'skeleton', eye: 0xff4a2a, h: 1.4, hunch: 0.95 },
   brute: { file: 'm14.glb', tposeArms: true, h: 3.0, hunch: 0.28, bulk: 1.2 }, // #14 shirtless strongman
   wraith: { file: 'xbot.glb', build: 'skeleton', eye: 0x9fe8ff, h: 2.0, hunch: 0.2, ghost: 0x7fd8ff, float: 0.45 },
-  hexer: { file: 'clown.glb', h: 2.0, hunch: 0.1, tint: 0xb9a6d6, cast: true, orb: 0xb06aff, horns: true },
-  ravager: { file: 'm11.glb', tposeArms: true, h: 2.45, hunch: 0.5, bulk: 1.1, horns: true, hornScale: 1.6 }, // #11 dark flesh monster
+  hexer: { file: 'clown.glb', h: 2.0, hunch: 0.1, tint: 0xb9a6d6, cast: true, orb: 0xb06aff },
+  ravager: { file: 'm11.glb', tposeArms: true, h: 2.45, hunch: 0.5, bulk: 1.1 }, // #11 dark flesh monster
   juggernaut: { file: 'soldier.glb', h: 3.4, hunch: 0.12, tint: 0x7c7f8c, bulk: 1.25, visor: 0xff3a1a },
   banshee: { file: 'sorceress.glb', h: 1.95, hunch: 0.05, ghost: 0xff8ad0, float: 0.6, cast: true },
   // Flyers: a winged imp that dives, and a bone archer that hovers and shoots.
-  gloomwing: { file: 'm10.glb', tposeArms: true, h: 1.55, hunch: 0.35, bulk: 0.9, horns: true, hornScale: 1.2, fly: true, wings: { membrane: 0x9a62b0, bone: 0x3a2430, span: 0.95 } }, // #10 red flesh
+  gloomwing: { file: 'm10.glb', tposeArms: true, h: 1.55, hunch: 0.35, bulk: 0.9, fly: true, wings: { membrane: 0x9a62b0, bone: 0x3a2430, span: 0.95 } }, // #10 red flesh
   skyhunter: { file: 'xbot.glb', build: 'skeleton', eye: 0x9fe8ff, h: 1.9, hunch: 0.15, fly: true, wings: { membrane: 0xb9c6d4, bone: 0xe8e0cc, span: 1.25, alpha: 0.72 } },
   // Summoned from hell by the Zombie Staff: the rigged veteran avatar rotted green-grey (see rotDress), arms out in front, glowing eyes.
   // Variants. gear: rigid props (see buildGear). tele: glow colour while winding up an ability. aura: ambient particles.
@@ -38,13 +38,13 @@ export const MOB_LOOKS = {
   bomber: { file: 'clown.glb', h: 1.5, hunch: 0.3, tint: 0xf09040, lift: 0.3, gear: ['keg'], tele: [1, 0.45, 0.1], aura: 'spark' },
   pouncer: { file: 'm19.glb', tposeArms: true, h: 1.5, hunch: 0.95, lift: 0.22, bulk: 0.9, gear: ['ridge'], tele: [1, 0.9, 0.3] }, // #19 wrapped mummy
   hatchling: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0xe2d41c, belly: 0xfff6a0 }, h: 0.95, hunch: 0.5 },
-  cinder: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0x9a1c0c, belly: 0xff7a20 }, h: 2.15, hunch: 0.3, horns: true, hornScale: 1.5, gear: ['embers'], aura: 'fire' },
+  cinder: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0x9a1c0c, belly: 0xff7a20 }, h: 2.15, hunch: 0.3, gear: ['embers'], aura: 'fire' },
   venomfang: { file: 'clown.glb', h: 1.75, hunch: 0.5, tint: 0xa8e048, lift: 0.2, gear: ['sacs'], aura: 'poison' },
   necro: { file: 'xbot.glb', build: 'skeleton', eye: 0x7dffb0, h: 2.0, hunch: 0.25, gear: ['robe', 'staff'], tele: [0.4, 1, 0.65], aura: 'wisp' },
   boneling: { file: 'xbot.glb', build: 'skeleton', eye: 0x7dffb0, h: 1.15, hunch: 0.6 },
   archer: { file: 'soldier.glb', h: 1.9, hunch: 0.15, tint: 0xa48c58, lift: 0.2, gear: ['bow', 'quiver'], tele: [1, 0.95, 0.7] },
   troll: { file: 'm03.glb', tposeArms: true, h: 3.0, hunch: 0.3, lift: 0.16, bulk: 1.3, gear: ['club'] }, // #3 big old man in a coat
-  ogre: { file: 'soldier.glb', h: 3.5, hunch: 0.2, tint: 0xc08068, lift: 0.06, bulk: 1.5, slam: true, horns: true, hornScale: 2.2, gear: ['fists'], tele: [1, 0.5, 0.3] },
+  ogre: { file: 'soldier.glb', h: 3.5, hunch: 0.2, tint: 0xc08068, lift: 0.06, bulk: 1.5, slam: true, gear: ['fists'], tele: [1, 0.5, 0.3] },
   // Goblins: the ghoul's goblin body, green-skinned, small and quick; the shaman wears a robe and carries a skull staff, the chief a club and a shield.
   goblin: { file: 'm05.glb', tposeArms: true, h: 1.35, hunch: 0.55, bulk: 0.9, lift: 0.08, gear: ['dagger'] }, // #5 purple imp
   gobshaman: { file: 'm23.glb', tposeArms: true, h: 1.5, hunch: 0.35, bulk: 0.9, lift: 0.08, cast: true, orb: 0x8aff30, gear: ['staff'], tele: [0.5, 1, 0.2] }, // #23 red hooded cleric

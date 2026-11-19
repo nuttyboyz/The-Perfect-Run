@@ -874,12 +874,12 @@ export function stageIdx(runSeed, round) {
 // rest: seconds between waves. grow: health and damage multiply by this every wave. quota: enemies in wave w for n players.
 // field: how many are alive at once. bosses: BOSSES indices a boss wave can draw (never Thermes or The Visitor).
 export const HORDE = {
-  rest: 30, bossEvery: 5, grow: 1.2, pcKill: 2, bossWaveK: 0.5, // bossWaveK: while a boss is up, its extra enemies pay half the coins
+  rest: 30, bossEvery: 5, grow: 1.2, pcKill: 2, bossWaveK: 1, /* Nutty 2026-11-18: 2 PC a kill again, on boss waves too */ // bossWaveK: while a boss is up, its extra enemies pay half the coins
   quota: (w) => Math.round(37.5 * w), // was 50 a wave (Nutty 2026-11-13); a quarter fewer everywhere (Nutty 2026-11-16): wave 1 is 38, wave 2 is 75
   field: (w, n) => Math.round(Math.min(150, 30 + 10 * w) * (0.6 + 0.4 * n) * 0.75),
   crate: 15, bossPc: 500, flyFrom: 7, // chests are a flat 15 PC; a boss pays 500 PC and one Deity Blessing
   // Durability: every weapon wears out and must be repaired or replaced at a stall. A gun lasts gunMags magazines, a blade meleeSwings swings.
-  gunMags: 20, gunMinShots: 80, meleeSwings: 400, repair: 0.5,
+  gunMags: 20, gunMinShots: 80, meleeSwings: 400, bowShots: 120, repair: 0.25, /* Nutty 2026-11-18: repairs cost half what they did; the longbow and crossbow wear out too, a little slower than guns */
   price: { melee: 100, gun: 250, elem: 800, gear: 1000, dash: 500 }, // Nutty 2026-11-14 08:16 (was 300 / 500 / 1000 / 2000)
   bosses: [9, 10, 11, 12, 13, 14, 5, 15], bossAt: { 5: 15 }, // bossAt: this wave's boss is always this one (Nutty 2026-11-14: Dreyar, #37, on wave 5)
   shops: [

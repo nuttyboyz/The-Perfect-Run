@@ -91,6 +91,9 @@ export class RemotePlayerView {
     this.pitch = (p.pt || 0) / 100;
     this.model.position.copy(this.pos);
     this.model.rotation.y = this.yaw;
+    /* Flinch: every hit this player takes (presence 'hu' counts them) rocks the body back for a moment, so you can see your blow land. */
+    if (p.hu !== this._hu) { if (this._hu !== undefined && p.al) this.flT = 0.3; this._hu = p.hu; }
+    if (this.flT > 0) { this.flT -= dt; this.model.rotation.order = 'YXZ'; this.model.rotation.x = -0.22 * Math.sin(Math.PI * Math.max(0, this.flT) / 0.3); } else if (this.model.rotation.x) this.model.rotation.x = 0;
     setCharacterScale(this.model, this.size || 1); // duel fighters are drawn larger (game sets size)
     const riding = p.sb > 0 && p.al;
     this.boardObj.visible = !!riding;
@@ -112,6 +115,7 @@ export class RemotePlayerView {
     if (p.ml && !this.mlT) { this.mlT = 0.001; this.mlMv = p.mv | 0; }
     if (this.mlT) { this.mlT += dt * 1.8; if (this.mlT >= 1) { this.mlT = p.ml ? 0.001 : 0; this.mlMv = p.mv | 0; } }
     const w = Array.isArray(p.wp) ? p.wp[p.wi || 0] : null;
+    if (p.wi === 9) this.model.userData.setWeapon('bare'); /* fists out */
     if (w && WEAPON_BY_ID[w]) this.model.userData.setWeapon(WEAPON_BY_ID[w].kind === 'gear' ? 'bare' : w); // an all-gear loadout fights bare-handed
     // Web Swing: the anchor of the line they hang from (presence sw, tenths of a metre); the left arm reaches for it.
     const sw = Array.isArray(p.sw) && p.sw.length === 3 ? [p.sw[0] / 10, p.sw[1] / 10, p.sw[2] / 10] : null;

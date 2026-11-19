@@ -108,21 +108,31 @@ export class ChestFx {
     const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.45, 5, 18, 1, true).translate(0, 2.5 + CHEST.h, 0), sm);
     root.add(inner, cone);
     g.scene.add(root);
-    const e = { c, root, hinge, seamMat, inner, sm, t: 0, pu, icon: null, taken: !pu, sparkT: 0 };
-    if (pu) {
-      // The power-up's own icon on a glowing card that rises out of the chest and hovers.
-      const tex = new THREE.TextureLoader().load(puIconURL(pu)); tex.colorSpace = THREE.SRGBColorSpace;
-      const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true, fog: false, toneMapped: false }));
-      ic.scale.setScalar(0.001); ic.renderOrder = 9;
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: soft(), color: 0xffe0a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-      halo.renderOrder = 8;
-      g.scene.add(halo, ic);
-      e.icon = ic; e.halo = halo;
-    }
+    const e = { c, root, hinge, seamMat, inner, sm, t: 0, pu, icon: null, taken: !pu, takeT: pu ? undefined : 1.3, sparkT: 0 }; /* nothing in it for you: the light dies right after it opens */
+    if (pu) this.card(e, pu);
     this.list.push(e);
     g.audio.play('crate', 0.9);
     return e;
   }
+  // The power-up's own icon on a glowing card that rises out of the chest and hovers.
+  card(e, pu) {
+    const g = this.game;
+    const tex = new THREE.TextureLoader().load(puIconURL(pu)); tex.colorSpace = THREE.SRGBColorSpace;
+    const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true, fog: false, toneMapped: false }));
+    ic.scale.setScalar(0.001); ic.renderOrder = 9;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: soft(), color: 0xffe0a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    halo.renderOrder = 8;
+    g.scene.add(halo, ic);
+    e.icon = ic; e.halo = halo; e.pu = pu; e.taken = false; e.takeT = undefined; e.done = false; e.inner.visible = true;
+  }
+  /* Another player opened chest c and this is what floats over it: anyone may take it (Nutty 2026-11-18). */
+  offer(c, pu) {
+    const e = this.list.find((q) => q.c === c);
+    if (e && !e.icon && !e.pu) this.card(e, pu);
+    return e;
+  }
+  /* Somebody else took the power-up over chest id. */
+  gone(id) { const e = this.list.find((q) => q.c.id === id); if (e && !e.taken) this.take(e); }
 
   // The power-up that is waiting for you nearest to p (within reach), if any.
   nearest(p, reach = 3.6) {
@@ -151,8 +161,11 @@ export class ChestFx {
       e.hinge.rotation.x = -1.92 * easeOutBack(k);
       // light from inside, peaking as the lid clears, then a steady warm glow
       const glow = t < 0.45 ? 0 : t < 0.9 ? (t - 0.45) / 0.45 : Math.max(0.35, 1 - (t - 0.9) * 0.5);
-      e.inner.material.opacity = glow * 0.9;
-      e.sm.uniforms.uA.value = glow * (e.taken ? Math.max(0, 1 - (t - (e.takeT || t)) * 1.5) : 0.55);
+      /* The light goes out once the chest is used (Nutty 2026-11-18: it kept glowing): when its power-up is taken, or a few seconds after opening when there is nothing of yours to take. */
+      const lit = e.taken ? Math.max(0, 1 - (t - (e.takeT || t)) * 1.5) : !e.icon ? Math.max(0, 1 - (t - 2.4) * 1.2) : 1;
+      e.inner.material.opacity = glow * 0.9 * Math.min(1, lit);
+      e.sm.uniforms.uA.value = glow * 0.55 * Math.min(1, lit) * (e.taken ? 1.8 : 1);
+      if (!e.taken && !e.icon && lit <= 0) { e.inner.visible = false; e.done = true; }
       e.sm.uniforms.uT.value = t;
       if (t > 0.5 && t < 1.6) {
         e.sparkT -= dt;

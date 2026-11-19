@@ -253,7 +253,7 @@ export class Bot {
       if (w.kind === 'gun' && p.ammo[i] <= 0) sc += 12;
       if (sc < bestScore) { bestScore = sc; want = i; }
     });
-    if (want !== p.cur) { I.pressed.add('Digit' + (want + 1)); this.swapT = 0.9; }
+    if (want !== p.cur || p.fists) { I.pressed.add('Digit' + (want + 2)); /* Digit1 is the fists now */ this.swapT = 0.9; }
   }
 
   // Close in or back off to the weapon's range, circle the target, fire.

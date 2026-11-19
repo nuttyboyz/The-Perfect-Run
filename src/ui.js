@@ -4,7 +4,7 @@ import { renderPShop, gemURL } from './metashop.js';
 import { MUTATORS, muOn, BOTTOMLESS } from './mutators.js';
 import { getMeta } from './meta.js';
 import { Profile } from './profile.js';
-import { DUEL_BIOMES, clipName, STAGE_POOL } from './data.js';
+import { DUEL_BIOMES, clipName, STAGE_POOL, AB_CLASS } from './data.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, NPCS, NPC_TYPES, BIOMES, BOSSES, DASH, DUEL, POWERUP_BY_ID, puInfo, TIER, splitLoadout, loadoutFull, HORDE } from './data.js';
 import { shopSvg, SHOP_ICON } from './hordeshops.js';
 import { JET } from './jetpack.js';
@@ -27,7 +27,7 @@ const FLIP_LOBBY = document.documentElement.dataset.lobby === 'flip' || new URLS
 export const CTL = {
   ds: { move: 'L stick', look: 'R stick', jump: '✕', dash: '○', use: '□', reload: '□', next: '◀ ▶', ab1: 'L1', ab2: '△', ult: 'R1', aim: 'L2', block: 'L2', fire: 'R2', sprint: 'L3', camera: 'R3', bed: 'L2 + R3', shop: 'Share', pause: 'Options', prev: '◀', nxt: '▶', speed: '▼', takeover: '▲', cpu: '▲', up: 'L stick up', down: 'L stick down', side: 'L stick left / right', select: '✕', back: '○', fs: 'F11' },
   xbox: { move: 'L stick', look: 'R stick', jump: 'A', dash: 'B', use: 'X', reload: 'X', next: '◀ ▶', ab1: 'LB', ab2: 'Y', ult: 'RB', aim: 'LT', block: 'LT', fire: 'RT', sprint: 'L3', camera: 'R3', bed: 'LT + R3', shop: 'View', pause: 'Menu', prev: '◀', nxt: '▶', speed: '▼', takeover: '▲', cpu: '▲', up: 'L stick up', down: 'L stick down', side: 'L stick left / right', select: 'A', back: 'B', fs: 'F11' },
-  kb: { move: 'W A S D', look: 'Mouse', jump: 'Space', dash: 'X', use: 'E', reload: 'R', next: 'Wheel', ab1: 'Q', ab2: 'G', ult: 'F', aim: 'Right click / C', block: 'Right click / C', fire: 'Left click', sprint: 'Shift', camera: 'V', bed: 'B', shop: 'Tab', pause: 'Esc', prev: '1', nxt: '2', speed: 'T', takeover: 'P', cpu: 'P', up: 'W', down: 'S', side: 'A D', select: 'Enter', back: 'Esc', fs: 'F11' },
+  kb: { move: 'W A S D', look: 'Mouse', jump: 'Space', dash: 'X', use: 'E', reload: 'R', next: 'Wheel', ab1: 'Q', ab2: 'G', ult: 'F', aim: 'Right click / C', block: 'Right click / C', fire: 'Left click', sprint: 'Shift', camera: 'V', bed: 'B', shop: 'M', pause: 'Esc', prev: '1', nxt: '2', speed: 'T', takeover: 'P', cpu: 'P', up: 'W', down: 'S', side: 'A D', select: 'Enter', back: 'Esc', fs: 'F11' },
   kp: { move: '↑ ↓', look: 'PgUp PgDn', jump: '/', dash: "'", use: ';', reload: ';', next: '9 0', ab1: '[', ab2: 'P', ult: ']', aim: 'Shift', block: 'Shift', fire: 'Enter', sprint: 'R Shift', camera: 'R3', bed: 'B', shop: '=', pause: 'Backspace', prev: '9', nxt: '0', speed: 'N', takeover: '\\', cpu: '\\', up: '↑', down: '↓', side: '← →', select: 'Enter', back: 'Backspace', fs: 'F11' },
 };
 const CTL0 = JSON.parse(JSON.stringify(CTL));
@@ -35,7 +35,7 @@ const CTL0 = JSON.parse(JSON.stringify(CTL));
 export function applyBindLabels() {
   for (const L of Object.keys(CTL0)) Object.assign(CTL[L], CTL0[L]);
   const k = CTL.kb, K = (c) => keyName(kbPhys(c));
-  Object.assign(k, { jump: K('Space'), dash: K('KeyX'), use: K('KeyE'), reload: K('KeyR'), ab1: K('KeyQ'), ab2: K('KeyG'), ult: K('KeyF'), aim: 'Right click / ' + K('KeyC'), block: 'Right click / ' + K('KeyC'), sprint: K('ShiftLeft'), camera: K('KeyV'), bed: K('KeyB'), shop: K('Tab'), prev: K('Digit1'), nxt: K('Digit2'), speed: K('KeyT'), takeover: K('KeyP'), cpu: K('KeyP') });
+  Object.assign(k, { jump: K('Space'), dash: K('KeyX'), use: K('KeyE'), reload: K('KeyR'), ab1: K('KeyQ'), ab2: K('KeyG'), ult: K('KeyF'), aim: 'Right click / ' + K('KeyC'), block: 'Right click / ' + K('KeyC'), sprint: K('ShiftLeft'), camera: K('KeyV'), bed: K('KeyB'), shop: K('KeyM'), prev: K('Digit1'), nxt: K('Digit2'), speed: K('KeyT'), takeover: K('KeyP'), cpu: K('KeyP') });
   for (const L of ['ds', 'xbox']) {
     const N = PAD_NAMES[L], B = (i) => N[padPhys(i)], c = CTL[L];
     Object.assign(c, { jump: B(0), dash: B(1), use: B(2), reload: B(2), ab2: B(3), ab1: B(4), ult: B(5), aim: B(6), block: B(6), fire: B(7), shop: B(8), pause: B(9), sprint: B(10), camera: B(11), cpu: B(12), takeover: B(12), speed: B(13), prev: B(14), nxt: B(15), next: B(14) + ' ' + B(15), bed: B(6) + ' + ' + B(11) });
@@ -242,6 +242,7 @@ export class UI {
     if (id !== 's-couch') this.couchStop();
     if (id !== 's-settings' && this.game.draft) { if (this.game.draftDirty) this.revertDraft(); this.game.draft = false; this.game.draftDirty = false; } // Settings closed some other way
     this.$$('.screen').forEach((s) => s.classList.toggle('on', s.id === id));
+    this.serverWatch(id === 's-join');
     this.root.dataset.screen = id || '';
     if (id === 's-title' && this.ringPlace) requestAnimationFrame(this.ringPlace);
     requestAnimationFrame(() => this.fitScreen());
@@ -583,6 +584,20 @@ export class UI {
     this.dailyTitle();
   }
 
+  /* While the Quickplay screen is open the list of games is fetched again every few seconds. */
+  serverWatch(on) {
+    clearInterval(this._srvI); this._srvI = null;
+    const g = this.game;
+    if (!on) return;
+    const look = async () => {
+      if (this.root.dataset.screen !== 's-join') return this.serverWatch(false);
+      if (this.scanning || !g.lobby || !g.lobby.scan) { this.refreshPartyList(); return; }
+      this.scanning = true; this.refreshPartyList();
+      try { await g.lobby.scan(3500); } catch {}
+      this.scanning = false; this.refreshPartyList();
+    };
+    look(); this._srvI = setInterval(look, 9000);
+  }
   refreshPartyList() {
     const g = this.game;
     const list = this.$('#party-list');
@@ -591,11 +606,15 @@ export class UI {
     this.$('#net-note').textContent = t === 'room'
       ? 'Friends who open this same game link appear here. Their party shows up automatically.'
       : t === 'bc' ? 'Local test mode: parties from other tabs on this computer.' : t === 'peer' ? (this.scanning ? 'Looking for open public games…' : 'Open public games are listed here. Friends in a private party can send you their code or invite link.') : 'Looking for parties…';
-    const parties = g.lobby ? g.lobby.parties().filter((p) => !p.me && p.pub !== 0) : [];
+    const parties = g.lobby ? g.lobby.parties().filter((p) => !p.me && p.pub !== 0 && p.code) : [];
+    parties.sort((a, b) => (a.ping || 9999) - (b.ping || 9999));
+    /* The server list (Nutty 2026-11-18): every public game, also ones being played, with the host's name, what it is, how full it is, how fast
+       it answers, and a Join button. It refreshes by itself while this screen is open. */
+    const pingCls = (ms) => (!ms ? '' : ms < 120 ? 'good' : ms < 300 ? 'ok' : 'bad');
     list.innerHTML = parties.length
-      ? parties.map((p) => `<button class="party-row" data-code="${esc(p.code)}"><span class="pr-host">${esc(p.host || 'Party')}'s ${p.dm ? 'duel' : 'party'}</span><span class="pr-n">${Math.min(5, p.n || 1)}/5</span><span class="pr-code">${esc(p.code)}</span></button>`).join('')
-      : `<div class="empty">${t === 'peer' && this.scanning ? 'Searching…' : 'No open public games right now. Quickplay will host one for you.'}</div>`;
-    this.$$('.party-row', list).forEach((b) => (b.onclick = () => this.join(b.dataset.code)));
+      ? '<div class="srv-head"><span>Host</span><span>Game</span><span>Players</span><span>Ping</span><span></span></div>' + parties.map((p) => `<div class="party-row srv" data-code="${esc(p.code)}"><span class="pr-host">${esc(p.host || 'Party')}</span><span class="pr-mode">${p.dm ? 'Duel' : p.hm ? 'Horde' : 'Run'}<small>${p.ig ? 'Playing now' : 'In the lobby'}</small></span><span class="pr-n">${Math.min(p.dm ? 2 : 5, p.n || 1)}/${p.dm ? 2 : 5}</span><span class="pr-ping ${pingCls(p.ping)}">${p.ping ? p.ping + ' ms' : '—'}</span><button class="btn primary small pr-join" ${(p.n || 1) >= (p.dm ? 2 : 5) ? 'disabled' : ''}>${(p.n || 1) >= (p.dm ? 2 : 5) ? 'Full' : 'Join'}</button></div>`).join('')
+      : `<div class="empty">${t === 'peer' && this.scanning ? 'Searching…' : 'No public games right now. Join Random will host one for you.'}</div>`;
+    this.$$('.party-row .pr-join', list).forEach((b) => (b.onclick = () => { if (this.game.audio) this.game.audio.play('ui'); this.join(b.parentElement.dataset.code); }));
   }
 
   // ---------------- lobby ----------------
@@ -1291,7 +1310,7 @@ export class UI {
     const rows = l === 'kb' ? [
       ['W A S D', 'Move'], ['Mouse', 'Look and aim'], ['Left click', 'Attack / fire (melee alternates slash and stab)'], ['Right click or C', 'Aim down sights, or block with a melee weapon'],
       ['Shift', 'Sprint'], ['Space', 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], ['X', 'Dash'], ['Q', 'Element ability'], ['G', 'Third ability'], ['F', 'Ultimate'],
-      ['1 2 3 or wheel', 'Swap weapon'], ['R', 'Reload'], ['E', 'Open crate, use altar, take a power-up'], ['V', 'First / third person'], ['Tab', 'Shop'], ['Esc', 'Pause menu'],
+      ['1 2 3 or wheel', 'Swap weapon'], ['R', 'Reload'], ['E', 'Open crate, use altar, take a power-up'], ['V', 'First / third person'], ['Tab', 'Scoreboard (hold)'], ['M', 'Shop'], ['Esc', 'Pause menu'],
     ] : (() => { const k = P[l] || P.ds; return [
       [k.ls, 'Move'], [k.l3, 'Sprint on/off (with the Jet Pack lit: go down)'], [k.rs, 'Look and aim'], [k.rt, 'Attack / fire (melee alternates slash and stab)'], [k.lt, 'Aim down sights, or hold to block (tap just before a hit to parry)'],
       [k.a, 'Jump (again in the air: Web Swing, double-tap: Jet Pack)'], [k.b, 'Dash'], [k.x, 'Reload, open crate, use altar, take a power-up'], [k.lb, 'Element ability'], [k.y, 'Third ability'], [k.rb, 'Ultimate'],
@@ -1378,6 +1397,7 @@ export class UI {
     this.$('#pause-leave').onclick = () => {
       g.audio.play('ui');
       const local = g.party && g.party.kind === 'local' && !g.bot, online = g.party && g.party.kind !== 'solo' && !local && !g.bot;
+      this.$('#pause-yes').textContent = g.hordeMode || g.horde ? 'Return to Home' : 'Return Home';
       this.$('#pause-sure-note').textContent = local ? (g.seat === 2 ? 'You leave couch co-op. Player 1 carries on alone.' : 'This ends the run for both players.') : online ? 'You leave the party and go back to the main menu. The others keep playing.' : 'Your run will end and you go back to the main menu.';
       sure(true);
       const no = this.$('#pause-no'); if (g.pad && g.pad.active) setFocus(this.$('#pause'), no);
@@ -1414,6 +1434,7 @@ export class UI {
     for (const k of ['q', 'r', 'e']) {
       const ab = cls[k], el = this.$('#ab-' + k);
       el.classList.toggle('empty', !ab);
+      { const own = ab && AB_CLASS[ab.id] && CLASS_BY_ID[AB_CLASS[ab.id]]; el.style.setProperty('--class', own ? own.css : cls.css); } /* each cooldown wears its own element's colour, also when you carry two elements (Nutty 2026-11-18) */
       this.$('.ab-icon', el).innerHTML = ab ? AB_ICONS[ab.id] || ICONS[cls.element] || '' : '';
       this.$('.ab-name', el).textContent = ab ? ab.name : 'Empty';
     }
@@ -1427,8 +1448,8 @@ export class UI {
     const local = g.party && g.party.kind === 'local' && !g.bot;
     this.$('#pause-sub').textContent = local ? 'Player ' + g.seat + ' menu' : g.party && !g.alone && !g.bot ? 'The run keeps going while you are here.' : 'Paused';
     this.$('#pause').classList.remove('asking');
-    this.$('#pause-note').textContent = !local ? '' : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
-    if (!this.confirmTimer) this.$('#pause-leave').textContent = local ? (g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op') : 'Leave run';
+    this.$('#pause-note').textContent = !local ? (g.party && g.party.code && !g.alone && !g.bot ? 'Join code: ' + String(g.party.code).toUpperCase() : '') /* friends can be given the code from the pause menu (Nutty 2026-11-18) */ : g.seat === 2 ? 'Player 1 keeps playing. Leaving puts Player 1 back in a solo run.' : 'Player 2 keeps playing. Ending couch co-op stops the run for both players.';
+    if (!this.confirmTimer) this.$('#pause-leave').textContent = local ? (g.seat === 2 ? 'Leave couch co-op' : 'End couch co-op') : g.hordeMode || g.horde ? 'Quit Game' : 'Leave Run'; /* Horde: Quit Game, then Return to Home (Nutty 2026-11-18) */
     if (show) this.renderShare();
   }
 
@@ -1494,13 +1515,14 @@ export class UI {
     }
     const wp = p.weapon;
     // Three slots: two weapons and the tier-3 gear (a passive piece shows what it does instead of ammo).
-    (this._ws && this._ws[0].isConnected ? this._ws : (this._ws = this.$$('.wslot'))).forEach((el, i) => {
+    { const fe = this.$k('#wfist'); if (fe) this.setC(fe, 'cur', !!p.fists); }
+    (this._ws && this._ws[0].isConnected ? this._ws : (this._ws = this.$$('.wslot:not(.fist)'))).forEach((el, i) => {
       const w = WEAPON_BY_ID[p.weapons[i]];
       const disp = w ? '' : 'none';
       if (el._d !== disp) { el._d = disp; el.style.display = disp; }
       if (!w) return;
       const gear = w.kind === 'gear';
-      this.setC(el, 'cur', i === p.cur);
+      this.setC(el, 'cur', i === p.cur && !p.fists);
       this.setC(el, 'gear', gear);
       if (el.dataset.w !== w.id) {
         el.dataset.w = w.id;
@@ -1643,8 +1665,46 @@ export class UI {
     }
   }
 
-  drawMinimap() {
-    const g = this.game, c = this.$('#minimap'), ctx = c.getContext('2d');
+  /* The scoreboard (hold Tab, or click the DualShock touchpad): time and progress, a big map, everyone's health, kills and PC, and your own
+     numbers. It redraws itself while it is up, so players who join or leave appear and disappear on their own. */
+  board(on) {
+    const el = this.$('#board'); if (!el) return;
+    on = !!on && this.game.mode === 'game';
+    if (on === !!this.boardOn) return;
+    this.boardOn = on; el.classList.toggle('on', on);
+    clearInterval(this._bdI);
+    if (!on) return;
+    const draw = () => { try { if (this.game.mode !== 'game' || !this.game.player) return this.board(false); this.drawBoard(); } catch (e) { console.warn('board', e); } };
+    draw(); this._bdI = setInterval(draw, 120);
+  }
+  drawBoard() {
+    const g = this.game, p = g.player, el = this.$('#board');
+    this.$('.bd-mode', el).textContent = this.$('#round-label').textContent;
+    this.$('.bd-time', el).textContent = this.$('#timer').textContent;
+    this.drawMinimap(this.$('#bd-map', el));
+    const rows = (g.party ? g.party.peers() : []).filter((q) => q.me || (q.p && q.p.n && q.p.ig)).map((q) => {
+      const v = q.me ? null : g.views.players.get(q.id), d = q.p || {};
+      const hp = q.me ? p.hp : d.hp || 0, mh = Math.max(1, q.me ? p.stats.maxHp : d.mh || 100);
+      const out = q.me ? p.out : !!d.out, down = q.me ? !p.alive : d.al === 0;
+      return { me: q.me, name: q.me ? g.myName || d.n || 'You' : d.n, host: !!d.host, css: q.me ? p.cls.css : v && v.cls ? v.cls.css : '#bbb', hp: out || down ? 0 : Math.max(0, hp), mh, out, down, k: q.me ? p.totalKills : d.k || 0, pc: q.me ? p.pc : d.pc || 0 };
+    });
+    rows.sort((a, b) => b.k - a.k);
+    const top = rows.length > 1 && rows[0].k > 0 && rows[0].k > rows[1].k ? rows[0] : null;
+    const html = '<table><tr><th>Player</th><th>Health</th><th>Kills</th><th>PC</th></tr>' + rows.map((r) => {
+      const f = r.hp / r.mh, col = f > 0.5 ? '#5fd86f' : f > 0.25 ? '#ffc94a' : '#ff5a5a';
+      const tag = (r.host && rows.length > 1 ? '<em>Host</em>' : '') + (r === top ? '<em>Top hunter</em>' : '');
+      const hpTxt = r.out ? 'Out' : r.down ? 'Down' : Math.ceil(r.hp) + ' / ' + Math.round(r.mh);
+      return `<tr class="${r.me ? 'me' : ''}${r.out || r.down ? ' dn' : ''}"><td class="nm"><i style="background:${r.css}"></i>${esc(r.name || 'Player')}${tag}</td><td><span class="hpb" style="--v:${Math.round(f * 100)}%;--c:${col}"><u></u></span>${hpTxt}</td><td>${r.k}</td><td>${r.pc}</td></tr>`;
+    }).join('') + '</table>';
+    const list = this.$('.bd-list', el); if (list._h !== html) { list._h = html; list.innerHTML = html; }
+    const tk = rows.reduce((n, r) => n + r.k, 0), mobs = g.views.mobs.size;
+    this.$('.bd-team', el).textContent = rows.length + (rows.length === 1 ? ' player' : ' players') + ' · ' + tk + ' team kills · ' + mobs + (mobs === 1 ? ' enemy' : ' enemies') + ' nearby' + (g.views.boss ? ' · Boss on the field' : '');
+    const me = [['Level', (p.level | 0) + 1], ['Damage', Math.round(p.damageDealt || 0).toLocaleString()], ['Deaths', p.deaths | 0], ['Power-ups', p.powerups.length]].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
+    const mine = this.$('.bd-me', el); if (mine._h !== me) { mine._h = me; mine.innerHTML = me; }
+  }
+
+  drawMinimap(cv) {
+    const g = this.game, c = cv || this.$('#minimap'), ctx = c.getContext('2d');
     const S = c.width;
     if (!this.mmBase) return;
     ctx.save();
@@ -1672,9 +1732,22 @@ export class UI {
     }
     for (const m of g.views.mobs.values()) dot(m.x, m.z, 1.6, '#ff4040');
     for (const n of g.views.npcs.values()) dot(n.x, n.z, 2, '#7dff8a');
-    if (g.views.boss) dot(g.views.boss.x, g.views.boss.z, 5, '#ff2050');
+    if (g.views.boss) { /* the boss is a red skull (Nutty 2026-11-18) */
+      const [bx, bz] = M(g.views.boss.x, g.views.boss.z), u = 1.25 * K;
+      ctx.save(); ctx.translate(bx, bz); ctx.scale(u, u); ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.arc(0, -1.2, 5.6, 0, 7); ctx.rect(-3.2, 2.2, 6.4, 4.2);
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2.2; ctx.stroke(); ctx.fillStyle = '#ff1a2e'; ctx.fill();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(-2.3, -1.2, 1.6, 0, 7); ctx.arc(2.3, -1.2, 1.6, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 0.6); ctx.lineTo(-0.9, 2.4); ctx.lineTo(0.9, 2.4); ctx.closePath(); ctx.fill();
+      ctx.fillRect(-1.9, 3.6, 0.7, 2.8); ctx.fillRect(-0.35, 3.6, 0.7, 2.8); ctx.fillRect(1.2, 3.6, 0.7, 2.8);
+      ctx.restore();
+    }
     if (g.views.demon) dot(g.views.demon.x, g.views.demon.z, 4 + Math.sin(g.now * 10) * 1.5, '#ff0030');
-    for (const v of g.views.players.values()) dot(v.pos.x, v.pos.z, 3, v.cls.css);
+    for (const v of g.views.players.values()) { /* teammates are arrows in their own colour, pointing where they face (Nutty 2026-11-18) */
+      const [tx, tz] = M(v.pos.x, v.pos.z); ctx.save(); ctx.translate(tx, tz); ctx.rotate(-(v.yaw || 0) + Math.PI); ctx.scale(K * 0.85, K * 0.85);
+      ctx.fillStyle = v.cls.css; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4, 5); ctx.lineTo(0, 3); ctx.lineTo(-4, 5); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    }
     const p = g.player;
     const [px, pz] = M(p.pos.x, p.pos.z);
     ctx.translate(px, pz); ctx.rotate(-p.yaw + Math.PI); ctx.scale(K, K);
@@ -1949,6 +2022,7 @@ export class UI {
       const rows = s.cpu.rounds.map((r) => `<tr><td>Round ${r.round}</td><td>${r.farm}s</td><td>${r.boss}s</td><td>${r.kills}</td><td>${r.level}</td><td>${r.pc}</td><td>${r.powerups}</td></tr>`).join('');
       cpu.innerHTML = '<h3>CPU run report</h3><table><tr><th></th><th>Farm</th><th>Boss</th><th>Kills</th><th>Level</th><th>PC at vote</th><th>Picks</th></tr>' + rows + '</table><ul>' + s.cpu.notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>';
     }
+    { const kk = this.$('#summary .vote-kicker'); if (kk) kk.style.display = s.horde ? 'none' : ''; } /* Horde has no "Run complete" line (Nutty 2026-11-18) */
     if (s.horde) {
       this.$('#sum-title').textContent = 'Overrun';
       this.$('#sum-sub').textContent = 'You held out until wave ' + s.wave + '. Best so far: wave ' + (s.records.hordeBest || s.wave) + '.';
@@ -2030,9 +2104,9 @@ export class UI {
 
   hurt(frac) {
     const v = this.$('#vignette');
-    v.style.opacity = Math.min(1, 0.35 + frac * 3);
+    v.style.opacity = Math.min(1, (this.game.duel ? 0.6 : 0.35) + frac * 3);
     clearTimeout(this.hurtT);
-    this.hurtT = setTimeout(() => (v.style.opacity = 0), 160);
+    this.hurtT = setTimeout(() => (v.style.opacity = 0), this.game.duel ? 300 : 160);
   }
 
   // Which CTL column this seat reads: player 2's keyboard half, else Settings > Controller layout.
@@ -2116,7 +2190,7 @@ export class UI {
     if (!kill && now - (this._hmT || 0) < 60) return; // restarting the animation forces a layout; once per few frames is plenty
     this._hmT = now;
     const h = this.$('#hitmarker');
-    h.className = ''; void h.offsetWidth; h.className = kill ? 'on kill' : head ? 'on head' : 'on';
+    h.className = ''; void h.offsetWidth; h.className = head ? 'on head' : kill ? 'on kill' : 'on';
   }
 
   coinPop(n) {

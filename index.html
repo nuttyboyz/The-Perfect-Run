@@ -176,7 +176,8 @@
       </div>
     </div>
     <p class="muted" id="net-note" hidden></p>
-    <div id="party-list" class="party-list" hidden></div>
+    <h3 class="srv-title">Server list <small>refreshes live</small></h3>
+    <div id="party-list" class="party-list srv-list"></div>
     <button class="btn small ghost mp-back" data-back="s-title">Back</button>
   </div>
 </section>
@@ -420,7 +421,7 @@
     <div class="hp"><i id="hp-fill"></i><i id="hp-shield"></i><span id="hp-text"></span></div>
     <div class="beds" title="Revives left"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.2 5.3 3 1.7-1.8 3.2-3 5.3-3 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21zm-1-12v3H8v2h3v3h2v-3h3v-2h-3V9z"/></svg><b id="beds">1</b><em>revive</em></div>
   </div>
-  <div id="weapons"><div class="wslot"><kbd>1</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>2</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>3</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div></div>
+  <div id="weapons"><div class="wslot fist" id="wfist"><kbd>1</kbd><span class="ws-name">Fists</span><span class="ws-ammo">Always ready</span></div><div class="wslot"><kbd>2</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>3</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div><div class="wslot"><kbd>4</kbd><span class="ws-name"></span><span class="ws-ammo"></span><i class="ws-img"></i></div></div>
   <div id="abilities">
     <div class="ab-slot dash" id="ab-d"><div class="ab-icon"></div><div class="ab-cd"></div><kbd>X</kbd><div class="ab-name">Dash</div></div>
     <div class="ab-slot" id="ab-q"><div class="ab-icon"></div><div class="ab-cd"></div><kbd>Q</kbd><div class="ab-name"></div></div>
@@ -457,8 +458,8 @@
     <button class="btn" id="pause-controls">Controls</button>
     <button class="btn fs-toggle">Fullscreen</button>
     <div id="pause-share" class="share"></div>
-    <button class="btn ghost" id="pause-leave">Exit Run</button>
-    <div class="pause-sure" id="pause-sure"><h3>Are you sure?</h3><p class="muted" id="pause-sure-note">Your run will end and you go back to the main menu.</p><div class="ps-row"><button class="btn danger" id="pause-yes">Yes, exit</button><button class="btn primary" id="pause-no">No, keep playing</button></div></div>
+    <button class="btn ghost" id="pause-leave">Leave Run</button>
+    <div class="pause-sure" id="pause-sure"><h3>Are you sure?</h3><p class="muted" id="pause-sure-note">Your run will end and you go back to the main menu.</p><div class="ps-row"><button class="btn danger" id="pause-yes">Return Home</button><button class="btn primary" id="pause-no">No, keep playing</button></div></div>
   </div>
 </div>
 
@@ -529,6 +530,7 @@
   </div>
 </div>
 
+<div id="board"><div class="bd-head"><b class="bd-mode"></b><span class="bd-time"></span></div><div class="bd-main"><canvas id="bd-map" width="560" height="560"></canvas><div class="bd-side"><div class="bd-list"></div><div class="bd-team"></div><div class="bd-me"></div></div></div></div>
 <div id="wave-sum"><div class="ws-kick">Wave cleared</div><h3></h3><div class="ws-body"></div><div class="ws-mu"></div></div>
 
 <div id="summary" class="overlay">

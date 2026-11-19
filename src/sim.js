@@ -103,8 +103,11 @@ export class HostSim {
   // Enemies start tough and get much tougher every round (health far faster than damage, so fights get longer before they get deadlier).
   hard() { return seedFlags(this.runSeed).hard; } // Hard mode: tougher, harder-hitting, more of them
   // ENEMY_TUNE: Nutty asked for enemy health and damage 30% lower (2026-11-04); it scales every mob, elite and boss hit.
-  hpScale() { if (this.horde) return ENEMY_TUNE.hp * 1.5 * this.hordeK(); return ENEMY_TUNE.hp * 1.5 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1); } // Nutty 2026-11-12 15:11: 1.3x a round; Hard is twice that all the way // // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
-  dmgScale() { if (this.horde) return ENEMY_TUNE.dmg * 1.2 * this.hordeK() * 0.42 * (this.wave <= 1 ? 0.7 : 1); return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
+  bossRage() { const b = this.boss; return b && b.age ? 1 + 0.6 * Math.min(1, b.age / 180) : 1; } /* mobs grow harder the longer the boss is left alive */
+  hpScale() { return this.hpScale0() * this.bossRage(); }
+  dmgScale() { return this.dmgScale0() * this.bossRage(); }
+  hpScale0() { if (this.horde) return ENEMY_TUNE.hp * 1.5 * this.hordeK(); return ENEMY_TUNE.hp * 1.5 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1); } // Nutty 2026-11-12 15:11: 1.3x a round; Hard is twice that all the way // // Hard: three times the health and damage (Nutty 2026-11-12 14:43; was 1.5x and 1.35x) // 1.2x health every round (Nutty 2026-11-11), and a further 1.1x a round on top (Nutty 2026-11-12 14:38) so they last a little longer; same for damage
+  dmgScale0() { if (this.horde) return ENEMY_TUNE.dmg * 1.2 * this.hordeK() * 0.42 * (this.wave <= 1 ? 0.7 : 1); return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.3, this.round) * (this.hard() ? 2 : 1) * this.easeIn() * (this.duel ? 1 : 0.42); } // x0.42 in runs: the crowd is three times the size (playtest 2026-11-12: 21 deaths in round 1 without it) // 1.2x damage every round (Nutty 2026-11-11)
   bossDmgScale() { if (this.horde) return ENEMY_TUNE.dmg * 1.2 * this.hordeK() * (this.wave <= HORDE.bossEvery ? 0.6 : 1); return ENEMY_TUNE.dmg * 1.2 * Math.pow(1.2, this.round) * (this.hard() ? 1.35 : 1) * this.easeIn() * (this.round === 0 && !this.duel ? 0.6 : 1); } // bosses keep their own curve: +20% a round; the first boss hits at 60% (playtest 2026-11-12: it killed a fresh player in seconds)
   // Round 1 eases new players in: enemies hit at 55% for the opening and reach full strength by the 4-minute mark.
   easeIn() { return this.round === 0 && this.phase === 'play' && !this.duel ? Math.min(1, 0.55 + ((this.rt || 0) / 240) * 0.45) : 1; }
@@ -154,13 +157,20 @@ export class HostSim {
     } else if (this.phase === 'duel') {
       this.tl = Math.max(0, this.tl - dt);
       this.puT -= dt;
-      if (players.length < 2) { this.endDuel(players[0] ? players[0].id : ''); return; }
+      /* A duel must never end on a blip (Nutty 2026-11-18: it ended on its own): a fighter whose news is a moment late, or still carries
+         the last match's "down" state, is not beaten. The other fighter has to be missing for 4 s, or down for a third of a second. */
+      if (players.length < 2) { this.dAloneT = (this.dAloneT || 0) + dt; if (this.dAloneT > 4) { this.dAloneT = 0; this.endDuel(players[0] ? players[0].id : ''); } return; }
+      this.dAloneT = 0;
       const down = players.filter((p) => !p.alive || p.hp <= 0);
       if (down.length) {
-        const up = players.filter((p) => p.alive && p.hp > 0);
-        this.endDuel(up.length === 1 ? up[0].id : '');
-        return;
-      }
+        this.dDownT = (this.dDownT || 0) + dt;
+        if (this.dDownT > 0.35 && DUEL.len - this.tl > 1.5) {
+          const up = players.filter((p) => p.alive && p.hp > 0);
+          this.dDownT = 0;
+          this.endDuel(up.length === 1 ? up[0].id : '');
+          return;
+        }
+      } else this.dDownT = 0;
       if (this.tl <= 0) {
         // Time is up: the healthier fighter wins.
         const f = (p) => p.hp / Math.max(1, p.mh);
@@ -650,7 +660,7 @@ export class HostSim {
   // One mixed group near a player (or anywhere on the map when `wide`), then a lull. Returns false when the field is full.
   spawnGroup(players, wide = false, fill = 1) {
     const n = players.filter((p) => p.alive).length || 1;
-    const target = this.horde ? Math.round(HORDE.field(this.wave, n) * (this.phase === 'boss' ? 0.4 : 1)) : Math.round(this.mobBudget(n) * fill);
+    const target = this.horde ? Math.round(HORDE.field(this.wave, n) * (this.phase === 'boss' ? 0.2 : 1)) /* boss waves: half the extra enemies again (Nutty 2026-11-18) */ : Math.round(this.mobBudget(n) * fill);
     // Live budget: small swarmers and summoned minions count for less than a full mob.
     const live = {}, fam = {};
     let load = 0;
@@ -1316,7 +1326,12 @@ export class HostSim {
     const b = this.boss;
     if (!b) return;
     const w = this.world;
-    const ds = this.bossDmgScale();
+    /* The longer a boss lives, the harder it hunts (Nutty 2026-11-18): over three minutes it grows up to 35% faster, hits 30% harder and
+       attacks half again as often; the mobs around it grow with it (bossRage), so a boss cannot be kept alive to farm. */
+    b.age = (b.age || 0) + dt;
+    const rage = Math.min(1, b.age / 180);
+    b.cd -= dt * 0.5 * rage;
+    const ds = this.bossDmgScale() * (1 + 0.3 * rage);
     // Every attack hits +10 harder per round (Thermes: +100 on top).
     const bd = (x) => Math.round(x * ds + BOSS_DMG_ROUND * this.round + (b.def.dmgAdd || 0));
     b.anim = Math.max(0, b.anim - dt * 1.5);
@@ -1327,7 +1342,7 @@ export class HostSim {
     if (!t) return;
     const dx = t.x - b.x, dz = t.z - b.z;
     const d = Math.hypot(dx, dz) || 1;
-    const speed = b.def.speed * (b.slow > 0 ? 0.7 : 1) * (b.hp < b.maxHp * 0.4 ? 1.25 : 1);
+    const speed = b.def.speed * (b.slow > 0 ? 0.7 : 1) * (b.hp < b.maxHp * 0.4 ? 1.25 : 1) * (1 + 0.35 * rage);
     b.modeT -= dt;
     b.melee -= dt;
     const yb = w.heightAt(b.x, b.z);

@@ -101,7 +101,7 @@ export class RoomLobby {
 export class RoomParty extends BaseParty {
   static async create(room, code) {
     const nr = await room.join('pr-' + code.toLowerCase());
-    return new RoomParty(nr);
+    const party = new RoomParty(nr); party.code = code; return party;
   }
   constructor(nr) {
     super();
@@ -274,7 +274,8 @@ export class PeerSlotLobby {
       if (this.slot && this.slot.id === qpId(i)) continue;
       n++;
       const c = me.connect(qpId(i), { reliable: true, serialization: 'json' });
-      c.on('data', (m) => { if (m && m.t === 'qp' && m.info && typeof m.info.code === 'string') found.set(m.info.code, m.info); tick(); });
+      let t0 = performance.now(); c.on('open', () => { t0 = performance.now(); });
+      c.on('data', (m) => { if (m && m.t === 'qp' && m.info && typeof m.info.code === 'string') found.set(m.info.code, { ...m.info, ping: Math.max(1, Math.round(performance.now() - t0)) }); tick(); });
     }
     await over;
     try { me.destroy(); } catch {}

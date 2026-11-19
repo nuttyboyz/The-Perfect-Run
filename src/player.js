@@ -136,13 +136,13 @@ export class LocalPlayer {
   }
 
   // An all-gear loadout has nothing to hold: the slot stays on a gear item and the hands are bare.
-  heldId() { const w = WEAPON_BY_ID[this.weapons[this.cur]]; return (w && w.kind === 'gear') || this.broken(this.cur) ? 'bare' : this.weapons[this.cur]; }
+  heldId() { const w = WEAPON_BY_ID[this.weapons[this.cur]]; return this.fists || !w || w.kind === 'gear' || this.broken(this.cur) ? 'bare' : this.weapons[this.cur]; } /* fists: the permanent first slot (Nutty 2026-11-18), never worn out, in every mode */
   // Horde Mode durability (this.dur: one 0..1 value per carried item; absent in every other mode). A broken weapon cannot be held: fists until a stall fixes it.
   broken(i) { return !!this.dur && this.dur[i] != null && this.dur[i] <= 0; }
   wear(wp) {
     if (!this.dur || !wp || wp.id === 'bare' || wp.tier === 3 || this.broken(this.cur)) return;
     const i = this.cur;
-    this.dur[i] -= wp.kind === 'gun' ? 1 / Math.max(HORDE.gunMinShots, (wp.mag || 1) * HORDE.gunMags) : 1 / HORDE.meleeSwings;
+    this.dur[i] -= wp.bow || wp.bolt ? 1 / HORDE.bowShots : wp.kind === 'gun' ? 1 / Math.max(HORDE.gunMinShots, (wp.mag || 1) * HORDE.gunMags) : 1 / HORDE.meleeSwings;
     if (this.dur[i] > 0) return;
     this.dur[i] = 0;
     const g = this.game, n = this.nextSlot(1);
@@ -293,9 +293,10 @@ export class LocalPlayer {
     this.stepAcc = stepAccum(this.stepAcc || 0, dt, this.board || this.dash ? 0 : this.speedNow, this.onGround, (v) => g.audio.footstep(STEP_KIND[this.ch.id] || 'boot', v * (this.sprinting ? 1 : 0.8)));
 
     // Weapons.
-    if (input.pressed.has('Digit1')) this.swap(0);
-    if (input.pressed.has('Digit2')) this.swap(1);
-    if (input.pressed.has('Digit3')) this.swap(2);
+    if (input.pressed.has('Digit1')) this.swap(-1);
+    if (input.pressed.has('Digit2')) this.swap(0);
+    if (input.pressed.has('Digit3')) this.swap(1);
+    if (input.pressed.has('Digit4')) this.swap(2);
     if (input.wheel) this.swap(this.nextSlot(input.wheel < 0 ? -1 : 1));
     if (input.pressed.has('KeyR')) this.reload();
     if (muOn(BOTTOMLESS)) { // Bottomless Clip mutator: every gun stays topped up, so there is never a reload
@@ -397,18 +398,20 @@ export class LocalPlayer {
 
   // The next slot the wheel lands on: weapons only, never the passive gear.
   nextSlot(dir = 1) {
-    const L = this.weapons.length;
+    const L = this.weapons.length + 1, at = this.fists ? 0 : this.cur + 1; /* slot 0 of the wheel is the fists */
     for (let k = 1; k <= L; k++) {
-      const i = (((this.cur + dir * k) % L) + L) % L, w = WEAPON_BY_ID[this.weapons[i]];
+      const j = (((at + dir * k) % L) + L) % L; if (j === 0) return -1;
+      const i = j - 1, w = WEAPON_BY_ID[this.weapons[i]];
       if (w && w.kind !== 'gear' && !this.broken(i)) return i;
     }
-    return this.cur;
+    return this.fists ? -1 : this.cur;
   }
 
   swap(i) {
+    if (i === -1) { if (this.fists) return; this.fists = true; this.reloadT = 0; this.spinT = 0; this.bowDraw = 0; this.bowNock = 0; this.bowHold = 0; this.fireCd = Math.max(this.fireCd, 0.25); this.model.userData.setWeapon('bare'); return; }
     const w = WEAPON_BY_ID[this.weapons[i]];
-    if (i === this.cur || !w || w.kind === 'gear' || this.broken(i)) return;
-    this.cur = i;
+    if ((i === this.cur && !this.fists) || !w || w.kind === 'gear' || this.broken(i)) return;
+    this.cur = i; this.fists = false;
     this.reloadT = 0;
     this.spinT = 0;
     this.bowDraw = 0; this.bowNock = 0; this.bowHold = 0;
@@ -671,6 +674,7 @@ export class LocalPlayer {
     const wpn = this.model.userData.weapon, style = wpn && wpn.userData.bowStyle;
     this.lastArrow = launchArrow(g, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], { speed, dmg, pierce, style, mine: true, range: wp.range || 120, wf: this.wf });
     this.lastArrow.draw = a;
+    this.wear(wp); /* arrows wear the bow out too (Nutty 2026-11-18) */
     this.bowDraw = 0; this.bowHold = 0; this.bowNock = wp.nock || 0.5; this.fireCd = 0.1; this.recoilT = 0.4 + 0.6 * a; this.lastShot = g.now;
     g.audio.play('shot_crossbow', 0.45 + 0.55 * a);
     if (g.audio.ctx && g.audio.sfxOn) g.audio.tone({ freq: 160 + 160 * a, to: 70, dur: 0.14, type: 'triangle', gain: 0.1 * a });
@@ -2513,7 +2517,16 @@ export class LocalPlayer {
     const dir = this.bleed(dmg);
     g.audio.play('hurt');
     // Stagger: a short stumble (slow feet, a shove back) and a camera jolt, so you feel the hit land.
-    const k = Math.max(0.3, Math.min(1, dmg / 30));
+    let k = Math.max(0.3, Math.min(1, dmg / 30));
+    this.hitN = ((this.hitN | 0) + 1) % 1000; /* travels in presence ('hu'): the other players see you flinch */
+    if (g.duel) {
+      /* Duel (Nutty 2026-11-18): every hit must be felt, without stun-locking. A real hit checks your feet for about a third of a second, then
+         you recover and move again; for 0.8 s after that further hits only nudge you. */
+      k = Math.max(0.65, Math.min(1, dmg / (this.stats.maxHp * 0.03)));
+      const fresh = g.now - (this.stagAt || -9) > 0.8;
+      if (fresh) { this.stagAt = g.now; this.stagT = Math.max(this.stagT || 0, 0.24 + 0.14 * k); } else k *= 0.45;
+      g.rumble && g.rumble(0.25 + 0.5 * k, 140);
+    } else
     this.stagT = Math.max(this.stagT || 0, 0.14 + 0.12 * k);
     if (!this.swing && !this.board) { this.vel.x += dir[0] * 2.2 * k; this.vel.z += dir[2] * 2.2 * k; }
     this.pitch -= 0.02 * k; this.yaw += (Math.random() - 0.5) * 0.04 * k;
@@ -2635,6 +2648,7 @@ export class LocalPlayer {
     this.alive = true;
     this.hp = this.stats.maxHp;
     this.invulnUntil = g.now + 5; // grace so a respawn in the middle of the horde does not end the run at once
+    this.rearm();
     g.request('clear', [Math.round(this.pos.x), Math.round(this.pos.z)]);
     g.fx.shockwave([this.pos.x, this.pos.y, this.pos.z], 4, 0xffe0a0, 0.6);
     g.ui.toast(this.beds ? 'Revived. Revives left: ' + this.beds : 'Revived. That was your last one.', this.beds ? 'good' : 'bad');
@@ -2644,6 +2658,20 @@ export class LocalPlayer {
     this.alive = true;
     this.out = false;
     this.hp = Math.max(1, this.stats.maxHp * frac);
+    this.rearm();
+  }
+
+  /* Back on your feet: nothing left over from the moment you fell may stop the weapons working (Nutty 2026-11-18: after a Horde revive
+     the weapons could not be used). Durability and ammo are kept exactly as they were. */
+  rearm() {
+    this.deadT = 0; this.fireCd = 0; this.reloadT = 0; this.spinT = 0; this.meleeT = 0; this.meleePending = 0; this.castT = 0;
+    this.bowDraw = 0; this.bowNock = 0; this.bowHold = 0; this.dash = null; this.swing = null; this.frozenUntil = 0;
+    if (this.block) this.block.on = false; this.blocking = false;
+    this.clearStatus();
+    const w = WEAPON_BY_ID[this.weapons[this.cur]];
+    if (!w || w.kind === 'gear' || this.broken(this.cur)) { const n = this.weapons.findIndex((id, i) => WEAPON_BY_ID[id] && WEAPON_BY_ID[id].kind !== 'gear' && !this.broken(i)); if (n >= 0) { this.cur = n; this.fists = false; } }
+    for (let i = 0; i < this.weapons.length; i++) { const x = WEAPON_BY_ID[this.weapons[i]]; if (x && x.kind === 'gun' && !(this.ammo[i] > 0)) this.ammo[i] = this.magOf ? this.magOf(x) : x.mag || 0; }
+    this.model.userData.setWeapon(this.heldId());
   }
 
   presence() {
@@ -2651,7 +2679,7 @@ export class LocalPlayer {
     return {
       p: [q10(this.pos.x), q10(this.pos.y), q10(this.pos.z)], ry: Math.round(this.yaw * 100), pt: Math.round(this.pitch * 100),
       hp: Math.round(this.hp), mh: Math.round(this.stats.maxHp), al: this.alive ? 1 : 0, out: this.out ? 1 : 0, bt: this.btHold ? 1 : 0,
-      wi: this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
+      hu: this.hitN | 0, wi: this.fists ? 9 : this.cur, sp: Math.round(this.speedNow * 10), ml: this.meleeT > 0 ? 1 : 0, mv: this.meleeMove | 0, gn: wp.bow ? (this.bowNock <= 0 ? 1 : 0) : wp.kind === 'gun' && this.reloadT <= 0 ? 1 : 0,
       ct: this.castT > 0 ? 1 : 0, hd: this.cloud && this.cloud.until > this.game.now ? 1 : 0, sn: Math.round((this.spinK || 0) * 100), sb: this.board ? 700 + Math.round(this.board.h * 100) : 0, sl: this.board ? Math.round(this.board.lean * 100) : 0, sx: this.board ? packBoard(this.board) : 0, pc: this.pc, k: this.totalKills, sh: this.shield.until > this.game.now ? 1 : 0,
       jp: this.jetEquipped() ? (this.jet.level > 0.1 ? 2 : 1) : this.hasGear('wings') ? (this.wing.soar ? 4 : this.game.now - this.wing.flapT < 0.45 ? 5 : 3) : 0,
       dr: this.drone && this.alive ? (this.drone.firing ? 2 : 1) : 0,

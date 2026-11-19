@@ -501,7 +501,11 @@ export function spawnDragon(g, o) {
             if (r < 0.45) { const w = D.wings[i & 1], tip = w.tips[(Math.random() * 4) | 0]; st.cloud.push({ o: w.outer, l: tip.clone().multiplyScalar(Math.random()), w: V() }); }
             else st.cloud.push({ o: D.body, l: V(rnd(-1, 1), rnd(-0.6, 1.6), rnd(-13, 8.5)), w: V() }); }
           fx.flash([root.position.x, root.position.y, root.position.z], 0xff5a18, 30, 0.5, 30); }
-        root.scale.setScalar(SIZE * Math.max(0.001, k)); root.visible = k > 0.01;
+        /* He no longer shrinks away (Nutty 2026-11-18): he keeps his full size and crumbles into drifting ember dust. */
+        if (!st.dust) { st.dust = true; for (const m of D.mats) { m.transparent = true; m.needsUpdate = true; } }
+        for (const m of D.mats) m.opacity = k;
+        root.scale.setScalar(SIZE); root.visible = k > 0.01;
+        if (e < 1.9) for (const q of st.cloud) if (q.w.lengthSq() > 0 && Math.random() < 0.5) fx.spark.emit({ p: [q.w.x + rnd(-1.2, 1.2), q.w.y + rnd(-1, 1), q.w.z + rnd(-1.2, 1.2)], v: [rnd(-1, 1) + 1.2, rnd(-0.4, 1.4), rnd(-1, 1)], life: rnd(1.6, 3.2), s0: rnd(0.1, 0.24), s1: 0.02, c0: [1, 0.55, 0.14, 1], c1: [0.7, 0.1, 0, 0], g: 0.6 });
         const life = clamp(1 - (e - 1.6) / 2.2, 0, 1), dense = e < 1.6 ? 1 : life;
         if (k > 0.35) { root.updateMatrixWorld(true); for (const q of st.cloud) q.o.localToWorld(q.w.copy(q.l)); } // the cloud wraps him while he is there, then hangs where he was
         st.speed *= Math.max(0, 1 - dt * 3);

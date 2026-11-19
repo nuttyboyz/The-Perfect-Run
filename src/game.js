@@ -18,7 +18,7 @@ import { assetsReady, whenAssets } from './assets.js';
 import { spawnDragon } from './dragon.js';
 import { spawnGolem } from './golem.js';
 import { spawnPolaris } from './polaris.js';
-import { classWith, FLAME, MOB_ARM_IDS } from './data.js';
+import { classWith, FLAME, MOB_ARM_IDS, POWERUP_BY_ID } from './data.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { igniteFx } from './flameweapon.js';
 import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NPCS, BLESSINGS, POWERUPS, ELEMENTS, CRATE_POOL, AB_PU_BY_AB, DUEL, DUEL_BIOMES, GRAV, HEAL, DUEL_PICKS, puInfo, levelOffer, rerollOffer, XP, MOB_TYPES, MOBS, stageIdx, STAGE_POOL, bossIdx, seedFlags, MINI, ELITE, TIER, loadoutFull, zoneOf , HORDE, NO_CLASS, AB_CLASS, AB_BY_ID, mixClass, elemsOf, puOk, loadoutFull as loadoutFull3 } from './data.js';
@@ -123,6 +123,23 @@ export class Game {
     this.detectTransport();
     this.clock = new THREE.Clock();
     this.renderer.setAnimationLoop(() => this.frame());
+    /* A tab that is hidden gets no animation frames, so a host who looked away (a fallen player spectating, for one) froze the game for
+       everybody (Nutty 2026-11-18). While hidden in an online game the simulation is driven by a worker's clock instead, without drawing. */
+    if (this.seat !== 2) {
+      const bg = () => {
+        if (!document.hidden || this.mode !== 'game' || !this.party || this.party.kind === 'solo' || this.party.kind === 'local' || this.bot) return;
+        try {
+          const el = Math.min(1.5, this.clock.getDelta()), k = Math.max(1, Math.ceil(el / 0.05)), dt = el / k;
+          for (let i = 0; i < k; i++) { this.now += dt; this.input.pressed.clear(); this.input.dx = this.input.dy = 0; this.input.mouseClicked = false; this.input.rightClicked = false; this.input.wheel = 0; this.gameFrame(dt, true); }
+        } catch (e) { console.warn('background tick', e); }
+      };
+      let viaWorker = false;
+      try {
+        const w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })));
+        w.onmessage = bg; w.onerror = () => { if (!this._bgI) this._bgI = setInterval(bg, 250); }; viaWorker = true;
+      } catch { /* no workers here: fall back to a timer (the browser slows it to about once a second, the loop above catches up) */ }
+      if (!viaWorker) this._bgI = setInterval(bg, 250);
+    }
   }
 
   // ---------------- setup ----------------
@@ -274,13 +291,14 @@ export class Game {
       if (this.couch && this.couch.pad.reserved && this.couch.pad.reserved.has(e.code)) return; // player 2's keyboard keys
       if (e.code === 'F11' || (e.code === 'Enter' && e.altKey)) { e.preventDefault(); this.ui.toggleFullscreen(); return; }
       const code = this.mode === 'game' ? kbLogical(e.code) : e.code; // the player's remapped keys (Controls screen)
-      if (code === 'Tab') { e.preventDefault(); if (this.mode === 'game') this.toggleShop(); return; }
+      if (code === 'Tab') { e.preventDefault(); if (this.mode === 'game') this.ui.board(true); return; } /* hold Tab: the scoreboard */
+      if (code === 'KeyM' && this.mode === 'game') { this.toggleShop(); return; }
       if (!I.keys.has(code)) I.pressed.add(code);
       I.keys.add(code);
       if (this.mode === 'game' && ['Space', 'KeyQ', 'KeyF'].includes(code)) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => { I.keys.delete(e.code); I.keys.delete(kbLogical(e.code)); });
-    window.addEventListener('blur', () => { I.keys.clear(); I.mouseDown = false; });
+    window.addEventListener('keyup', (e) => { I.keys.delete(e.code); I.keys.delete(kbLogical(e.code)); if (kbLogical(e.code) === 'Tab' && this.ui) this.ui.board(false); });
+    window.addEventListener('blur', () => { I.keys.clear(); I.mouseDown = false; if (this.ui) this.ui.board(false); });
     document.addEventListener('mousemove', (e) => {
       // Chrome sometimes reports a huge jump on the first event after locking; drop it.
       if (document.pointerLockElement === this.canvas && Math.abs(e.movementX) < 250 && Math.abs(e.movementY) < 250) { I.dx += e.movementX; I.dy += e.movementY; }
@@ -715,12 +733,9 @@ export class Game {
     if (!this.lobbyHooked) { this.lobbyHooked = true; this.party.onChange(() => { if (this.mode === 'lobby') this.ui.renderLobby(); }); }
     this.lobbyTimer = setInterval(() => {
       if (this.mode === 'lobby') { this.couchWaitTick(); this.duelVoteTick(); if (this.mode === 'lobby') this.ui.renderLobby(); }
-      if (this.isHost && this.lobby && this.partyCode) {
-        const n = this.party.peers().length;
-        // Private parties are never listed: friends join with the invite link or the code.
-        this.lobby.advertise(this.mode === 'lobby' && this.partyPublic !== false ? { code: this.partyCode, host: this.myName, n, dm: this.duelMode ? 1 : 0, pub: 1 } : null);
-      }
+      this.advertiseTick();
     }, 500);
+    clearInterval(this.advTimer); this.advTimer = setInterval(() => { if (this.mode === 'game') this.advertiseTick(); }, 2000);
   }
 
   // The CPU opponent picks a random character, element, a gun, a blade and a piece of tier-3 gear.
@@ -736,8 +751,7 @@ export class Game {
 
   // Skins are remembered per character (localStorage 'skins': { characterId: skinId }).
   skinFor(ch) {
-    const saved = LS.get(this.lsKey('skins'), {})[ch];
-    return validSkin(ch, saved) && skinUnlocked(ch, skinOf(ch, saved)) ? saved : DEFAULT_SKIN(ch);
+    return DEFAULT_SKIN(ch); /* every lobby starts on the default skin, never the last one used (Nutty 2026-11-18) */
   }
 
   setLoadout(patch) {
@@ -757,6 +771,14 @@ export class Game {
     this.menu.show(this.loadout);
   }
 
+  /* The host keeps a public game on the server list, in the lobby AND while it is being played (Nutty 2026-11-18: a running game showed as
+     "no open games"), so it can be joined at any time. Private parties are never listed; a duel is listed only while it waits for a fighter. */
+  advertiseTick() {
+    if (!this.isHost || !this.lobby || !this.partyCode || !this.party) return;
+    const n = this.party.peers().length, open = this.partyPublic !== false && (this.mode === 'lobby' || (this.mode === 'game' && !this.duel && !this.duelMode));
+    this.lobby.advertise(open ? { code: this.partyCode, host: this.myName, n, dm: this.duelMode ? 1 : 0, hm: this.hordeMode ? 1 : 0, ig: this.mode === 'game' ? 1 : 0, pub: 1 } : null);
+  }
+
   setReady(r) { this.ready = r; this.party.set({ rdy: r ? 1 : 0 }); }
 
   lbInfo() { return { code: this.partyCode, rl: this.settings.roundLen, hm: this.hordeMode ? 1 : 0, dm: this.duelMode ? 1 : 0, hd: this.settings.hard ? 1 : 0, pub: this.partyPublic === false ? 0 : 1, mu: this.settings.mu & MU_MASK }; }
@@ -767,7 +789,7 @@ export class Game {
   async quickplay(duel = false) {
     if (this.lobby && this.lobby.scan) await this.lobby.scan();
     const open = (this.lobby ? this.lobby.parties() : []).filter((p) => !p.me && p.code && p.pub !== 0 && (p.n || 1) < (duel ? 2 : 5));
-    const pool = open.filter((p) => !!p.dm === duel);
+    const pool = open.filter((p) => !!p.dm === duel && (duel || !!p.hm === !!this.hordeMode)); /* Quickplay from the Horde menu finds Horde games, from the run menu runs */
     if (pool.length) { const p = pool[Math.floor(Math.random() * pool.length)]; await this.joinParty(p.code); return 'joined'; }
     this.duelMode = duel;
     await this.createParty(true);
@@ -787,13 +809,14 @@ export class Game {
   }
 
   leaveParty() {
+    this.timers = []; if (this.blessOpen) { this.blessOpen = false; try { this.ui.bless(null); } catch {} }
     if (this.seat === 2 && this.opts.onLeave) { this.opts.onLeave(); return; }
     this.couchWait = false;
     if (this._cpuPick) this.cpuPickEnd(false);
     this._dv = null;
     if (this.couch) this.endCouch();
     if (this.bot) this.endBot();
-    clearInterval(this.lobbyTimer);
+    clearInterval(this.lobbyTimer); clearInterval(this.advTimer);
     if (this.lobby && this.isHost) this.lobby.advertise(null);
     if (this.party) this.party.leave();
     this.party = null;
@@ -933,10 +956,11 @@ export class Game {
 
   // ---------------- entering / leaving the game ----------------
   enterGame() {
+    this.ranOver = false;
     warmMobs();
     this.mode = 'game';
     clearInterval(this.lobbyTimer);
-    if (this.lobby && this.isHost) this.lobby.advertise(null);
+    this.advertiseTick(); /* still on the server list while the game is played */
     this.ui.showGame();
     { const hw = this.hostPeer(this.party.peers()); if (!this.isHost && hw && hw.p.w && hw.p.w.hw) this.hordeMode = true; }
     this.player = null;
@@ -1288,7 +1312,16 @@ export class Game {
     // the element picker those same presses stay the 1 / 2 choices, so only turn them into a cycle outside those.
     if ((ev.dl || ev.dr) && !this.elemOpen && this.phase !== 'vote') { const I = this.input; I.pressed.delete('Digit1'); I.pressed.delete('Digit2'); I.wheel = ev.dr ? 1 : -1; }
     if (ev.shop) this.toggleShop();
+    if (ev.board) this.ui.board(!this.ui.boardOn);
     if (ev.pause) { this.padPaused = true; this.ui.setLocked(false, false); }
+  }
+
+  /* Controller rumble (strength 0..1, milliseconds), where the browser and the pad support it. */
+  rumble(k, ms) {
+    try {
+      if (!this.pad || !this.pad.active || !navigator.getGamepads) return;
+      for (const gp of navigator.getGamepads()) { const va = gp && gp.vibrationActuator; if (va && va.playEffect) { va.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, k), weakMagnitude: Math.min(1, k * 0.7) }); break; } }
+    } catch {}
   }
 
   frozenInput() {
@@ -1342,6 +1375,7 @@ export class Game {
           const mate = [...this.views.players.values()].find((v) => v.alive);
           if (mate) p.placeAt(mate.pos.x + 1.5, mate.pos.z + 1.5);
           p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null;
+          if (this.shopOpen && this.hshop) { try { this.closeShop ? this.closeShop() : null; } catch {} }
           this.ui.toast('Wave beaten. You are back in the fight.', 'good');
         }
       }
@@ -1450,10 +1484,11 @@ export class Game {
     if (this.duel) {
       const s = this.world.duelSpawn(idx);
       p.placeAt(s.x, s.z); p.yaw = s.yaw; p.pitch = 0.1;
-      p.resetDuel();
+      p.resetDuel(); p.invulnUntil = this.now + 3; /* 3 s spawn protection (Nutty 2026-11-18) */
       this.dpDone = 0; this.elemOpen = false; this.ui.elem(null);
     } else {
       p.placeAt(this.world.spawn.x + Math.cos(a) * 3, this.world.spawn.z + Math.sin(a) * 3);
+      p.invulnUntil = this.now + 3;
       p.yaw = Math.atan2(this.world.arena.x - this.world.spawn.x, this.world.arena.z - this.world.spawn.z);
       p.pitch = 0.1;
     }
@@ -1551,7 +1586,7 @@ export class Game {
             if (p.eyeOn() && dx * dx + dz * dz < p.eye.r * p.eye.r && dy > -2 && dy < 9) {
               // Eye of the Storm: the shot hits the swirl and is flung back where it came from (a little outward too).
               const ox = x / 10 - pos.x, oy = y / 10 - pos.y, oz = z / 10 - pos.z, ol = Math.hypot(ox, oy, oz) || 1, dl = Math.hypot(dx, dz) || 1;
-              const sp = Math.hypot(vel.x, vel.y, vel.z) * 1.15;
+              const sp = Math.max(48, Math.hypot(vel.x, vel.y, vel.z) * 2.4); /* flung back much faster than it came (Nutty 2026-11-18) */
               vel.set(ox / ol + dx / dl * 0.4, oy / ol, oz / ol + dz / dl * 0.4).normalize().multiplyScalar(sp);
               back = true;
               this.el.windDeflect([pos.x, pos.y, pos.z]);
@@ -1598,14 +1633,16 @@ export class Game {
           if (v.rig && !v.base.bomb && (risen || !muOn(PINATA))) this.views.dying.push(v); else v.dispose(); // a piñata bursts: no body left
         }
         if (p && p.supperUntil > this.now) p.supperFeed([X, y + 1, Z]); // Last Supper: every death feeds the Necromancer
+        /* Every player sees a coin for every kill, whoever made it, and each picks up their own (Nutty 2026-11-18): coins are not shared and never taken from a teammate. */
+        const pcGain = p ? pcRoll(this.pcKill() * Math.min(2, p.stats.greed)) : 0; // PC bonuses stop at double
+        if (p && killer !== me && (p.alive || !p.out)) this.pickups.dropCoins(X, Z, pcGain);
         if (killer === me) {
-          const pcGain = pcRoll(this.pcKill() * Math.min(2, p.stats.greed)); // PC bonuses stop at double
           p.totalKills++;
           this.countKill(id, v);
           this.pickups.dropCoins(X, Z, pcGain); // the PC drops as a coin where it died: walk over it
           this.muFx.kill(X, y, Z, pcGain); // Jackpot: every 20th kill bursts into gold
           this.audio.play('kill');
-          this.ui.hitmarker(true);
+          { const hi = this.hitInfo && this.hitInfo.get(id); if (hi && hi.head) this.ui.hitmarker(true, true); else this.ui.hitmarker(true); } /* a headshot kill keeps the yellow marker (Nutty 2026-11-18) */
           const tier = (MOBS[MOB_TYPES[ti]] || { tier: 1 }).tier;
           p.addXp(XP.kill[tier] * (1 + XP.perRound * (this.round || 0)));
           if (p.stats.burst) {
@@ -2108,6 +2145,13 @@ export class Game {
       }
       case 'nc': Vault.crows(this, P(0), 8, 5); this.audio.play('wind', vol); break;
       case 'ns': { const until = this.now + 8; Vault.supper(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 8); break; }
+      case 'rv': { /* a teammate held Use over you: back on your feet where you fell */
+        const p = this.player;
+        if (p && this.party && a[0] === this.party.myId && (p.out || !p.alive) && !this.duel) { p.revive(0.5); p.deadT = 0; p.invulnUntil = this.now + 3; this.spec = null; this.audio.play('heal', 0.6); this.ui.healFlash(); this.ui.toast('A teammate revived you.', 'good'); }
+        break;
+      }
+      case 'cp': { const c = this.world.crates[a[0]], pu = POWERUP_BY_ID[a[1]]; if (c && pu) this.openCrateVisual(c, pu); break; } /* a chest someone else opened: its power-up floats there for anyone */
+      case 'ct': this.chests.gone(a[0]); break; /* ...until somebody takes it */
       case 'nk': { const pm = Vault.deathPortal(this, 10); pm.set(P(0)); pm.burst(); this.fx.shockwave(P(0), 10, 0x2bff5a, 0.5); this.audio.play('thunder', 0.5 * vol); break; } /* Finger of Death let go: the portal flares where it was */
       case 'nd': { for (let i = 0; i + 3 < a.length; i += 4) Vault.soul(this, P(i), a[i + 3] / 10); this.audio.play('necro_fall', vol); break; }
       case 'nr': { const until = this.now + 10; Vault.raise(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 10); this.audio.play('necro_rise', vol); break; }
@@ -2240,7 +2284,7 @@ export class Game {
     if (this.views.boss) out.push(this.views.boss.target());
     if (this.views.demon) out.push(this.views.demon.target());
     // Duel Arena: the other fighter is a target.
-    if (this.duel && this.phase === 'duel') for (const [id, v] of this.views.players) if (v.alive) out.push({ id: 'P:' + id, kind: 'player', x: v.pos.x, y: v.pos.y, z: v.pos.z, r: 0.55 * DUEL.size, h: 1.85 * DUEL.size, view: v });
+    if (this.duel && this.phase === 'duel') for (const [id, v] of this.views.players) if (v.alive) out.push({ id: 'P:' + id, kind: 'player', x: v.pos.x, y: v.pos.y, z: v.pos.z, r: 0.42 * DUEL.size /* was 0.55: shots and fire beside a fighter counted as hits (Nutty 2026-11-18) */, h: 1.85 * DUEL.size, view: v });
     return out;
   }
 
@@ -2279,6 +2323,9 @@ export class Game {
       if (th > limit) { headHit(); continue; } // behind the ground or a rock
       const y = origin.y + dir.y * th;
       if (y < t.y - 0.1 || y > t.y + t.h + 0.15) { headHit(); continue; }
+      /* The body is not a barrel (Nutty 2026-11-18: shooting the air beside someone must not hit): on an upright, human-shaped target the
+         legs are narrower than the shoulders, and above the shoulders only the real head counts. */
+      if (t.kind !== 'demon' && t.h > t.r * 2.6) { const f = (y - t.y) / t.h, rk = f < 0.46 ? 0.62 : f < 0.84 ? 1 : 0.42; if (d2 > t.r * t.r * rk * rk) { headHit(); continue; } }
       if (headAt >= 0 && headAt <= th + 0.8) { headHit(); continue; }
       const point = new THREE.Vector3(origin.x + dir.x * th, y, origin.z + dir.z * th);
       const zone = t.kind === 'demon' ? 'body' : zoneOf(t, y, d2);
@@ -2450,8 +2497,8 @@ export class Game {
     for (const t of this.targets()) {
       if (t.kind === 'demon') continue;
       const s = Math.max(0, Math.min(1, ((t.x - a[0]) * vx + (t.z - a[2]) * vz) / L2));
-      const d = Math.hypot(t.x - (a[0] + vx * s), t.z - (a[2] + vz * s)) - t.r;
-      if (d > r || t.y > a[1] + 3.5) continue;
+      const d = Math.hypot(t.x - (a[0] + vx * s), t.z - (a[2] + vz * s)) - (t.kind === 'player' ? t.r * 0.6 : t.r);
+      if (d > (t.kind === 'player' ? r * 0.8 : r) || t.y > a[1] + 3.5) continue;
       this.damage(t, dmg, { ...o });
     }
   }
@@ -2461,7 +2508,7 @@ export class Game {
     for (const t of this.targets()) {
       if (t.kind === 'demon') continue;
       const dx = t.x - c[0], dz = t.z - c[2];
-      const d = Math.hypot(dx, dz) - t.r;
+      const d = Math.hypot(dx, dz) - (t.kind === 'player' ? t.r * 0.6 : t.r); /* a fighter is hurt only when the effect reaches the body itself */
       if (d > r || Math.abs((t.y + t.h / 2) - c[1]) > 5 + t.h / 2) continue;
       const f = o.falloff ? 1 - o.falloff * Math.max(0, d) / r : 1;
       const dd = Math.hypot(dx, dz) || 1;
@@ -2668,8 +2715,28 @@ export class Game {
     if (!p.alive) { this.ui.prompt(null); return; }
     let prompt = null;
     if (p.climb) {
-      this.ui.prompt(this.ui.ctlB('up') + ' / ' + this.ui.ctlB('down') + ' Climb · ' + this.ui.ctlB('side') + ' Circle · ' + this.ui.ctlB('jump') + ' Leap off · ' + this.ui.ctlB('use') + ' Let go');
+      this.ui.prompt(this.ui.ctlB('jump') + ' Leap off'); /* Nutty 2026-11-18: far fewer instructions on the tree */
       return;
+    }
+    /* Revive a fallen teammate (Nutty 2026-11-18): stand over where they fell and HOLD Use (Square / X button / E) for 2.5 s. */
+    if (!this.duel && this.party && this.party.kind !== 'solo') {
+      let who = null, wd = 3.2;
+      for (const q of this.party.peers()) {
+        if (q.me || !q.p || !q.p.ig || !q.p.out || !Array.isArray(q.p.p)) continue;
+        const fx = q.p.p[0] / 10, fy = q.p.p[1] / 10, fz = q.p.p[2] / 10, d = Math.hypot(fx - p.pos.x, fz - p.pos.z);
+        if (this.now - (this._fallT || 0) > 0.5) this.fx.glow.emit({ p: [fx, fy + 0.9, fz], life: 0.9, s0: 1.2, s1: 2.6, c0: [0.4, 1, 0.55, 0.7], c1: [0.2, 0.9, 0.4, 0] }); /* a soft green light marks the spot */
+        if (d < wd && Math.abs(fy - p.pos.y) < 4) { wd = d; who = q; }
+      }
+      if (this.now - (this._fallT || 0) > 0.5) this._fallT = this.now;
+      if (who) {
+        const hold = this.input.keys.has('KeyE');
+        this.rvT = hold && this.rvId === who.id ? (this.rvT || 0) + Math.min(0.1, Math.max(0, this.now - (this._rvNow || this.now))) : 0; this.rvId = who.id; this._rvNow = this.now;
+        const nm = String(who.p.n || 'teammate').slice(0, 16).replace(/[&<>]/g, '');
+        this.ui.prompt(hold ? 'Reviving ' + nm + ' ' + Math.min(100, Math.round((this.rvT / 2.5) * 100)) + '%' : 'Hold ' + this.ui.ctlB('use') + ' Revive ' + nm);
+        if (this.rvT >= 2.5) { this.rvT = 0; this.emitFx(['rv', who.id]); this.audio.play('heal', 0.6); this.ui.toast('You revived ' + nm, 'good'); }
+        return;
+      }
+      this.rvT = 0;
     }
     // Reroll dice: walk over one to bank a reroll for the level-up screen.
     for (const dc of this.world.dice || []) {
@@ -2697,7 +2764,7 @@ export class Game {
       return;
     }
     const tree = p.nearTree();
-    // A power-up floating over a chest you opened: Use (E / Square) takes it.
+    // A power-up floating over an opened chest, yours or a teammate's: Use (E / Square) takes it.
     const wait = this.chests.nearest(p);
     if (wait) {
       const info = puInfo(wait.pu, p.cls);
@@ -2705,6 +2772,7 @@ export class Game {
       if (this.input.pressed.has('KeyE')) {
         this.chests.take(wait);
         p.takePowerup(wait.pu);
+        this.emitFx(['ct', wait.c.id]);
         this.audio.play('buy');
         this.ui.toast(info.name + ' · ' + info.desc, 'good');
       }
@@ -2764,11 +2832,12 @@ export class Game {
     // The power-up isn't handed over yet: it rises out of the chest and waits for you to grab it.
     this.request('crate', c.id);
     this.openCrateVisual(c, pu);
+    if (pu && pu.id) this.emitFx(['cp', c.id, pu.id]); /* everyone sees what came out, and anyone can take it */
   }
 
   // Swap the closed chest for the animated one and play the opening (chest.js). pu: what's inside, for the opener.
   openCrateVisual(c, pu) {
-    if (c.opened) return;
+    if (c.opened) { if (pu) this.chests.offer(c, pu); return; }
     c.opened = true;
     c.mesh.visible = false;
     this.chests.open(c, pu);
@@ -2844,6 +2913,7 @@ export class Game {
   }
 
   offerBlessings() {
+    if (this.mode !== 'game' || this.ranOver) return; /* never on the title screen or after the run has ended (Nutty 2026-11-18) */
     const p = this.player;
     const owned = new Set(p.blessings.map((b) => b.id));
     const r = mulberry32((this.world.seed + this.round * 13 + (this.party.myId || '').length * 97) >>> 0);
@@ -3065,6 +3135,7 @@ export class Game {
 
   // ---------------- end of run ----------------
   endRun(win) {
+    this.ranOver = true; this.timers = []; if (this.blessOpen) { this.blessOpen = false; this.ui.bless(null); }
     const p = this.player;
     if (this.horde) {
       // Horde Mode keeps its own record (best wave) and leaves the run records and unlock goals alone.
