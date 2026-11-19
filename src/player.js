@@ -2435,10 +2435,13 @@ export class LocalPlayer {
     if (B.on) B.t += dt;
     this.blocking = B.on && this.alive && !this.dash && !this.board && !this.climb;
   }
-  tryBlock(amount, src) {
+  tryBlock(amount, src, from) {
     if (!this.blocking) return false;
     const physical = typeof src === 'number' || src === 'B' || src === 'proj';
     if (!physical) return false;
+    /* A block only covers what you are facing (Nutty 2026-11-19): a blow or a shot from behind still lands. */
+    { const gg = this.game, v = typeof src === 'number' ? gg.views.mobs.get(src) : src === 'B' ? gg.views.boss : null, at = from || (v ? [v.x, v.z] : null);
+      if (at) { const dx = at[0] - this.pos.x, dz = at[1] - this.pos.z, l = Math.hypot(dx, dz); if (l > 0.05 && (dx * Math.sin(this.yaw) + dz * Math.cos(this.yaw)) / l < -0.17) return false; } }
     const g = this.game, B = this.block, c = [this.pos.x + Math.sin(this.yaw) * 0.6, this.pos.y + 1.2, this.pos.z + Math.cos(this.yaw) * 0.6];
     if (B.t <= PARRY.window && g.now - (this.parryT || -9) > 0.3) {
       this.parryT = g.now;
@@ -2456,10 +2459,10 @@ export class LocalPlayer {
     return true;
   }
 
-  takeDamage(amount, src) {
+  takeDamage(amount, src, from) {
     const g = this.game;
     if (!this.alive) return false;
-    if (this.tryBlock(amount, src)) return false;
+    if (this.tryBlock(amount, src, from)) return false;
     if (src === 'gv') { this.invulnUntil = 0; this.shield.until = 0; this.endEye(); } // the Gravity Gun's blast on the other duelist is lethal: nothing stops it
     if (this.invulnUntil && g.now < this.invulnUntil) return false;
     if (src !== 'gv' && this.rocks && this.rocks.n > 0 && this.rocks.fx.alive) {
@@ -2651,7 +2654,8 @@ export class LocalPlayer {
     const g = this.game;
     if (this.freeRise) this.freeRise = false; else this.beds--;
     // A revive: you get back up where you fell (Nutty 2026-11-13), not back at camp.
-    this.placeAt(this.pos.x, this.pos.z);
+    const hp = g.horde && g.hordeRespawn ? g.hordeRespawn(this.pos.x, this.pos.z) : null; /* Horde: at one of the map's spawn points, never the spot you died on (Nutty 2026-11-19) */
+    if (hp) this.placeAt(hp[0], hp[1]); else this.placeAt(this.pos.x, this.pos.z);
     this.alive = true;
     this.hp = this.stats.maxHp;
     this.invulnUntil = g.now + 5; // grace so a respawn in the middle of the horde does not end the run at once

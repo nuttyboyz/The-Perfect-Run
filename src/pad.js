@@ -84,12 +84,14 @@ export class PadInput {
   release(I) { for (const c of this.held) I.keys.delete(c); this.held.clear(); I.ax = I.ay = 0; I.padFire = false; }
 
   // Menus: move focus between visible controls, A presses, B goes back.
-  nav(root, dt) {
+  /* The left stick alone, for walking while the scoreboard is up (Nutty 2026-11-19): the d-pad steers the board then. */
+  moveOnly(I) { const p = this.get(); if (!p) return; I.ax = dz(p.axes[0] || 0); I.ay = -dz(p.axes[1] || 0); }
+  nav(root, dt, noStick) {
     const p = this.get();
     if (!p) return;
     const b = p.buttons.map((x) => x.pressed || x.value > 0.5);
     const down = (i) => b[i] && !this.prev[i];
-    const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0);
+    const lx = noStick ? 0 : dz(p.axes[0] || 0), ly = noStick ? 0 : dz(p.axes[1] || 0);
     if (b.some(Boolean) || lx || ly) { this.lastUse = performance.now(); this.sticky = true; }
     if (root.querySelector('#controls.listening')) { this.prev = b; return; } // the Controls screen is waiting for a button to remap
     this.navCd -= dt;
@@ -267,5 +269,5 @@ export class KeyPad extends PadInput {
     return f;
   }
   apply(I, dt, now) { this.menu = false; return super.apply(I, dt, now); }
-  nav(root, dt) { this.menu = true; super.nav(root, dt); }
+  nav(root, dt, noStick) { this.menu = true; super.nav(root, dt, noStick); }
 }

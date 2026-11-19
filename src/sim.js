@@ -223,9 +223,40 @@ export class HostSim {
     } else {
       this.waveQuota = this.waveLeft = HORDE.quota(w, n); this.waveSpawned = 0; this.spawnCd = 0.5;
       this.waveT0 = this.time;
-      this.lineup = this.pickLineup(this.round);
+      this.lineup = this.hordeLineup(w) || this.pickLineup(this.round);
       this.ev('msg', 'Wave ' + w + ' · ' + this.waveQuota + ' enemies');
     }
+  }
+  /* Who a Horde wave fields (Nutty 2026-11-19). Wave 1: easy enemies that cannot shoot and fall fast. Wave 2: sturdier fighters that
+     still fall fairly fast. Wave 3 brings in some shooters, wave 4 some large enemies. After that every kind in the game is mixed and the
+     scaling does the rest. Only the Graveyard keeps its own cast. */
+  hordeLineup(w) {
+    const stage = BIOMES[stageIdx(this.runSeed, 0)], only = stage ? STAGE_ONLY[stage.id] : null;
+    const away = new Set(only ? [] : Object.values(STAGE_ONLY).flatMap((o) => o.mobs));
+    const all = (only ? only.mobs : MOB_TYPES).filter((t) => { const B = MOBS[t]; return B && !B.fly && !B.summoned && !B.gone && !B.boss && !t.startsWith('echo') && (only || (B.cost == null && !away.has(t))); });
+    const big = (B) => (B.height || 0) >= 2.6 || B.hp >= 230;
+    const easy = all.filter((t) => { const B = MOBS[t]; return B.tier === 1 && !B.ranged && !B.bomb && !big(B) && B.hp <= 75; });
+    const mid = all.filter((t) => { const B = MOBS[t]; return !B.ranged && !big(B) && !easy.includes(t); });
+    const shoot = all.filter((t) => MOBS[t].ranged && !big(MOBS[t])), large = all.filter((t) => big(MOBS[t]));
+    const out = {};
+    const take = (pool, n, k) => { const p = pool.slice(); for (let i = 0; i < n && p.length; i++) { const t = p.splice(Math.floor(Math.random() * p.length), 1)[0]; out[t] = 30 * k * (MOBS[t].w ?? 1) * (0.8 + Math.random() * 0.4); } };
+    if (w === 1) take(easy, 5, 1);
+    else if (w === 2) { take(mid, 4, 1); take(easy, 2, 0.4); }
+    else if (w === 3) { take(mid, 3, 1); take(shoot, 2, 0.6); take(easy, 1, 0.4); }
+    else if (w === 4) { take(mid, 2, 1); take(shoot, 2, 0.7); take(large, 2, 0.55); take(easy, 1, 0.3); }
+    else {
+      const lv = this.hordeLv(), tierW = [[1, 0.6, 0.05], [0.6, 1, 0.3], [0.35, 1, 0.7], [0.2, 0.8, 1], [0.1, 0.6, 1], [0.1, 0.6, 1]][Math.min(5, lv)];
+      const pool = all.map((t) => ({ t, w: tierW[MOBS[t].tier - 1] * (MOBS[t].w ?? 1) })).filter((o) => o.w > 0);
+      for (let n = Math.min(pool.length, 6 + Math.min(3, lv)); n > 0; n--) {
+        let roll = Math.random() * pool.reduce((a, o) => a + o.w, 0);
+        const i = pool.findIndex((o) => (roll -= o.w) <= 0), o = pool.splice(i < 0 ? 0 : i, 1)[0];
+        out[o.t] = [50, 26, 14][MOBS[o.t].tier - 1] * (MOBS[o.t].w ?? 1) * (0.8 + Math.random() * 0.4);
+      }
+    }
+    if (!Object.keys(out).length) return null;
+    const fly = (only && only.fly) || (stage && STAGE_FLY[stage.id]) || [FLYERS[w % FLYERS.length]]; /* (flyers wait for HORDE.flyFrom) */
+    fly.forEach((f, i) => { out[f] = (i === 0 ? 16 : 9) * (0.8 + Math.random() * 0.4); });
+    return out;
   }
   endWave() {
     for (const m of this.mobs.values()) this.ev('d', m.id, '', q10(m.x), q10(m.z), m.ti);
@@ -469,7 +500,10 @@ export class HostSim {
   // ---------- spawning ----------
   newMob(type, x, z, id, hp, wi) {
     // Armed mobs (MOB_ARM_POOL) pick a weapon from their class when they appear; it changes reach, damage and whether they shoot.
-    if (wi === undefined) wi = pickArm(type);
+    if (wi === undefined) {
+      wi = pickArm(type);
+      if (this.horde && this.wave > 0 && this.wave < 3 && !MOBS[type].ranged) { for (let i = 0; i < 8 && wi && armedBase(type, wi).ranged; i++) wi = pickArm(type); if (wi && armedBase(type, wi).ranged) wi = 0; } /* nobody shoots in Horde waves 1 and 2 */
+    }
     const base = armedBase(type, wi);
     let maxHp = base.hp * this.hpScale();
     // Toughness follows size (the player is 1.8 m): enemies about the player's size go down fast, bigger ones soak far more hits.

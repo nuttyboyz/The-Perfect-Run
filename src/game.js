@@ -1317,7 +1317,7 @@ export class Game {
     }
     if (!paused) {
       const uiBlocking = this.shopOpen || this.blessOpen || this.phase === 'spaceq' || (this.elemOpen && this.elemStops());
-      const inp = this.brain && !uiBlocking && (!this.duel || this.phase === 'duel') ? this.brain.step(dt) : uiBlocking || !this.inputLive() || (this.duel && this.phase !== 'duel') ? this.frozenInput() : this.input;
+      const inp = this.brain && !uiBlocking && (!this.duel || this.phase === 'duel') ? this.brain.step(dt) : uiBlocking || (this.duel && this.phase !== 'duel') ? this.frozenInput() : this.ui.boardOn && !this.brain ? this.boardInput() : !this.inputLive() ? this.frozenInput() : this.input;
       if (this.phase === 'vote' && !p.out) this.voteKeys();
       if ((this.phase === 'bless' || this.horde) && this.blessOpen) this.blessKeys();
       if (this.phase === 'spaceq' && this.isHost) { if (this.input.pressed.has('Digit1')) this.answerSpace(true); else if (this.input.pressed.has('Digit2')) this.answerSpace(false); }
@@ -1377,7 +1377,10 @@ export class Game {
     if (this.mode === 'game' && this.pad.boardEdge()) this.ui.board(!this.ui.boardOn, true); /* touchpad (Xbox: both sticks): scoreboard on / off */
     const overlay = this.root.querySelector('.overlay.on:not(.soft)');
     const inGame = this.mode === 'game' && !overlay && !this.shopOpen && !this.blessOpen && !this.root.dataset.screen && !(this.ui.boardOn && this.pad.active); /* a menu screen opened over the game (Settings from the pause menu) is steered like any menu: the controller did nothing there (Nutty 2026-11-19) */
-    if (!inGame) { this.pad.release(this.input); this.pad.nav(this.root, dt); return; }
+    if (!inGame) {
+      const walk = this.mode === 'game' && this.ui.boardOn && this.pad.active && !overlay && !this.shopOpen && !this.blessOpen && !this.root.dataset.screen; /* scoreboard up: the left stick still walks, the d-pad steers the board (Nutty 2026-11-19) */
+      this.pad.release(this.input); this.pad.nav(this.root, dt, walk); if (walk) this.pad.moveOnly(this.input); return;
+    }
     const wasActive = this.pad.active;
     const ev = this.pad.apply(this.input, dt, this.now);
     if (!ev) return;
@@ -1409,6 +1412,23 @@ export class Game {
     } catch {}
   }
 
+  /* Scoreboard up (Nutty 2026-11-19): you can still walk, jump and sprint; nothing fires and the view stays where it is. */
+  boardInput() { const I = this.input, f = this.frozenInput(); f.keys = I.keys; f.ax = I.ax || 0; f.ay = I.ay || 0; return f; }
+  /* Where a fallen Horde player gets back up (Nutty 2026-11-19): never on the spot they died. Each map has a ring of spawn points;
+     the one chosen is clear ground, well away from that spot and as far from the enemies as it can be. */
+  hordeRespawn(x, z) {
+    const w = this.world, pts = [[0, 0]];
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; pts.push([Math.sin(a) * 34, Math.cos(a) * 34], [Math.sin(a + 0.39) * 68, Math.cos(a + 0.39) * 68]); }
+    let best = null, bs = -1;
+    for (const [px, pz] of pts) {
+      if (Math.hypot(px - x, pz - z) < 24 || w.blocked(px, pz, 1.2) || (w.noPlace && w.noPlace(px, pz, 1.2))) continue;
+      let near = 60; for (const v of this.views.mobs.values()) near = Math.min(near, Math.hypot(v.x - px, v.z - pz));
+      if (this.views.boss) near = Math.min(near, Math.hypot(this.views.boss.x - px, this.views.boss.z - pz) * 0.6);
+      const sc = near + Math.random() * 6;
+      if (sc > bs) { bs = sc; best = [px, pz]; }
+    }
+    return best;
+  }
   frozenInput() {
     return { keys: new Set(), pressed: new Set(), dx: 0, dy: 0, mouseDown: false, mouseClicked: false, rightClicked: false, aimHeld: false, wheel: 0 };
   }
@@ -1666,7 +1686,7 @@ export class Game {
                 hit = true;
                 this.fx.explosion([pos.x, gy + 0.5, pos.z], 0.5, { color: [0.45, 0.2, 0.9], smoke: false }); this.fx.plasmaBurst([pos.x, gy + 0.5, pos.z], 1.6);
                 this.audio.play('slam', this.distVol(pos.x, pos.z) * 0.35);
-                if (Math.hypot(pos.x - p.pos.x, pos.z - p.pos.z) < 3.2 && p.pos.y - gy < 2.5) p.takeDamage(Math.round(dmg * 0.6), 'proj');
+                if (Math.hypot(pos.x - p.pos.x, pos.z - p.pos.z) < 3.2 && p.pos.y - gy < 2.5) p.takeDamage(Math.round(dmg * 0.6), 'proj', [pos.x, pos.z]);
                 return false;
               }
             }
@@ -1683,7 +1703,7 @@ export class Game {
             }
             if (dx * dx + dz * dz < 0.8 && Math.abs(dy) < 1.2) {
               hit = true;
-              p.takeDamage(dmg, 'proj');
+              p.takeDamage(dmg, 'proj', [p.pos.x - vel.x, p.pos.z - vel.z]); /* where the shot came from, for the shield */
               this.fx.impact([pos.x, pos.y, pos.z], [col.r, col.g, col.b]);
               if (pl) { this.fx.explosion([pos.x, pos.y, pos.z], 0.5, { color: [0.45, 0.2, 0.9], smoke: false }); this.fx.plasmaBurst([pos.x, pos.y, pos.z], 1.6); }
               return false;

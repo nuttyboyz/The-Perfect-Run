@@ -481,10 +481,11 @@ export class CharacterRig {
       } else { swingAng = e * wide; twist = swingAng * 0.45; }
     }
     // Melee weapons follow their own pair of attack motions (meleemoves.js); st.move picks which one this swing is.
-    let mvPose = null, mvDir = null, fistGuard = null; let lungeK = 0;
+    let mvPose = null, mvDir = null, fistGuard = null; let lungeK = 0, sth = 0;
     if (MELEE_V2 && melee > 0 && wd && wd.kind === 'melee' && !wd.cane && !wd.reaper) {
       const mv = moveOf({ id: wd.id, shield: !!wd.shield, fist: !!wd.fist }, st.move);
       mvPose = samplePose(mv, melee); mvDir = strikeDir(mv);
+      if (wd.shield && mv.lunge) sth = 1; /* the thrust from behind the shield */
       twist = mvPose.az * (mv.type === 'chop' ? 0.15 : 0.45);
       if (mv.lunge) lungeK = Math.max(0, Math.min(1, (mvPose.r - 1) / 0.6)); /* a fencing lunge: the body goes in behind the point */
     }
@@ -503,6 +504,7 @@ export class CharacterRig {
       if (!this.firstPerson && (this._bk > 0.01 || parryK)) rotateWorld(sb, right, -(this._bk * 0.08 + parryK * 0.3) / spine.length); /* braced behind the shield; a parry leans right in */
     }
     if (this.firstPerson) lungeK = 0;
+    this._sth = (this._sth || 0) + (sth - (this._sth || 0)) * Math.min(1, (dt || 0.016) * 14);
     this._lunge = lungeK;
     if (lungeK) { /* the lunge's legs: front knee bent over the foot, back leg straight, hips low */
       rotateWorld(B.get('RightUpLeg'), right, lungeK * 0.96); rotateWorld(B.get('RightLeg'), right, -lungeK * 0.96);
@@ -596,6 +598,7 @@ export class CharacterRig {
             const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), ca * ce).normalize().applyQuaternion(aimQ);
             gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.36 : twoH ? 0.42 : 0.48) * p2.r * K);
             gq = wd.fist ? fistBasis(p2, aimQ) : moveBasis(p2, mvDir, aimQ);
+            if (sth) gp.add(V(-0.17, -0.05, 0).multiplyScalar(K).applyQuaternion(aimQ)); /* past the shield's edge, not through it */
             if (wd.fist) fistGuard = { p: eye.clone().add(V(0, -0.3 + bob, 0.4).multiplyScalar(K).applyQuaternion(aimQ)), q: aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           } else if (melee > 0) {
             const pivot = eye.clone().add(V(0, -0.24, 0.02).multiplyScalar(K).applyQuaternion(aimQ));
@@ -664,6 +667,7 @@ export class CharacterRig {
           const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), Math.cos(p2.az) * ce).normalize().applyQuaternion(yaw);
           gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.3 : twoH ? 0.42 : 0.5) * p2.r * h);
           gq = wd.fist ? fistBasis(p2, yaw) : moveBasis(p2, mvDir, yaw);
+          if (sth) gp.add(V(-0.34, -0.16, 0).multiplyScalar(h).applyQuaternion(yaw)); /* Shield thrust (Nutty 2026-11-19): the sword hand goes past the shield's right edge, clear of the shield and the shield arm, just holding the handle */
           if (wd.fist) fistGuard = { p: sc.clone().add(V(0, -0.2, 0.28).multiplyScalar(h).applyQuaternion(yaw)), q: yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           if (twoH) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -0.15));
         } else if (melee > 0) {
@@ -760,6 +764,7 @@ export class CharacterRig {
         const fr = fp ? aimQ : yaw, K2 = fp ? this.k : h;
         const idle = fp ? V(0.36, -0.5, 0.5) : V(0.3, -0.62, 0.26), blk = fp ? V(0.14, -0.42, 0.5) : V(0.08, -0.4, 0.34);
         const off = idle.lerp(blk, e); off.z += pk * (fp ? 0.09 : 0.3); off.y += pk * (fp ? 0.05 : 0.02);
+        off.x += (this._sth || 0) * e * (fp ? 0.07 : 0.11); /* the shield slides aside a little to let the thrust out */
         const pt = eyeP.clone().add(off.multiplyScalar(K2).applyQuaternion(fr));
         const fDir = V(-0.25 - 0.75 * e, 0.25 + 0.2 * e, 1 - 0.85 * e).normalize().applyQuaternion(fr); /* fingers forward at the side; across the body when blocking */
         this.grab('Left', pt, fDir, V(-1 + e, 0, -e).normalize().applyQuaternion(fr), 0.95, V(0.5, -0.6 - 0.3 * e, -0.6 + 0.6 * e).normalize().applyQuaternion(fr), h);
