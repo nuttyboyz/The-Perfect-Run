@@ -59,6 +59,13 @@ const KEY_HINTS = { pad: { X: 'B', Q: 'LB', G: 'Y', F: 'RB', R: 'X', E: 'X', 1: 
 const HINT_BIND = { X: ['KeyX', 1], Q: ['KeyQ', 4], G: ['KeyG', 3], F: ['KeyF', 5], R: ['KeyR', 2], E: ['KeyE', 2], 1: ['Digit1', 14], 2: ['Digit2', 15], 3: ['Digit3', undefined] };
 // Xbox button names as PlayStation ones, for the DualShock layout.
 const DS_NAMES = { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', View: 'Share', Menu: 'Options', L3: 'L3', R3: 'R3' };
+/* The hit direction blade (Nutty 2026-11-20: "a cooler animation instead of two simple curved lines"): a crescent with sharp tips and a hot
+   core, a fang pointing in at you, three claw streaks outside it, and a shock pulse that flies outward as it slams in. Drawn pointing up. */
+const HIT_SVG = `<svg class="go" viewBox="-100 -100 200 200"><defs><linearGradient id="hdg" x1="0" y1="-82" x2="0" y2="-56" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff2a1e"/><stop offset=".45" stop-color="#ff5a2a"/><stop offset="1" stop-color="#ffd27a"/></linearGradient></defs>
+<path class="hd-pulse" d="M-37 -71 A80 80 0 0 1 37 -71" fill="none" stroke="#ff5030" stroke-width="2.2" stroke-linecap="round"/>
+<g class="hd-claws" stroke="#ff3a26" stroke-width="1.7" stroke-linecap="round"><path d="M-15 -84 L-19 -95"/><path d="M0 -85.5 L0 -98"/><path d="M15 -84 L19 -95"/></g>
+<g class="hd-blade"><path d="M-37 -70.9 A80 80 0 0 1 37 -70.9 A300 300 0 0 0 9 -73.4 L0 -57 L-9 -73.4 A300 300 0 0 0 -37 -70.9 Z" fill="url(#hdg)"/>
+<path d="M-30 -74.2 A80 80 0 0 1 30 -74.2" fill="none" stroke="#fff1d0" stroke-width="1.1" stroke-linecap="round" opacity=".9"/></g></svg>`;
 export const padName = (s, layout) => layout === 'ds' ? String(s).split(' ').map((w) => DS_NAMES[w] || w).join(' ') : s;
 // Compact "what do the buttons do" lists for the couch seats (player 2's keyboard half comes from pad.js).
 const shortRows = (L) => { const c = CTL[L] || CTL.ds, pad = isPad(L); return [[c.move, 'Move'], [c.look, 'Aim'], [c.fire, 'Attack · hold ' + c.aim + ' to aim or block'], [c.jump, 'Jump · double-tap: jetpack · again in the air and hold: web swing'], [c.sprint, 'Sprint · with the jetpack on: descend'], [c.dash, 'Dash'], [c.ab1 + ' ' + c.ab2 + ' ' + c.ult, 'Abilities'], [c.reload, 'Reload / use'], [pad ? c.prev + ' ' + c.nxt : '1 2 3', 'Swap weapon'], [c.shop, 'Shop'], [c.pause, 'Menu']]; };
@@ -1240,7 +1247,7 @@ export class UI {
     bind('set-layout', 'layout', 'select'); bind('set-sens-ads', 'sensAds'); bind('set-invert', 'invertY', 'check'); bind('set-music', 'music', 'check'); bind('set-music-vol', 'musicVol');
     bind('set-sfx', 'sfx', 'check'); bind('set-ui-scale', 'uiScale'); bind('set-cb', 'cb', 'select'); bind('set-xh', 'xh', 'select'); bind('set-xh-col', 'xhCol', 'select'); bind('set-xh-size', 'xhSize');
     this.$$('#set-nav button').forEach((b) => (b.onclick = () => { g.audio.play('ui'); this.setCat(b.dataset.cat); }));
-    this.applyLook(); bind('set-fov', 'fov'); bind('set-shake', 'shake', 'check'); bind('set-dmgnums', 'dmgNums', 'check');
+    this.applyLook(); bind('set-fov', 'fov'); bind('set-shake', 'shake', 'check'); bind('set-dmgnums', 'dmgNums', 'check'); bind('set-hitdir', 'hitDir', 'check');
     this.$('#set-view').onchange = (e) => this.setView(e.target.value);
     // Controls screen: pictures of each device, remapping. Remaps are saved with the settings.
     if (g.seat === 1) { loadBinds(g.settings.binds); applyBindLabels(); }
@@ -1408,7 +1415,7 @@ export class UI {
     set('set-music', S.music !== false); { const mv = $('set-music-vol'); if (mv) { mv.disabled = S.music === false; mv.closest('.field').classList.toggle('off', S.music === false); } } set('set-music-vol', S.musicVol ?? 1, 'music-vol-val', Math.round((S.musicVol ?? 1) * 100) + '%');
     set('set-sfx', S.sfx !== false);
     set('set-fov', S.fov || 70, 'fov-val', String(Math.round(S.fov || 70)));
-    set('set-shake', S.shake !== false); set('set-dmgnums', S.dmgNums !== false);
+    set('set-shake', S.shake !== false); set('set-dmgnums', S.dmgNums !== false); set('set-hitdir', S.hitDir !== false);
     set('set-vol', S.vol, 'vol-val', Math.round(S.vol * 100) + '%');
     this.setState();
   }
@@ -2170,6 +2177,31 @@ export class UI {
     if (secs > 0) this._frostT = setTimeout(() => this.frost(0), secs * 1000 + 150); // belt and braces: a paused duel round can't leave it up
   }
 
+  /* Hit direction indicators (Nutty 2026-11-20; Settings: Hit direction indicators). hitDir(x, z, frac): something at that spot hurt
+     you. Each arc keeps pointing at its spot while you turn, and fades in about a second and a half. */
+  hitDir(x, z, frac = 0.05) {
+    const g = this.game; if (g.settings.hitDir === false) return;
+    const v = this.$('#vignette'); if (!v) return;
+    let box = this.$('#hitdir'); if (!box) { box = document.createElement('div'); box.id = 'hitdir'; v.parentNode.insertBefore(box, v.nextSibling); }
+    const L = this._hd || (this._hd = []);
+    let h = L.find((o) => Math.hypot(o.x - x, o.z - z) < 4);
+    if (!h) { if (L.length >= 6) { const o = L.shift(); o.el.remove(); } h = { el: document.createElement('div') }; h.el.className = 'hd'; h.el.innerHTML = HIT_SVG; box.appendChild(h.el); L.push(h); }
+    else { const sv = h.el.firstChild; sv.classList.remove('go'); void sv.getBoundingClientRect(); sv.classList.add('go'); } /* hit again from the same side: it slams in again */
+    h.el.firstChild.style.setProperty('--hs', (0.92 + Math.min(1, frac * 5) * 0.2).toFixed(2)); /* harder hits, bigger blade */
+    h.x = x; h.z = z; h.t = 0; h.k = Math.min(1, 0.65 + frac * 4);
+    this.hitDirTick(0);
+  }
+  hitDirTick(dt) {
+    const L = this._hd; if (!L || !L.length) return;
+    const g = this.game, cam = g.camera, p = g.player, e = cam.matrixWorld.elements, fx = -e[8], fz = -e[10], fl = Math.hypot(fx, fz) || 1;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const h = L[i]; h.t += dt;
+      if (h.t > 1.5 || g.mode !== 'game' || !p || !p.alive) { h.el.remove(); L.splice(i, 1); continue; }
+      const dx = h.x - p.pos.x, dz = h.z - p.pos.z, f = (dx * fx + dz * fz) / fl, r = (dx * -fz + dz * fx) / fl; /* ahead of the view, and to its right */
+      h.el.style.transform = 'rotate(' + Math.atan2(r, f).toFixed(3) + 'rad)';
+      h.el.style.opacity = (h.k * Math.min(1, (1.5 - h.t) / 0.6)).toFixed(2);
+    }
+  }
   hurt(frac) {
     const v = this.$('#vignette');
     v.style.opacity = Math.min(1, (this.game.duel ? 0.6 : 0.35) + frac * 3);

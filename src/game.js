@@ -1326,6 +1326,7 @@ export class Game {
     }
     this.syncTombs();
     this.summonSweep();
+    this.ui.hitDirTick(dt);
     if (quiet) { this.publish(); return; }
     if (this._healT > 0 && (this._healT -= dt) <= 0) { healNormals(this.scene); this._healT = 5; } // new enemy bodies arrive all round; already-checked geometry is skipped
     this.bulletTimeFx(dt);
@@ -1724,7 +1725,7 @@ export class Game {
           this.fx.shockwave([X, y, Z], R, 0xff7a50, 0.4);
           this.audio.play('slam', this.distVol(X, Z));
           this.shake(Math.max(0, 0.6 - this.distTo(X, Z) / 40));
-          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - y < 2.2) p.takeDamage(dmg, 'slam');
+          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - y < 2.2) p.takeDamage(dmg, 'slam', [X, Z]);
         } });
         break;
       }
@@ -1794,7 +1795,7 @@ export class Game {
           this.fx.shockwave([X, y, Z], R, 0xffb050, 0.45);
           this.audio.play('explode', this.distVol(X, Z));
           this.shake(Math.max(0, 0.7 - this.distTo(X, Z) / 35));
-          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - y < 2.5) p.takeDamage(dmg, 'blast');
+          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - y < 2.5) p.takeDamage(dmg, 'blast', [X, Z]);
         } });
         break;
       }
@@ -2006,7 +2007,7 @@ export class Game {
           for (let i = 0; i < fx.n(26); i++) { const an = Math.random() * 6.28; fx.debris.emit({ p: [X, yy + 0.4, Z], v: [Math.cos(an) * (4 + Math.random() * 12), 6 + Math.random() * 14, Math.sin(an) * (4 + Math.random() * 12)], life: 0.8 + Math.random() * 0.8, s0: 0.3 + Math.random() * 0.6, s1: 0.2, c0: [0.35, 0.2, 0.12, 1], c1: [0.25, 0.15, 0.1, 0], g: 18, drag: 0.3 }); }
           this.audio.play('slam', this.distVol(X, Z));
           this.shake(Math.max(0, 1 - this.distTo(X, Z) / 60));
-          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - yy < 3) p.takeDamage(dmg, 'slam');
+          if (p.alive && Math.hypot(p.pos.x - X, p.pos.z - Z) < R && p.pos.y - yy < 3) p.takeDamage(dmg, 'slam', [X, Z]);
         } });
         break;
       }
@@ -3149,6 +3150,13 @@ export class Game {
   }
 
   // The thing a hit on you came from, as a damage target (a mob id, or 'B' for the boss), for the shield parry.
+  /* Where whoever dealt a hit is standing ([x, z]), for the shield, Boulder Orbit and the hit direction arcs. */
+  attackerPos(src) {
+    if (typeof src === 'number') { const v = this.views.mobs.get(src); return v ? [v.x, v.z] : null; }
+    if (src === 'B') { const b = this.views.boss; return b ? [b.x, b.z] : null; }
+    if (src === 'pvp' || src === 'gv') { for (const v of this.views.players.values()) if (v.alive && v.pos) return [v.pos.x, v.pos.z]; }
+    return null;
+  }
   attackerTarget(src) {
     if (src === 'B') return this.targets().find((t) => t.kind === 'boss') || null;
     if (typeof src !== 'number') return null;

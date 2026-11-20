@@ -2492,7 +2492,7 @@ export class LocalPlayer {
       if (g.now - (this.rockBlockT || 0) > 0.12) {
         this.rockBlockT = g.now;
         // Each rock stands ORBIT_BLOCKS blows, cracking a little more with each, then crumbles (Nutty 2026-11-13).
-        const R = this.rocks, hit = R.fx.block(g.attackerPos ? g.attackerPos(src) : null, ORBIT_BLOCKS), c = (hit && hit.p) || [this.pos.x, this.pos.y + 1.2, this.pos.z];
+        const R = this.rocks, hit = R.fx.block(((q) => (q ? [q[0], 0, q[1]] : null))(from || g.attackerPos(src)), ORBIT_BLOCKS), c = (hit && hit.p) || [this.pos.x, this.pos.y + 1.2, this.pos.z];
         g.fx.dustBurst(c, 0.45); g.fx.impact(c, [0.75, 0.62, 0.48]); g.audio.play('deflect', 0.55); g.audio.play('earth', 0.25);
         if (hit && hit.broke) {
           R.n--; g.emitFx(['bo', R.n, ...c.map((q) => Math.round(q * 10))]); g.audio.play('quake', 0.6); g.audio.play('earth', 0.7); g.shake(0.3);
@@ -2546,6 +2546,7 @@ export class LocalPlayer {
     this.hp -= dmg;
     this.hurtAt = g.now;
     g.ui.hurt(dmg / this.stats.maxHp, src);
+    if (g.player === this && g.ui.hitDir) { const at = from || g.attackerPos(src); if (at && Math.hypot(at[0] - this.pos.x, at[1] - this.pos.z) > 0.3) g.ui.hitDir(at[0], at[1], dmg / this.stats.maxHp); } /* which way it came from */
     const dir = this.bleed(dmg);
     g.audio.play('hurt');
     // Stagger: a short stumble (slow feet, a shove back) and a camera jolt, so you feel the hit land.

@@ -1945,3 +1945,16 @@ body.split #daily-box { display: none; }
 #board .hpt.rv { color: #ffe08a; animation: bdPulse 1s ease-in-out infinite; }
 @keyframes bdPulse { 50% { opacity: .45; } }
 #board tr.dn td { opacity: 1; } #board tr.dn td.nm { opacity: .6; }
+
+/* Hit direction indicators (Nutty 2026-11-20): a red arc round the middle of the screen points at whatever just hurt you. */
+#hitdir { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#hitdir .hd { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+#hitdir .hd svg { position: absolute; left: -29vh; top: -29vh; width: 58vh; height: 58vh; overflow: visible; transform: scale(var(--hs, 1)); filter: drop-shadow(0 0 .7vh rgba(255, 30, 0, .9)) drop-shadow(0 0 2vh rgba(255, 60, 0, .45)); }
+#hitdir .hd svg * { transform-box: view-box; transform-origin: 50% 50%; }
+#hitdir .hd svg.go .hd-blade { animation: hdSlam .34s cubic-bezier(.2, 1.5, .4, 1) both, hdThrob .5s ease-in-out .34s infinite alternate; }
+#hitdir .hd svg.go .hd-pulse { animation: hdPulse .55s ease-out both; }
+#hitdir .hd svg.go .hd-claws { animation: hdClaws .5s ease-out both; }
+@keyframes hdSlam { 0% { transform: scale(1.6); opacity: 0; } 55% { transform: scale(.94); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes hdThrob { from { opacity: 1; } to { opacity: .72; } }
+@keyframes hdPulse { 0% { transform: scale(.98); opacity: .95; stroke-width: 3.2; } 100% { transform: scale(1.42); opacity: 0; stroke-width: .5; } }
+@keyframes hdClaws { 0% { transform: scale(1.5); opacity: 0; } 35% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.06); opacity: .55; } }
