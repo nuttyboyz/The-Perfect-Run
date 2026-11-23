@@ -2682,6 +2682,7 @@ export class LocalPlayer {
     this.alive = true;
     this.hp = this.stats.maxHp;
     this.invulnUntil = g.now + 5; // grace so a respawn in the middle of the horde does not end the run at once
+    if (g.player === this) g.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */
     this.rearm();
     g.request('clear', [Math.round(this.pos.x), Math.round(this.pos.z)]);
     g.fx.shockwave([this.pos.x, this.pos.y, this.pos.z], 4, 0xffe0a0, 0.6);

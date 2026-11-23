@@ -265,6 +265,13 @@ export class Audio {
       case 'demon': this.tone({ freq: 220, to: 110, dur: 2.5, type: 'sawtooth', gain: 0.2 * v }); this.tone({ freq: 233, to: 116, dur: 2.5, type: 'sawtooth', gain: 0.2 * v }); break;
       case 'hell_rise': this.tone({ freq: 70, to: 30, dur: 0.8, type: 'sawtooth', gain: 0.18 * v }); this.noiseHit({ dur: 0.7, freq: 500, type: 'lowpass', gain: 0.35 * v }); this.noiseHit({ dur: 0.5, freq: 2200, type: 'bandpass', q: 1.5, gain: 0.12 * v, delay: 0.1 }); break;
       case 'heal_staff': this.tone({ freq: 523, to: 784, dur: 0.5, type: 'sine', gain: 0.12 * v }); this.tone({ freq: 784, to: 1175, dur: 0.6, type: 'sine', gain: 0.1 * v, delay: 0.12 }); this.tone({ freq: 1568, to: 1760, dur: 0.8, type: 'triangle', gain: 0.05 * v, delay: 0.25 }); this.noiseHit({ dur: 0.5, freq: 5000, type: 'highpass', gain: 0.06 * v }); break;
+      case 'spawn': /* back on your feet (Nutty 2026-11-22): a deep thump, air rushing up round you, then a bright rising chord that rings out */
+        this.tone({ freq: 70, to: 38, dur: 0.45, gain: 0.5 * v });
+        this.noiseHit({ dur: 0.75, freq: 260, type: 'bandpass', q: 1.1, gain: 0.45 * v, sweep: 5 });
+        this.tone({ freq: 180, to: 720, dur: 0.6, type: 'sawtooth', gain: 0.05 * v });
+        [523, 659, 784, 1047, 1319].forEach((f, i) => { this.tone({ freq: f, dur: 0.9 - i * 0.08, type: 'triangle', gain: 0.075 * v, delay: 0.28 + i * 0.06 }); this.tone({ freq: f * 2.005, dur: 0.5, type: 'sine', gain: 0.02 * v, delay: 0.3 + i * 0.06 }); });
+        this.noiseHit({ dur: 0.9, freq: 6500, type: 'highpass', gain: 0.07 * v, delay: 0.3 });
+        break;
       case 'heal': this.tone({ freq: 660, to: 990, dur: 0.3, type: 'sine', gain: 0.1 * v }); break;
       case 'ui': this.tone({ freq: 1000, dur: 0.05, type: 'triangle', gain: 0.08 * v }); break;
       // Mutators.

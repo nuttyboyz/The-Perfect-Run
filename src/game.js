@@ -1482,7 +1482,7 @@ export class Game {
         if (!p.alive || p.out) { // the wave is beaten: everyone who fell is back on their feet, next to a teammate
           const mate = [...this.views.players.values()].find((v) => v.alive);
           if (mate) p.placeAt(mate.pos.x + 1.5, mate.pos.z + 1.5);
-          p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null;
+          p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null; this.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */
           if (this.shopOpen && this.hshop) { try { this.closeShop ? this.closeShop() : null; } catch {} }
           this.ui.toast('Wave beaten. You are back in the fight.', 'good');
         }
@@ -1592,7 +1592,8 @@ export class Game {
     if (this.duel) {
       const s = this.world.duelSpawn(idx);
       p.placeAt(s.x, s.z); p.yaw = s.yaw; p.pitch = 0.1;
-      p.resetDuel(); p.invulnUntil = this.now + 3; /* 3 s spawn protection (Nutty 2026-11-18) */
+      const wasDown = !p.alive; p.resetDuel(); p.invulnUntil = this.now + 3; /* 3 s spawn protection (Nutty 2026-11-18) */
+      if (wasDown) this.audio.play('spawn'); /* the spawn sound when you come back for the next round (Nutty 2026-11-22) */
       this.dpDone = 0; this.elemOpen = false; this.ui.elem(null);
     } else {
       p.placeAt(this.world.spawn.x + Math.cos(a) * 3, this.world.spawn.z + Math.sin(a) * 3);
@@ -1602,7 +1603,7 @@ export class Game {
     }
     if (rd > 0 && !this.duel) {
       // A fresh map heals everyone and brings fallen teammates back.
-      if (!p.alive || p.out) p.revive(1);
+      if (!p.alive || p.out) { p.revive(1); this.audio.play('spawn'); } /* the spawn sound (Nutty 2026-11-22) */
       p.hp = p.stats.maxHp;
       this.runStats.roundsCleared = rd;
     }
@@ -2256,7 +2257,7 @@ export class Game {
       case 'ns': { const until = this.now + 8; Vault.supper(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 8); break; }
       case 'rv': { /* a teammate held Use over you: back on your feet where you fell */
         const p = this.player;
-        if (p && this.party && a[0] === this.party.myId && (p.out || !p.alive) && !this.duel) { p.revive(0.5); p.deadT = 0; p.invulnUntil = this.now + 3; this.spec = null; this.audio.play('heal', 0.6); this.ui.healFlash(); this.ui.toast('A teammate revived you.', 'good'); }
+        if (p && this.party && a[0] === this.party.myId && (p.out || !p.alive) && !this.duel) { p.revive(0.5); p.deadT = 0; p.invulnUntil = this.now + 3; this.spec = null; this.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */ this.ui.healFlash(); this.ui.toast('A teammate revived you.', 'good'); }
         break;
       }
       case 'cp': { const c = this.world.crates[a[0]], pu = POWERUP_BY_ID[a[1]]; if (c && pu) this.openCrateVisual(c, pu); break; } /* a chest someone else opened: its power-up floats there for anyone */
