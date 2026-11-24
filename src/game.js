@@ -26,6 +26,7 @@ import { CONFIG, CLASSES, CLASS_BY_ID, WEAPONS, WEAPON_BY_ID, BIOMES, BOSSES, NP
 import { SoloParty, RoomParty, RoomLobby, BCParty, BCLobby, PeerParty, getRoom, makeCode, PeerSlotLobby } from './net.js';
 import { Audio } from './audio.js';
 import { MenuScene } from './menu.js';
+import { Intro, PressStart } from './intro.js';
 import { kbLogical } from './controls.js';
 import { setWeaponEnv, boltProto } from './weapons.js';
 import { ScopeView, CAM_LEAD, scopeZoomFov, RETICLES } from './scope.js';
@@ -198,6 +199,8 @@ export class Game {
     this.composer = buildComposer(this, { EffectComposer, RenderPass, UnrealBloomPass });
   }
 
+  showPressStart() { if (this.ps || this.seat === 2 || this.headless) return; try { this.ps = new PressStart(this); } catch (e) { console.warn('press start', e); this.ps = null; } }
+  startIntro() { if (this.intro || this.seat === 2 || this.headless) return; if (this.ps) this.ps.remove(); try { this.intro = new Intro(this); this.introAuto = true; } catch (e) { console.warn('intro', e); this.intro = null; } }
   onResize() {
     const w = this.vw(), h = this.vh();
     this.renderer.setSize(w, h, false);
@@ -209,6 +212,7 @@ export class Game {
       if (this.bloom) this.bloom.setSize((w * pr * 2) / dv, (h * pr * 2) / dv); // bloom's first mip works at 1/dv of the screen
     }
     if (this.menu) this.menu.onResize(w, h);
+    if (this.intro) this.intro.onResize(w, h);
     const px = (h * this.renderer.getPixelRatio()) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
     this.fx.setScale(px);
     if (this.menu) this.menu.fx.setScale(px);
@@ -333,6 +337,7 @@ export class Game {
       if (!locked) { I.mouseDown = false; I.aimHeld = false; }
     });
     window.addEventListener('pointerdown', () => this.audio.unlock(), { once: false });
+    { const seen = () => { this.lastInput = performance.now(); }; for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel']) window.addEventListener(ev, seen, { passive: true }); }
   }
 
   unlockPointer() { if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
@@ -1100,6 +1105,11 @@ export class Game {
       if (this.mode === 'lobby' && this.party) this.lobbyTick();
     } else {
       if (this.mode === 'lobby' && this.party) this.lobbyTick();
+      /* The opening movie (intro.js): plays over the title before anyone touches anything, and again after three idle minutes there. */
+      if (this.intro) { this.intro.update(dt); if (this.intro) { this.render(this.intro.drawScene, this.intro.camera); this.input.pressed.clear(); this.input.dx = this.input.dy = 0; this.input.mouseClicked = false; this.input.rightClicked = false; this.input.wheel = 0; return; } }
+      if (this.ps) this.ps.update(dt);
+      if (this.intro) {}
+      else if (this.introAuto && this.mode === 'menu' && this.root.dataset.screen === 's-title' && !this.split && performance.now() - Math.max(this.lastInput || 0, (this.pad && this.pad.lastUse) || 0, this.introSeen || 0) > 180000) this.startIntro();
       // The menu backdrop only needs about 30 fps; in split-screen draw it every other frame.
       this.menuAcc = (this.menuAcc || 0) + dt;
       if (!this.split || (this.menuFlip = !this.menuFlip)) {
@@ -1375,6 +1385,10 @@ export class Game {
   }
 
   pollPad(dt) {
+    if (this.intro || this.ps) { /* the movie and the title screen read the controller themselves: keep the menu from seeing those presses */
+      const p = this.pad.get && this.pad.get(); if (p) { const b = p.buttons.map((x) => x.pressed || x.value > 0.5); this.pad.prev = b; if (b.some(Boolean)) this.pad.lastUse = performance.now(); }
+      return;
+    }
     if (this.mode === 'game' && this.pad.boardEdge()) this.ui.board(!this.ui.boardOn, true); /* touchpad (Xbox: both sticks): scoreboard on / off */
     const overlay = this.root.querySelector('.overlay.on:not(.soft)');
     const inGame = this.mode === 'game' && !overlay && !this.shopOpen && !this.blessOpen && !this.root.dataset.screen && !(this.ui.boardOn && this.pad.active); /* a menu screen opened over the game (Settings from the pause menu) is steered like any menu: the controller did nothing there (Nutty 2026-11-19) */

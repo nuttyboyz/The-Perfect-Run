@@ -161,7 +161,7 @@ export const Profile = {
   isAdmin() { return !!cur && cur.kind === 'admin'; },
   isGuest() { return !cur || cur.kind === 'guest'; },
   // The name this profile plays under (null for Guest, who picks their own).
-  playName() { return cur && cur.kind !== 'guest' ? cur.name : null; },
+  playName() { return cur && cur.kind === 'user' ? cur.name : null; }, // Admin (everyone now) types their own name
 
   // Storage for a progress key such as 'perfectrun.meta'.
   scoped(k) {

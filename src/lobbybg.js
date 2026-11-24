@@ -102,6 +102,7 @@ function landMaterial(o) {
   }
   U.kS = { value: new THREE.Vector4(...(o.scale || [3.2, 6, 4, 3])) };
   const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(...(o.base || [0.4, 0.38, 0.32])), roughness: 0.95, metalness: 0 });
+  mat.userData.landU = U; // (the movie recorder reads these)
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -535,4 +536,33 @@ export function setupLobbyBg(menu, q) {
   const pt = menu.portrait.bind(menu);
   menu.portrait = (r, id) => { const v = grp.visible, vv = menu.vista.group.visible; grp.visible = false; menu.vista.group.visible = false; const u = pt(r, id); grp.visible = v; menu.vista.group.visible = vv; return u; };
   void fogOf;
+}
+
+/* One backdrop built on its own, for the opening movie (intro.js, Nutty 2026-11-22): the same land, props, sky, sun and air as the
+   lobby uses, in a group of its own. Returns { group, H, fog, embers, steam }. */
+export function buildBgSet(k, q) {
+  const o = OPTIONS[k]; if (!o) return null;
+  const grp = new THREE.Group();
+  const H = buildLand(o.land, grp);
+  o.props(grp, H, q);
+  const sky = makeBgSky(o.sky); grp.add(sky);
+  const sun = new THREE.DirectionalLight(o.sunL[0], o.sunL[1]);
+  sun.position.set(...o.sunL[2]); sun.castShadow = q >= 1; sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 160 }); sun.shadow.bias = -0.0004;
+  grp.add(sun, new THREE.HemisphereLight(o.hemi[0], o.hemi[1], o.hemi[2]));
+  if (o.water) {
+    const w = o.water;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(900, 900).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: w.color, roughness: w.rough, metalness: w.metal, emissive: w.emissive || 0x000000, envMapIntensity: 1.2 }));
+    m.position.y = w.y; m.receiveShadow = true; grp.add(m);
+  }
+  if (o.planet) {
+    const pl = o.planet;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(pl.r, 48, 32), new THREE.MeshStandardMaterial({ color: pl.color, roughness: 0.9, fog: false, emissive: 0x1a0a30 }));
+    m.position.set(...pl.pos); m.renderOrder = -2; grp.add(m);
+    if (pl.ring) {
+      const rg = new THREE.Mesh(new THREE.RingGeometry(pl.r * 1.35, pl.r * 2.1, 96), new THREE.MeshBasicMaterial({ color: 0xd8c0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, fog: false, depthWrite: false }));
+      rg.position.copy(m.position); rg.rotation.set(-1.25, 0.2, 0.35); rg.renderOrder = -2; grp.add(rg);
+    }
+  }
+  return { group: grp, H, sky, fog: o.fog, embers: !!o.embers, steam: o.steam || null, name: o.name };
 }

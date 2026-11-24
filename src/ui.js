@@ -318,7 +318,7 @@ export class UI {
     const chip = this.$('#profile-chip');
     if (chip) {
       const P = Profile.cur;
-      chip.style.display = g.seat === 1 ? '' : 'none';
+      chip.style.display = 'none'; // no sign-in any more (Nutty 2026-11-23)
       chip.innerHTML = `<span>${P.kind === 'guest' ? 'Playing as <b>Guest</b> · progress is not saved' : 'Signed in as <b>' + esc(P.name) + '</b>' + (P.kind === 'admin' ? ' <em>ADMIN</em>' : '')}</span><button class="link" id="profile-switch">${P.kind === 'guest' ? 'Sign in' : 'Switch profile'}</button>`;
       this.$('#profile-switch').onclick = () => { g.audio.play('ui'); Profile.signOut(); setTimeout(() => location.reload(), 150); };
     }

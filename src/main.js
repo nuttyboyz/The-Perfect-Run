@@ -2,7 +2,6 @@ import { Game } from './game.js';
 import { UI } from './ui.js';
 import { loadAssets } from './assets.js';
 import { Profile } from './profile.js';
-import { runLogin } from './loginui.js';
 
 const loading = document.getElementById('loading');
 // A pristine copy of the seat markup, for the second couch co-op seat.
@@ -63,8 +62,8 @@ window.addEventListener('unhandledrejection', (e) => { if (!window.__game) fail(
 requestAnimationFrame(() => setTimeout(async () => {
   const bar = loading.querySelector('.ld-bar i'), txt = loading.querySelector('.ld-text');
   txt.textContent = 'Loading characters…';
-  // Who's playing? (shown over the loading screen while the assets come in; skipped when a profile is still signed in)
-  const who = Promise.resolve(Profile.restore()).then((ok) => (ok ? null : runLogin()));
+  // No sign-in any more (Nutty 2026-11-23): everyone who opens the game is Admin, with everything unlocked.
+  const who = Promise.resolve(Profile.enterAdmin());
   await loadAssets((f) => { if (bar) { bar.style.animation = 'none'; bar.style.transition = 'width .2s'; bar.style.width = Math.round(f * 100) + '%'; } });
   await who;
   txt.textContent = 'Forging the world…';
@@ -78,6 +77,7 @@ requestAnimationFrame(() => setTimeout(async () => {
     await new Promise((r) => setTimeout(r, 0));
     try { game.menu.weaponShots(game.renderer); } catch (e) { console.warn('weapon shots', e); }
     setTimeout(() => loading.classList.remove('on'), 150);
+    if (!/[?&]nointro\b/.test(location.search)) game.showPressStart(); /* the title screen with Press any button; the opening movie was taken out (Nutty 2026-11-24) */
   } catch (e) {
     fail(e);
   }
