@@ -5,12 +5,15 @@
 // Every change here is cheap to switch at runtime: no shader recompiles (shadows stay on, they just refresh less
 // often and cast from fewer things), so stepping never causes a stall of its own.
 
+// Ultra's shadow map is 4096: at a 90 m box that is about 22 mm a shadow texel instead of 44, so edges near the
+// player stop looking like soft blobs. Only the top tier pays for it, and the governor only climbs there when the
+// machine has shown it has the headroom.
 // pr: render resolution per CSS pixel (capped at the screen's own density). msaa: samples on the scene target.
 // shadow: shadow map size. every: redraw the shadow map every Nth frame. mobShadow: enemies cast shadows within this
 // many metres of the camera. bloomDiv: bloom works at 1/N of the screen.
 // grass: share of grass and fern tufts drawn. fx: share of particles kept. lod: how far enemies keep their detailed bodies.
 export const TIERS = [
-  { name: 'Ultra', pr: 1.5, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 40, grass: 1, fx: 1, lod: 1.2 },
+  { name: 'Ultra', pr: 1.5, msaa: 4, bloom: true, bloomDiv: 2, shadow: 4096, every: 1, mobShadow: 40, grass: 1, fx: 1, lod: 1.2 },
   { name: 'High', pr: 1.0, msaa: 4, bloom: true, bloomDiv: 2, shadow: 2048, every: 1, mobShadow: 26, grass: 1, fx: 1, lod: 1 },
   { name: 'Medium', pr: 1.0, msaa: 2, bloom: true, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 16, grass: 0.8, fx: 0.85, lod: 0.85 },
   { name: 'Low', pr: 0.85, msaa: 0, bloom: false, bloomDiv: 3, shadow: 1024, every: 2, mobShadow: 10, grass: 0.55, fx: 0.7, lod: 0.65 },
@@ -70,7 +73,7 @@ export class Governor {
     }
     // Shadows: smaller map, refreshed less often (no recompiles: the light keeps casting).
     if (g.sun && g.sun.castShadow) {
-      const sz = Math.min(T.shadow, g.q >= 2 ? 2048 : 1024);
+      const sz = Math.min(T.shadow, g.q >= 2 ? 4096 : 1024);
       if (g.sun.shadow.mapSize.x !== sz) {
         g.sun.shadow.mapSize.set(sz, sz);
         if (g.sun.shadow.map) { g.sun.shadow.map.dispose(); g.sun.shadow.map = null; }

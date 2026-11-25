@@ -94,6 +94,9 @@ export function necroRobe({ put, bp, s, has }) {
 }
 
 // The staff stands along +Y in the hand's frame with the grip at the origin. Returns [material key, geometry] pairs.
+/* A thick leather grip where the fist closes (y 0.05 on the staff), for hands of bare bone: [radius, length], a rolled band at each end. */
+export function necroStaffSleeve(R, L) { const c = (r, h, y) => new THREE.CylinderGeometry(r, r, h, 14).translate(0.004, 0.05 + y, -0.004);
+  return [['nHide', T(merge([c(R, L, 0), c(R + 0.003, 0.007, L / 2), c(R + 0.003, 0.007, -L / 2), c(R + 0.0015, 0.004, L / 6), c(R + 0.0015, 0.004, -L / 6)].map((g) => T(g, HIDE))), HIDE)]]; }
 export function necroStaffParts() {
   const out = [];
   // the shaft: a seasoned bough, never quite straight, thicker toward the crown, with knots and a broken twig

@@ -1143,10 +1143,10 @@ export class World {
   get mapSpan() { return SIZE * 0.9; } // metres across the minimap
   toMap(x, z, S = 220) { return [(x / (SIZE * 0.9) + 0.5) * S, (z / (SIZE * 0.9) + 0.5) * S]; }
 
-  update(dt, t) {
+  update(dt, t, warmMs = 3) {
     WIND.uT.value = t;
     for (const f of this.animated) f(t);
-    this.warmSolids();
+    this.warmSolids(warmMs); // (Game.warmBudget: only what the frame can spare)
   }
 
   dispose() {

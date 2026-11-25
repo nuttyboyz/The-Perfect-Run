@@ -735,6 +735,51 @@ export class FX {
     }
   }
 
+  /* A blade landing on a body (Nutty 2026-11-25). dir = the way the blade is travelling in the world, k = how heavy the blow is (about 0.4 light to 1.6 crushing),
+     mat = what it hit (mobrig hitMat). Flesh throws its blood ALONG the cut and leaves a splat past the body; plate throws sparks back off the edge;
+     bone chips and dusts; a ghost only tears. */
+  meleeHit(p, dir, k = 1, mat = 'flesh', col = null) {
+    const dx = dir[0], dy = dir[1], dz = dir[2];
+    if (mat === 'ghost') {
+      const c = col || [0.6, 0.85, 1];
+      for (let i = 0; i < this.n(5); i++) this.smoke.emit({ p: [p[0] + rnd(-0.2, 0.2), p[1] + rnd(-0.3, 0.3), p[2] + rnd(-0.2, 0.2)], v: [dx * rnd(1.5, 4) + rnd(-0.6, 0.6), rnd(0.2, 1.2), dz * rnd(1.5, 4) + rnd(-0.6, 0.6)], life: rnd(0.35, 0.7), s0: 0.35, s1: 1.5, c0: [c[0], c[1], c[2], 0.4], c1: [c[0], c[1], c[2], 0] });
+      return;
+    }
+    if (mat === 'metal') {
+      /* sparks skip off the plate: most fly on along the edge's path, some kick back toward the attacker */
+      for (let i = 0; i < this.n(16 + 10 * k); i++) {
+        const back = Math.random() < 0.35 ? -0.7 : 1, sp = rnd(5, 13) * (0.7 + 0.3 * k), v = rv(3.5);
+        v[0] += dx * sp * back; v[1] += dy * sp * 0.6 + rnd(0.5, 4.5); v[2] += dz * sp * back;
+        this.spark.emit({ p: [...p], v, life: rnd(0.18, 0.5), s0: rnd(0.12, 0.26), s1: 0.03, c0: [1, 0.86, 0.55, 1], c1: [1, 0.4, 0.08, 0], g: 16, drag: 1.4 });
+      }
+      this.smoke.emit({ p: [...p], v: [dx * 0.8, 0.5, dz * 0.8], life: 0.4, s0: 0.25, s1: 0.9, c0: [0.6, 0.58, 0.55, 0.22], c1: [0.6, 0.58, 0.55, 0] });
+      this.flash(p, 0xffc070, 5 + 3 * k, 0.07, 5);
+    }
+    if (mat === 'bone') {
+      for (let i = 0; i < this.n(8 + 6 * k); i++) {
+        const sp = rnd(2.5, 7), v = rv(2.2);
+        v[0] += dx * sp; v[1] += dy * sp * 0.6 + rnd(1, 4); v[2] += dz * sp;
+        this.debris.emit({ p: [p[0] + rnd(-0.12, 0.12), p[1] + rnd(-0.2, 0.2), p[2] + rnd(-0.12, 0.12)], v, life: rnd(0.4, 0.9), s0: rnd(0.05, 0.13), s1: 0.04, c0: [0.92, 0.88, 0.76, 1], c1: [0.7, 0.66, 0.55, 0.9], g: 20, drag: 0.8, rotV: rnd(-10, 10) });
+      }
+      for (let i = 0; i < this.n(2); i++) this.smoke.emit({ p: [...p], v: [dx * rnd(0.8, 2), 0.5, dz * rnd(0.8, 2)], life: rnd(0.4, 0.7), s0: 0.35, s1: 1.3, c0: [0.82, 0.78, 0.68, 0.3], c1: [0.82, 0.78, 0.68, 0] });
+      return;
+    }
+    /* blood: a fan of drops flung the way the edge is moving (fast and tight at its heart, slower at its fringe), a few that only fall, and a fine mist */
+    const c = col || (mat === 'alien' ? [0.2, 0.5, 0.1] : [0.5, 0.03, 0.05]), q = mat === 'metal' ? 0.35 : 1;
+    const n = this.n(Math.round((12 + 14 * k) * q));
+    for (let i = 0; i < n; i++) {
+      const tight = Math.random(), sp = (2.5 + 6.5 * tight) * (0.75 + 0.35 * k), v = rv(0.6 + 2.2 * (1 - tight));
+      v[0] += dx * sp; v[1] += dy * sp * 0.7 + rnd(0.3, 2.6); v[2] += dz * sp;
+      this.debris.emit({ p: [p[0] + rnd(-0.12, 0.12), p[1] + rnd(-0.22, 0.22), p[2] + rnd(-0.12, 0.12)], v, life: rnd(0.3, 0.8), s0: rnd(0.04, 0.12) * (0.8 + 0.35 * k), s1: 0.025, c0: [c[0] * 1.7, c[1] * 2, c[2] * 2, 1], c1: [c[0] * 0.6, c[1], c[2], 0.9], g: 20, drag: 1.1, rotV: rnd(-7, 7) });
+    }
+    for (let i = 0; i < this.n(2 * q); i++) this.smoke.emit({ p: [p[0], p[1] + rnd(-0.15, 0.15), p[2]], v: [dx * rnd(1.2, 2.6) + rnd(-0.4, 0.4), 0.5 + dy, dz * rnd(1.2, 2.6) + rnd(-0.4, 0.4)], life: rnd(0.35, 0.6), s0: 0.3, s1: 1.1 + 0.5 * k, c0: [c[0] * 0.8, c[1], c[2], 0.42], c1: [c[0] * 0.4, c[1], c[2], 0] });
+    /* the splat lands past the body, in line with the cut; a light blow does not always leave one, and aliens leave none of ours */
+    if (mat === 'flesh' && !col && Math.random() < 0.3 + 0.3 * k) {
+      const d = rnd(0.9, 2.2) + 0.5 * k;
+      this.decal([p[0] + dx * d + rnd(-0.25, 0.25), 0, p[2] + dz * d + rnd(-0.25, 0.25)], TX.bloodDecal(), rnd(0.8, 1.3) + k * 0.5, 16, { opacity: 0.85 });
+    }
+  }
+
   blood(p, col = [0.35, 0.05, 0.08]) {
     for (let i = 0; i < this.n(8); i++) {
       const v = rv(3); v[1] = rnd(1, 4);

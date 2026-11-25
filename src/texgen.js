@@ -2,6 +2,7 @@
 // Everything is generated into raw byte arrays (DataTexture) so alpha channels carry real data
 // (height / roughness) without canvas premultiplication, and so loading stays quick.
 import * as THREE from 'three';
+import { ANISO, track } from './aniso.js';
 import { hashInt, mulberry32 } from './rng.js';
 
 const sm = (t) => t * t * (3 - 2 * t);
@@ -51,7 +52,7 @@ function dataTex(arr, size, srgb, aniso = 4) {
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.generateMipmaps = true;
-  t.anisotropy = aniso;
+  t.anisotropy = Math.max(aniso, ANISO.v); track(t);
   t.needsUpdate = true;
   return t;
 }
@@ -416,7 +417,7 @@ function cvs(w, h) { const c = document.createElement('canvas'); c.width = w; c.
 function sprayTex(c, srgb) {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = Math.max(4, ANISO.v); track(t);
   t.generateMipmaps = true;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;

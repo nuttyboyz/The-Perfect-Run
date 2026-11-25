@@ -185,7 +185,8 @@ export class LocalPlayer {
     for (const k of ['q', 'r', 'e', 'd']) this.cds[k] = Math.max(0, this.cds[k] - dt);
     // Rotary guns carry the leftover of a frame into the next shot, so 28 rounds a second hold at 30 or 60 fps.
     this.fireCd = Math.max(this.weapon.spin ? -0.04 : 0, this.fireCd - dt);
-    this.meleeT = Math.max(0, this.meleeT - dt);
+    if (this.hitStop > 0) this.hitStop -= dt; /* hit stop: the blade bites and the swing hangs there for a heartbeat (Nutty 2026-11-24) */
+    else this.meleeT = Math.max(0, this.meleeT - dt);
     this.castT = Math.max(0, this.castT - dt);
 
     if (!this.alive) {
@@ -744,7 +745,8 @@ export class LocalPlayer {
     }
     this.fireCd = wp.rate / this.stats.rate;
     this.meleeT = Math.max(0.2, wp.rate / this.stats.rate);
-    this.meleePending = MELEE_V2 ? Math.min(0.3, Math.max(0.1, this.meleeT * 0.38)) : 0.1; // the hit lands as the strike comes through
+    { const mvH = MELEE_V2 ? moveOf(wp, this.meleeMove) : null; /* the hit lands as the blade comes through the target: each move says when (a V3 swing's wind-up is longer) */
+      this.meleePending = !mvH ? 0.1 : mvH.v3 ? Math.min(0.42, Math.max(0.12, this.meleeT * mvH.hit)) : Math.min(0.3, Math.max(0.1, this.meleeT * 0.38)); }
     this.game.audio.play('swing');
     this.game.emitFx(['melee', q10(this.pos.x), q10(this.pos.z), Math.round(this.yaw * 100), wp.id]);
   }
@@ -791,6 +793,10 @@ export class LocalPlayer {
     const hot = this.wf; // Flaming Weapons: the fire reaches past the blade
     const arc = (Math.min(360, hs.arc * rm * (hot ? FLAME.arc : 1)) * Math.PI) / 180 / 2, reach = wp.range * rm * hs.reach * (hot ? FLAME.reach : 1), dmgMul = hs.dmg;
     let hitAny = false, n = 0;
+    /* The way the blade is travelling as it lands, in the world: across (the move's own sweep; + = toward the player's left), down or up, and into the target. A thrust drives straight in. */
+    let sd = null; if (MELEE_V2 && wp.kind === 'melee' && !wp.cane) { const mv = moveOf(wp, this.meleeMove), k = mv.k, sk = mv.sk || [1, 2], a = k[sk[0]], b = k[sk[1]], thr = mv.type === 'thrust';
+      const ax = thr ? 0 : Math.max(-1, Math.min(1, b[1] - a[1])), ay = thr ? 0 : Math.max(-1, Math.min(1, (b[2] - a[2]) * 0.7)), fw = thr ? 1 : 0.4, sn = Math.sin(this.yaw), cs = Math.cos(this.yaw), L = Math.hypot(ax, ay, fw) || 1;
+      sd = [(cs * ax + sn * fw) / L, ay / L, (-sn * ax + cs * fw) / L]; }
     for (const t of g.targets()) {
       const dx = t.x - this.pos.x, dz = t.z - this.pos.z;
       const d = Math.hypot(dx, dz) - t.r;
@@ -804,12 +810,12 @@ export class LocalPlayer {
       // A wide swing can hit a whole crowd: only the first few hits get numbers, blood and sound.
       // Where the crosshair is on the body picks the hit zone: head = critical, legs = weakest.
       const zone = this.meleeZone(t), zy = t.y + t.h * (zone === 'head' ? 0.9 : zone === 'leg' ? 0.3 : 0.6);
-      g.damage(t, wp.dmg * dmgMul * this.stats.dmg * (ZONE_K[zone] || 1), { kx: dx / dd * kb, kz: dz / dd * kb, at: [t.x, zy, t.z], zone, head: zone === 'head', silent: n >= 4, wf: hot });
+      g.damage(t, wp.dmg * dmgMul * this.stats.dmg * (ZONE_K[zone] || 1), { kx: dx / dd * kb, kz: dz / dd * kb, at: [t.x, zy, t.z], zone, head: zone === 'head', silent: n >= 4, wf: hot, sd });
       hitAny = true; n++;
     }
     // The swing trail is drawn from the blade itself (CharacterRig -> FX.swipe), not here.
     if (hot) { const f = this.forward(), c = [this.pos.x + f[0] * reach * 0.6, this.pos.y + 1.1 * (g.duel ? DUEL.size : 1), this.pos.z + f[2] * reach * 0.6]; for (let i = 0; i < g.fx.n(12); i++) g.fx.fire.emit({ p: [c[0] + rnd(-reach, reach) * 0.35, c[1] + rnd(-0.4, 0.4), c[2] + rnd(-reach, reach) * 0.35], v: [f[0] * rnd(2, 6), rnd(0.5, 2.5), f[2] * rnd(2, 6)], life: rnd(0.2, 0.42), s0: rnd(0.4, 0.8), s1: 0.1, c0: [1, 0.5, 0.1, 0.8], c1: [0.9, 0.14, 0.02, 0] }); }
-    if (hitAny) { g.audio.play('hit_melee'); g.shake(Math.min(0.45, 0.08 + wp.dmg / 450)); } // a heavy weapon landing is felt
+    if (hitAny) { g.audio.play('hit_melee'); g.shake(Math.min(0.45, 0.08 + wp.dmg / 450)); this.hitStop = Math.min(0.1, 0.045 + wp.rate * 0.035); } // a heavy weapon landing is felt, and the blade bites
   }
 
   // Flaming Weapons: the game time the fire lasts until while it is up, else 0. Weapon hits carry it (opts.wf) so Game.damage adds the fire.
@@ -2682,7 +2688,6 @@ export class LocalPlayer {
     this.alive = true;
     this.hp = this.stats.maxHp;
     this.invulnUntil = g.now + 5; // grace so a respawn in the middle of the horde does not end the run at once
-    if (g.player === this) g.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */
     this.rearm();
     g.request('clear', [Math.round(this.pos.x), Math.round(this.pos.z)]);
     g.fx.shockwave([this.pos.x, this.pos.y, this.pos.z], 4, 0xffe0a0, 0.6);

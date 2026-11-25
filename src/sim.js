@@ -2,6 +2,7 @@
 // NPCs, crates, the round clock and phase changes. Only the host runs this;
 // it reads every player's presence and writes the world snapshot `w`.
 import { MobNav } from './mobnav.js';
+const MOB_WIND = 0.36, MOB_WIND_BIG = 0.9; /* seconds from the start of an enemy's swing to its blow (mobrig.js times the swing to the same) */
 import { BULLET_TIME, BT_SLOW, BT_IN, BT_OUT, NECRO, LOWGRAV, GRAV_K, THRALL_LIFE, THRALL_MAX, THRALL_RISE, MU_MASK } from './mutators.js';
 import { CONFIG, MOBS, MOB_TYPES, BOSSES, BOSS_HP, BOSS_GROW, BOSS_HP_ROUND, BOSS_DMG_ROUND, bossIdx, BIOMES, STAGE_MOBS, STAGE_ONLY, STAGE_FLY, FLYERS, DEMON, NPCS, NPC_TYPES, stageIdx, SEED_SPACE, SEED_HARD, seedFlags, MINI, ELITE, DUEL, DUEL_BIOMES, GRAV, armedBase, pickArm , HORDE, SEED_HORDE } from './data.js';
 
@@ -406,7 +407,7 @@ export class HostSim {
       if (a) {
         const ax = a.x - m.x, az = a.z - m.z, al = Math.hypot(ax, az) || 1;
         if ((Math.sin(m.yaw) * ax + Math.cos(m.yaw) * az) / al > 0.25) {
-          dd = d * (1 - m.base.guard); guard = 0.3;
+          dd = d * (m.blk > 0 ? 0.12 : 1 - m.base.guard); guard = m.blk > 0 ? 0.12 : 0.3; /* the shield actually up: almost everything is turned aside */
           if (this.time - (m.bkT || -9) > 0.2) { m.bkT = this.time; this.ev('bk', m.id); }
         }
       }
@@ -1069,6 +1070,15 @@ export class HostSim {
       let sp = m.frozen > 0 || m.stag > 0 ? 0 : m.speed * (m.slow > 0 ? 0.45 : 1);
       const base = m.base;
       let mx = 0, mz = 0;
+      /* A swing takes time to land (Nutty 2026-11-25, as in Chivalry and Dying Light: you see it coming, and can step out of it, block it
+         or stop it). The blow lands when the weapon comes round if whoever it was aimed at is still within reach; a hit that staggers a
+         man-sized enemy while it winds up takes the blow away. */
+      if (m.blk > 0) { m.blk -= dt; if (m.stag > 0 || m.frozen > 0) m.blk = 0; else m.sw = 0; }
+      if (m.bcd > 0) m.bcd -= dt;
+      if (m.sw > 0) { if (m.stag > 0 && !(base.radius >= 1 || m.mini || base.slam)) m.sw = 0; else { m.sw -= dt;
+        if (m.sw <= 0) { m.sw = 0; if (m.frozen <= 0 && d < base.range + 1.5 && !(t.kind === 'p' && m.wy !== undefined && Math.abs(t.y - m.wy) > 2.2)) {
+          this.hitTarget(t, base.dmg * ds * (m.mini ? MINI.dmgMul : 1), m.id);
+          const dot = base.burnHit || base.poisonHit; if (dot && t.kind === 'p') this.addDot(t.id, base.dmg * ds * dot.k, dot.n, dot.every, base.burnHit ? 'burn' : 'poison'); } } } }
       if (base.fly && !base.ranged) {
         // Swooper: circle overhead, dive at the target, strike, then climb away.
         const ground = w.heightAt(m.x, m.z), tgtG = t.y || w.heightAt(t.x, t.z);
@@ -1123,7 +1133,7 @@ export class HostSim {
           m.cd -= dt;
           if (m.cd <= 0 && m.frozen <= 0 && d > L.min && d < L.max) { m.mode = 'crouch'; m.modeT = L.wind; }
           else if (d > base.range + 0.5) { mx = dx / d; mz = dz / d; }
-          else if (m.atk <= 0 && m.frozen <= 0) { m.atk = base.rate; m.anim = 1; this.hitTarget(t, base.dmg * ds * (m.mini ? MINI.dmgMul : 1), m.id); }
+          else if (m.atk <= 0 && m.frozen <= 0) { m.atk = base.rate; m.anim = 1; m.sw = MOB_WIND; }
         }
       } else if (base.summon) {
         // Necromancer: keeps its distance and raises two Bonelings every few seconds.
@@ -1167,17 +1177,18 @@ export class HostSim {
           // Ogre: raises its fists, then a ground smash lands where the target stood (telegraphed, like boss slams).
           m.cd = base.slam.cd; m.mode = 'slam'; m.modeT = base.slam.d;
           this.ev('s', q10(t.x), q10(t.z), q10(base.slam.r), Math.round(base.slam.d * 100), Math.round(base.slam.dmg * ds * (m.mini ? MINI.dmgMul : 1)));
-        } else {
-          this.hitTarget(t, base.dmg * ds * (m.mini ? MINI.dmgMul : 1), m.id);
-          const dot = base.burnHit || base.poisonHit;
-          if (dot && t.kind === 'p') this.addDot(t.id, base.dmg * ds * dot.k, dot.n, dot.every, base.burnHit ? 'burn' : 'poison');
-        }
+        } else if (base.block && m.bcd <= 0 && Math.random() < 0.42) {
+          /* A shield bearer does not just walk in swinging (Nutty 2026-11-25): now and then he plants himself behind the shield instead,
+             and while it is up a blow from the front is nearly all turned aside. */
+          m.blk = 0.8 + Math.random() * 0.9; m.bcd = m.blk + 1.6 + Math.random() * 2; m.anim = 0; m.atk = m.blk;
+        } else m.sw = base.slam ? MOB_WIND_BIG : MOB_WIND; /* the blow is in the air: it lands when the weapon comes round (below) */
       }
       // A player in a building is reached the way a person would: by the doorway and the stairs, not by pressing on the wall.
       if (t.kind === 'p' && (mx || mz) && !base.fly && m.mode !== 'leap' && base.radius <= 0.8 && mx * dx + mz * dz > 0 && nav.fields.has(t.id)) {
         const g = nav.dir(t.id, m.x, m.wy !== undefined ? m.wy : (m.wy0 = w.heightAt(m.x, m.z)), m.z);
         if (g) { const L = Math.hypot(mx, mz); mx = g[0] * L; mz = g[1] * L; if (!m.base.turn) m.yaw = Math.atan2(mx, mz); }
       }
+      if (m.blk > 0) { mx = 0; mz = 0; } /* behind the shield he plants his feet */
       m.x += mx * sp * dt;
       m.z += mz * sp * dt;
     }
@@ -1793,7 +1804,7 @@ export class HostSim {
     const m = [];
     for (const x of this.mobs.values()) {
       // 1 frozen, 2 burning, 4 slowed, 8 winding up an ability.
-      const flags = (x.frozen > 0 ? 1 : 0) | (x.burn > 0 ? 2 : 0) | (x.slow > 0 ? 4 : 0) | (x.fuse > 0 || x.mode === 'crouch' || x.mode === 'cast' || x.mode === 'slam' || (x.base.pstyle && x.atk > 0 && x.atk < 0.5) ? 8 : 0) | (x.stag > 0 ? 32 : 0) | (x.shield > 0 ? 64 : 0);
+      const flags = (x.frozen > 0 ? 1 : 0) | (x.burn > 0 ? 2 : 0) | (x.slow > 0 ? 4 : 0) | (x.fuse > 0 || x.mode === 'crouch' || x.mode === 'cast' || x.mode === 'slam' || (x.base.pstyle && x.atk > 0 && x.atk < 0.5) ? 8 : 0) | (x.stag > 0 ? 32 : 0) | (x.shield > 0 ? 64 : 0) | (x.blk > 0 ? 128 : 0);
       m.push([x.id, x.ti, q10(x.x), q10(x.z), Math.max(1, Math.round((x.hp / x.maxHp) * 100)), flags, Math.round(x.yaw * 10), Math.round(x.anim * 9), Math.round(((x.fy || 0) + (x.ey || 0)) * 10), x.mini ? 1 : 0, x.el | 0, x.wi | 0]);
     }
     const n = [];

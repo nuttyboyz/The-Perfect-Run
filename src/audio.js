@@ -214,7 +214,14 @@ export class Audio {
       case 'shot_laser': this.tone({ freq: 1800, to: 1300, dur: 0.06, type: 'sawtooth', gain: 0.045 * v }); this.noiseHit({ dur: 0.05, freq: 5200, type: 'highpass', gain: 0.05 * v }); break; // teammates: one hiss per pair of pulses
       case 'shot_pulse': this.tone({ freq: 520, to: 250, dur: 0.07, type: 'sawtooth', gain: 0.07 * v }); this.noiseHit({ dur: 0.05, freq: 3200, type: 'highpass', gain: 0.07 * v }); break; // teammates: one zap per pair of pulses
       case 'boom': this.noiseHit({ dur: 1.4, freq: 800, gain: 1.0 * v, sweep: 0.05 }); this.tone({ freq: 58, to: 22, dur: 1.0, gain: 0.85 * v }); this.noiseHit({ dur: 0.9, freq: 2400, type: 'highpass', gain: 0.3 * v, delay: 0.05 }); break;
+      /* a blade ringing off plate, and one cracking bone (Nutty 2026-11-25) */
+      case 'clang': this.tone({ freq: 2350, to: 2180, dur: 0.24, type: 'triangle', gain: 0.085 * v }); this.tone({ freq: 3620, to: 3400, dur: 0.16, type: 'sine', gain: 0.05 * v }); this.tone({ freq: 1180, to: 1090, dur: 0.3, type: 'sine', gain: 0.05 * v }); this.noiseHit({ dur: 0.07, freq: 4200, type: 'bandpass', q: 1.5, gain: 0.3 * v }); break;
+      case 'crack': this.noiseHit({ dur: 0.05, freq: 1900, type: 'bandpass', q: 2.5, gain: 0.4 * v }); this.noiseHit({ dur: 0.09, freq: 700, type: 'bandpass', q: 1.2, gain: 0.25 * v, delay: 0.012 }); this.tone({ freq: 240, to: 130, dur: 0.06, type: 'triangle', gain: 0.12 * v }); break;
       case 'swing': this.noiseHit({ dur: 0.18, freq: 900, type: 'bandpass', q: 2, gain: 0.25 * v, sweep: 2.5 }); break;
+      /* a heavy enemy loading a slam: a low rising growl under a slow intake of air, so the blow is heard coming */
+      case 'windup': this.tone({ freq: 62, to: 128, dur: 0.55, type: 'sawtooth', gain: 0.09 * v }); this.noiseHit({ dur: 0.45, freq: 220, type: 'bandpass', q: 1.4, gain: 0.07 * v, sweep: 2.2 }); break;
+      /* a man-sized enemy's blade starting its cut: a short dry hiss, quieter and higher than your own swing */
+      case 'swing_mob': this.noiseHit({ dur: 0.15, freq: 1300, type: 'bandpass', q: 2.6, gain: 0.13 * v, sweep: 0.45 }); break;
       case 'hit_melee': this.noiseHit({ dur: 0.12, freq: 500, gain: 0.5 * v }); this.tone({ freq: 110, to: 60, dur: 0.1, gain: 0.3 * v }); break;
       case 'hit': this.tone({ freq: 1400, to: 900, dur: 0.05, type: 'square', gain: 0.05 * v }); break;
       case 'kill': this.tone({ freq: 700, to: 1400, dur: 0.12, type: 'triangle', gain: 0.12 * v }); break;
@@ -261,7 +268,6 @@ export class Audio {
       case 'crate': this.noiseHit({ dur: 0.3, freq: 800, gain: 0.4 * v }); [660, 880, 1320].forEach((f, i) => this.tone({ freq: f, dur: 0.2, type: 'triangle', gain: 0.12 * v, delay: 0.1 + i * 0.08 })); break;
       case 'spit': this.noiseHit({ dur: 0.2, freq: 900, type: 'bandpass', q: 3, gain: 0.25 * v, sweep: 0.5 }); break;
       case 'slam': this.noiseHit({ dur: 1.0, freq: 400, gain: 0.9 * v, sweep: 0.2 }); this.tone({ freq: 50, to: 25, dur: 0.8, gain: 0.7 * v }); break;
-      case 'roar': this.tone({ freq: 90, to: 50, dur: 1.5, type: 'sawtooth', gain: 0.3 * v }); this.noiseHit({ dur: 1.5, freq: 300, gain: 0.5 * v }); break;
       case 'demon': this.tone({ freq: 220, to: 110, dur: 2.5, type: 'sawtooth', gain: 0.2 * v }); this.tone({ freq: 233, to: 116, dur: 2.5, type: 'sawtooth', gain: 0.2 * v }); break;
       case 'hell_rise': this.tone({ freq: 70, to: 30, dur: 0.8, type: 'sawtooth', gain: 0.18 * v }); this.noiseHit({ dur: 0.7, freq: 500, type: 'lowpass', gain: 0.35 * v }); this.noiseHit({ dur: 0.5, freq: 2200, type: 'bandpass', q: 1.5, gain: 0.12 * v, delay: 0.1 }); break;
       case 'heal_staff': this.tone({ freq: 523, to: 784, dur: 0.5, type: 'sine', gain: 0.12 * v }); this.tone({ freq: 784, to: 1175, dur: 0.6, type: 'sine', gain: 0.1 * v, delay: 0.12 }); this.tone({ freq: 1568, to: 1760, dur: 0.8, type: 'triangle', gain: 0.05 * v, delay: 0.25 }); this.noiseHit({ dur: 0.5, freq: 5000, type: 'highpass', gain: 0.06 * v }); break;

@@ -11,19 +11,50 @@ import { getTemplate, bonesOf } from './characters.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MOB_SIZE, MOB_TALL } from './data.js';
 import { animateTail } from './lizard.js';
-import { necroRobe, necroStaffParts } from './necrogear.js';
+import { necroRobe, necroStaffParts, necroStaffSleeve } from './necrogear.js';
 import { real } from './realmat.js';
 import { solidOf } from './solid.js';
+import { MocapLayer, MOCAP, mocapReady } from './mocap.js';
 import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 
 // h: standing height in metres. hunch: forward lean of the spine (radians).
 // float: hover height for spirits. bulk: horizontal thickening.
+/* What a body is made of where a blade lands on it: 'metal' (plate and hard armour: sparks and a ring), 'bone' (chips and dust), 'ghost' (a wisp, nothing solid),
+   'alien' (their own blood), else flesh. Game.damage picks the hit effect by it. */
+const HARD = new Set(['juggernaut', 'bulwark', 'riot', 'trooper', 'gruk', 'warmaiden', 'knight', 'dreadknight', 'gobchief', 'boss3', 'boss13', 'boss15']);
+export const NO_MOCAP = { v: false }; /* tests: the hand-built swings */
+/* Motion capture moves by what the body holds (mocap.js; clips in assets/mocap.json, made by pw/mocappack.mjs). A mob takes them in turn. */
+const MV_ONE = ['chop', 'cut', 'out', 'in', 'ss3'], MV_SHIELD = ['ss1', 'ss3', 'chop'], MV_TWO = ['gs1', 'chop'], MV_FIST = ['hook', 'cross', 'mpunch'], MV_ZOMBIE = ['zatk', 'mpunch', 'zatk', 'hook'], MV_HEAVY = ['slam', 'swipe', 'slam', 'zatk'], MV_STAFF = ['staffcast'], MV_CAST = ['cast1', 'cast2']; /* (slam: both fists raised and driven into the ground; staffcast: one arm thrust out, the staff levelled; cast1/cast2: a two-handed throw and a two-handed push) */
+const MV_DIE = { b: ['dieB1', 'dieB2', 'dieB3'], f: ['dieF1', 'dieF2'], h: ['dieH', 'dieB1'] };
+const MV_HIT = { l: ['reactL', 'imp2'], r: ['reactR', 'imp3'], f: ['gut', 'imp1'] };
+export const MOB_WIND = 0.36, MOB_WIND_BIG = 0.9; /* seconds from the start of a swing to the blow (sim.js lands the damage then) */
+export const PLANT_OFF = { v: false };
+const MASK = new Float32Array(22).fill(1); /* tests: the old sliding feet */
+const _tipOf = new WeakMap();
+/* Leg solving for planted feet (Nutty 2026-11-25): world-space two-bone IK with nothing allocated. */
+const _pk = Array.from({ length: 14 }, () => new THREE.Vector3()), _pq = Array.from({ length: 5 }, () => new THREE.Quaternion());
+function setWQ(bone, qw) { bone.parent.matrixWorld.decompose(_pk[10], _pq[3], _pk[11]); bone.quaternion.copy(_pq[3].invert().multiply(qw)); bone.updateMatrixWorld(true); }
+function legIK(up, lo, end, t, pole) {
+  const a = up.getWorldPosition(_pk[4]), b = lo.getWorldPosition(_pk[5]), c = end.getWorldPosition(_pk[6]);
+  const lab = a.distanceTo(b), lbc = b.distanceTo(c), tt = _pk[7].copy(t); let dist = a.distanceTo(tt); const maxR = (lab + lbc) * 0.999;
+  if (dist > maxR) { tt.sub(a).setLength(maxR).add(a); dist = maxR; } dist = Math.max(dist, Math.abs(lab - lbc) + 1e-3);
+  const d = _pk[8].copy(tt).sub(a).normalize(), pv = _pk[9].copy(pole).sub(a); pv.addScaledVector(d, -pv.dot(d)).normalize();
+  const cosA = clamp((lab * lab + dist * dist - lbc * lbc) / (2 * lab * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  const e = _pk[12].copy(a).addScaledVector(d, cosA * lab).addScaledVector(pv, sinA * lab);
+  _pq[0].setFromUnitVectors(b.sub(a).normalize(), e.sub(a).normalize()); up.getWorldQuaternion(_pq[1]); setWQ(up, _pq[0].multiply(_pq[1]));
+  const b2 = lo.getWorldPosition(_pk[5]), c2 = end.getWorldPosition(_pk[6]);
+  _pq[0].setFromUnitVectors(c2.sub(b2).normalize(), tt.sub(b2).normalize()); lo.getWorldQuaternion(_pq[1]); setWQ(lo, _pq[0].multiply(_pq[1]));
+}
+export function hitMat(kind) {
+  const k = String(kind || '').replace(/^echo/, 'boss'), l = MOB_LOOKS[k]; if (!l) return 'flesh';
+  return l.ghost ? 'ghost' : HARD.has(k) || l.build === 'knight' ? 'metal' : l.build === 'skeleton' ? 'bone' : l.build === 'grey' || l.build === 'alien' ? 'alien' : 'flesh';
+}
 export const MOB_LOOKS = {
   grunt: { file: 'm04.glb', tposeArms: true, h: 1.8, hunch: 0.32, rough: 0.75 }, // #4 zombie soldier
   runner: { file: 'm07.glb', tposeArms: true, h: 1.62, hunch: 0.6, bulk: 0.9 }, // #7 rotted woman
   spitter: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0x5e7a14, belly: 0xe2d27a }, h: 1.8, hunch: 0.25, cast: true },
   crawler: { file: 'xbot.glb', build: 'skeleton', eye: 0xff4a2a, h: 1.4, hunch: 0.95 },
-  brute: { file: 'm14.glb', tposeArms: true, h: 3.0, hunch: 0.28, bulk: 1.2 }, // #14 shirtless strongman
+  brute: { file: 'm14.glb', tposeArms: true, h: 3.0, hunch: 0.28, bulk: 1.2, fistK: 0.55, thumbK: 0.001, thumbOut: -0.8, oneHand: true } /* (oneHand: his axe swings with the armed set: diagonals and an overhead, Nutty 2026-11-25) */, // #14 shirtless strongman
   wraith: { file: 'xbot.glb', build: 'skeleton', eye: 0x9fe8ff, h: 2.0, hunch: 0.2, ghost: 0x7fd8ff, float: 0.45 },
   hexer: { file: 'clown.glb', h: 2.0, hunch: 0.1, tint: 0xb9a6d6, cast: true, orb: 0xb06aff },
   ravager: { file: 'm11.glb', tposeArms: true, h: 2.45, hunch: 0.5, bulk: 1.1 }, // #11 dark flesh monster
@@ -40,17 +71,17 @@ export const MOB_LOOKS = {
   hatchling: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0xe2d41c, belly: 0xfff6a0 }, h: 0.95, hunch: 0.5 },
   cinder: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0x9a1c0c, belly: 0xff7a20 }, h: 2.15, hunch: 0.3, gear: ['embers'], aura: 'fire' },
   venomfang: { file: 'clown.glb', h: 1.75, hunch: 0.5, tint: 0xa8e048, lift: 0.2, gear: ['sacs'], aura: 'poison' },
-  necro: { file: 'xbot.glb', build: 'skeleton', eye: 0x7dffb0, h: 2.0, hunch: 0.25, gear: ['robe', 'staff'], tele: [0.4, 1, 0.65], aura: 'wisp' },
+  necro: { file: 'xbot.glb', build: 'skeleton', eye: 0x7dffb0, h: 2.0, hunch: 0.25, gear: ['robe', 'staff'], tele: [0.4, 1, 0.65], aura: 'wisp', fistK: 1 }, /* (fistK: his hand closes round the staff) */
   boneling: { file: 'xbot.glb', build: 'skeleton', eye: 0x7dffb0, h: 1.15, hunch: 0.6 },
   archer: { file: 'soldier.glb', h: 1.9, hunch: 0.15, tint: 0xa48c58, lift: 0.2, gear: ['bow', 'quiver'], tele: [1, 0.95, 0.7] },
   troll: { file: 'm03.glb', tposeArms: true, h: 3.0, hunch: 0.3, lift: 0.16, bulk: 1.3, gear: ['club'] }, // #3 big old man in a coat
-  ogre: { file: 'soldier.glb', h: 3.5, hunch: 0.2, tint: 0xc08068, lift: 0.06, bulk: 1.5, slam: true, gear: ['fists'], tele: [1, 0.5, 0.3] },
+  ogre: { file: 'soldier.glb', h: 3.5, hunch: 0.2, tint: 0xc08068, lift: 0.06, bulk: 1.5, slam: true, tele: [1, 0.5, 0.3] }, /* (Nutty 2026-11-25: the stone balls he had for fists are gone; he smashes with his own hands) */
   // Goblins: the ghoul's goblin body, green-skinned, small and quick; the shaman wears a robe and carries a skull staff, the chief a club and a shield.
   goblin: { file: 'm05.glb', tposeArms: true, h: 1.35, hunch: 0.55, bulk: 0.9, lift: 0.08, gear: ['dagger'] }, // #5 purple imp
   gobshaman: { file: 'm23.glb', tposeArms: true, h: 1.5, hunch: 0.35, bulk: 0.9, lift: 0.08, cast: true, orb: 0x8aff30, gear: ['staff'], tele: [0.5, 1, 0.2] }, // #23 red hooded cleric
   gobchief: { file: 'm06.glb', tposeArms: true, h: 2.2, hunch: 0.3, bulk: 1.2, lift: 0.06, slam: true, gear: ['club', 'tower'], tele: [1, 0.7, 0.2] }, // #6 crusader
   // Humans: the hero bodies turned hostile. Cutthroat = the pirate build, Shadow Blade = the ninja, the rifleman a plain soldier, the witch a hooded woman.
-  bandit: { file: 'veteran.glb', tposeArms: true, build: 'corsair', h: 1.84, hunch: 0.25, tint: 0xb8a898, gear: ['blade'] },
+  bandit: { file: 'veteran.glb', tposeArms: true, build: 'corsair', h: 1.84, hunch: 0.25, tint: 0xb8a898, gear: ['blade'] }, /* out of the game (Nutty 2026-11-25: he wore Captain Saltvane's coat); see MOBS.bandit */
   rifleman: { file: 'veteran.glb', tposeArms: true, h: 1.9, hunch: 0.15, tint: 0x9a9a8a, gear: ['rifle'], tele: [1, 0.9, 0.6] },
   assassin: { file: 'veteran.glb', tposeArms: true, build: 'ninja', h: 1.74, hunch: 0.3, gear: ['blade'], tele: [0.6, 0.2, 1] },
   witch: { file: 'michelle.glb', h: 1.72, hunch: 0.1, tint: 0x7a5a9a, lift: 0.1, cast: true, orb: 0xc040ff, gear: ['robe'], tele: [0.8, 0.3, 1] },
@@ -59,7 +90,7 @@ export const MOB_LOOKS = {
   zorp: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 1, h: 1.15, hunch: 0.35 },
   skree: { file: 'xbot.glb', build: 'lizard', body: 'xbot', lizard: { base: 0x1fb8c8, belly: 0xbff5ff }, h: 2.9, hunch: 0.5 }, // was a knee-high skitterer; Nutty wants nothing small
   gloop: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 3, h: 1.65, hunch: 0.25, bulk: 1.25 },
-  gruk: { file: 'm18.glb', tposeArms: true, h: 3.0, hunch: 0.28, bulk: 1.3, gear: ['fists'], slam: true, tele: [1, 0.5, 0.3] }, // #18 armoured trooper
+  gruk: { file: 'm18.glb', tposeArms: true, h: 3.0, hunch: 0.28, bulk: 1.3, slam: true, tele: [1, 0.5, 0.3] }, // #18 armoured trooper
   lanky: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 2, h: 2.7, hunch: 0.1, bulk: 0.9, tele: [0.8, 0.5, 1] },
   stinger: { file: 'veteran.glb', tposeArms: true, build: 'grey', design: 1, h: 1.8, hunch: 0.4, tele: [1, 0.9, 0.3] },
   brainer: { file: 'sorceress.glb', h: 2.0, hunch: 0.05, ghost: 0xff7ad0, float: 0.7, cast: true, orb: 0xff5ad0 },
@@ -173,6 +204,27 @@ const _ik = Array.from({ length: 8 }, () => new THREE.Vector3()), _iq = Array.fr
 const TAU = Math.PI * 2;
 // Attack/hit timing helpers.
 const TWOP = [0.1, -0.2, 0.16, 0.35, 0.1];
+/* Mob swing keys: [u, armRaise, armSweep, foreBend, torso twist, lean forward, lunge (body heights), wrist (+ cocks the blade back; a spear tips forward)]. Wind-up to 0.32, the strike
+   through the target 0.32-0.46, follow-through to 0.64, back to the guard at 1. left = the free arm's swing offset. */
+const SWING = {
+  diagR: { left: 0.25, k: [[0, 0, 0, 0, 0, 0, 0, 0], [0.32, 2.15, -0.95, -1.25, -0.5, -0.12, -0.06, 0.75], [0.4, 1.2, -0.1, -0.5, 0, 0.15, 0.12, 0.35], [0.46, 0.45, 0.6, -0.2, 0.32, 0.3, 0.26, -0.25], [0.64, -0.1, 1.0, -0.15, 0.45, 0.34, 0.28, -0.55], [1, 0, 0, 0, 0, 0, 0, 0]] },
+  diagL: { left: -0.15, k: [[0, 0, 0, 0, 0, 0, 0, 0], [0.32, 2.0, 0.8, -1.45, 0.38, -0.1, -0.05, 0.7], [0.4, 1.15, 0.2, -0.6, 0.05, 0.14, 0.12, 0.3], [0.46, 0.45, -0.45, -0.2, -0.28, 0.28, 0.25, -0.25], [0.64, -0.05, -0.85, -0.12, -0.38, 0.32, 0.27, -0.5], [1, 0, 0, 0, 0, 0, 0, 0]] },
+  over: { left: 0.1, k: [[0, 0, 0, 0, 0, 0, 0, 0], [0.32, 2.85, -0.15, -1.65, -0.1, -0.26, -0.07, 0.85], [0.4, 1.9, -0.05, -0.6, -0.03, 0.12, 0.12, 0.4], [0.47, 0.85, 0.05, -0.15, 0.02, 0.4, 0.28, -0.2], [0.64, 0.12, 0.05, -0.12, 0.04, 0.45, 0.3, -0.45], [1, 0, 0, 0, 0, 0, 0, 0]] },
+  staff: { left: 0.3, k: [[0, 0, 0, 0, 0, 0, 0, 0], [0.3, 2.2, -0.25, -1.0, -0.22, -0.12, -0.02, 0], [0.46, 1.35, 0, -0.25, 0.16, 0.2, 0.08, 0], [0.68, 1.3, 0, -0.25, 0.16, 0.2, 0.08, 0], [1, 0, 0, 0, 0, 0, 0, 0]] },
+  thrust: { left: 0.2, k: [[0, 0, 0, 0, 0, 0, 0, 0], [0.3, 0.75, -0.45, -1.55, -0.48, -0.06, -0.08, 1.25], [0.38, 1.1, -0.15, -0.8, -0.1, 0.12, 0.12, 1.65], [0.46, 1.38, 0.05, -0.05, 0.26, 0.3, 0.34, 2.1], [0.62, 1.35, 0.05, -0.08, 0.26, 0.3, 0.34, 2.08], [1, 0, 0, 0, 0, 0, 0, 0]] },
+};
+// Monotone cubic through the keys, every channel at once (smooth, no dead stops between keys, never past a key).
+const _sw = new Float64Array(7);
+function sampleSwing(sw, u) {
+  const k = sw.k, n = k.length;
+  let i = 0; while (i < n - 2 && u > k[i + 1][0]) i++;
+  const t0 = k[i][0], t1 = k[i + 1][0], h = Math.max(1e-4, t1 - t0), x = clamp((u - t0) / h, 0, 1), x2 = x * x, x3 = x2 * x;
+  for (let c = 1; c <= 7; c++) {
+    const tan = (j) => { if (j <= 0 || j >= n - 1) return 0; const a = (k[j][c] - k[j - 1][c]) / (k[j][0] - k[j - 1][0]), b = (k[j + 1][c] - k[j][c]) / (k[j + 1][0] - k[j][0]); return a * b <= 0 ? 0 : 2 / (1 / a + 1 / b); };
+    _sw[c - 1] = (2 * x3 - 3 * x2 + 1) * k[i][c] + (x3 - 2 * x2 + x) * h * tan(i) + (-2 * x3 + 3 * x2) * k[i + 1][c] + (x3 - x2) * h * tan(i + 1);
+  }
+  return _sw;
+}
 const STAFFP = [-0.07, -0.3, 0.13, 0.08, -0.04]; // the staff hand: beside the hip, a little forward; the staff leans a touch forward and out
 export const BOWP = [0.3, 0.03, 0.12, -0.55, -0.75, 0.1, 0.06];
 const wrapPi = (d) => d - TAU * Math.round(d / TAU);
@@ -567,14 +619,35 @@ const GEAR_MATS = {
   nFeather: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }),
 };
 // Weapons a mob carries from MOB_ARMS: on armed types the template leaves its old weapon out and each mob gets its own.
+/* A real shield on the arm (Nutty 2026-11-25: the Knight Errant's shield went straight through him). Like the player's (characters.js) it is
+   its own piece, not glued into the skin: every frame it is set on the forearm standing upright, its face turned out at his side while he
+   carries it and square to the front while he blocks. */
+const KITE_MATS = {};
+function makeKite(h) {
+  const sh = new THREE.Shape();
+  sh.moveTo(-0.3, 0.42); sh.lineTo(0.3, 0.42); sh.lineTo(0.33, 0.06); sh.lineTo(0.18, -0.42); sh.lineTo(0, -0.58); sh.lineTo(-0.18, -0.42); sh.lineTo(-0.33, 0.06); sh.closePath();
+  const plate = new THREE.ExtrudeGeometry(sh, { depth: 0.05, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.015, bevelSegments: 1 });
+  plate.rotateY(Math.PI / 2).translate(-0.02, -0.16, 0); /* its face looks down +x, its top is +y, the arm sits at x 0, the grip in its upper third as a kite shield is really held */
+  const boss = mergeGeometries([new THREE.SphereGeometry(0.085, 12, 10).scale(0.55, 1, 1), new THREE.BoxGeometry(0.03, 0.7, 0.06)].map((g) => g.translate(-0.05, -0.14, 0)).map((g) => (g.index ? g.toNonIndexed() : g)));
+  const g = new THREE.Group();
+  const m1 = KITE_MATS.steel || (KITE_MATS.steel = GEAR_MATS.steel()), m2 = KITE_MATS.gold || (KITE_MATS.gold = GEAR_MATS.gold());
+  for (const [geo, m] of [[plate, m1], [boss, m2]]) { const o = new THREE.Mesh(geo, m); o.castShadow = true; o.receiveShadow = true; g.add(o); }
+  g.scale.setScalar(0.88 * h / 1.8);
+  return g;
+}
+const _kv = [0, 1, 2, 3, 4].map(() => new THREE.Vector3()), _kq = new THREE.Quaternion(), _km = new THREE.Matrix4(), UPV = new THREE.Vector3(0, 1, 0);
+const _rvq = new THREE.Quaternion(), _rvp = new THREE.Quaternion(), _rve = new THREE.Euler();
+/* turn a bone by x, y, z in the body's own frame, on top of the pose it already has */
+function rvw(bone, x, y, z) { if (!bone) return; _rvq.setFromEuler(_rve.set(x, y, z, 'YXZ')); bone.quaternion.multiply(_rvq); bone.updateMatrixWorld(true); }
 const WEAPON_GEAR = new Set(['blade', 'dagger', 'sword', 'greatsword', 'zweihander', 'club', 'rifle', ...Object.values(MOB_ARMS).map((a) => a.gear)]);
 const SHARED_MATS = {};
+const NUDGE = new Map(); export const NUDGES = NUDGE;
 function buildGear(tpl, look, names = look.gear, shared = null) {
   const scene = tpl.scene;
   scene.updateMatrixWorld(true);
   const bones = bonesOf(scene), s = look.h / 1.8;
   const toI = new THREE.Matrix4().makeScale(tpl.scale, tpl.scale, tpl.scale).multiply(new THREE.Matrix4().makeRotationY(tpl.yaw));
-  const toT = toI.clone().invert();
+  const toT = toI.clone().invert(); const mmW = new THREE.Vector3().setFromMatrixScale(toT).x * s * 0.001; /* one millimetre of a 1.8 m body, in the template's space */
   const mats = shared || {};
   const mat = (k) => mats[k] || (mats[k] = (() => { const m = GEAR_MATS[k](); if (m.isMeshStandardMaterial) { const k0 = m.customProgramCacheKey ? m.customProgramCacheKey() : ''; addRim(m); if (k0) { const k1 = m.customProgramCacheKey; m.customProgramCacheKey = () => k1() + '|' + k0; } } return m; })());
   const bp = (n) => (bones.get(n) ? bones.get(n).getWorldPosition(V()).applyMatrix4(toI) : V());
@@ -625,7 +698,33 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
           const k = (y - A.y) / (B.y - A.y), x = A.x + (B.x - A.x) * k, z = A.z + (B.z - A.z) * k; if (x * x + z * z > 0.035 * 0.035) continue; mz = Math.max(mz, Math.abs(z)); mx = Math.max(mx, Math.abs(x)); } } }
     if (!mz || !mx) return [0.016, 0.016]; mz = Math.min(0.028, mz) + 0.001; mx = Math.min(0.028, mx) + 0.001; return Math.abs(mz - mx) < 0.0025 ? [Math.max(mz, mx), Math.max(mz, mx)] : [mz, mx]; };
   // After a weapon's parts are hung in a hand: fit the thumb to the weapon's real shape and point the hand's grasp marker at the result.
-  const seal = (sd, wid, meshes) => { const hb = bones.get(sd + 'Hand'); if (!hb) return; let mk = null; for (const c of hb.children) if ((c.name || '').startsWith('grasp:')) mk = c; if (!mk) return;
+  // A weapon that still sits a few millimetres inside the palm's skin after it was hung (thick mitten hands, a fat stock) is eased off
+  // it: the smallest shift, of up to 14 mm on a 1.8 m body, that leaves no point of the palm inside. The fingers are refitted after.
+  const SPH = []; for (let i = 0; i < 42; i++) { const t = Math.acos(1 - 2 * (i + 0.5) / 42), ph = i * 2.399963; SPH.push(V(Math.sin(t) * Math.cos(ph), Math.sin(t) * Math.sin(ph), Math.cos(t))); }
+  const clearPalm = (sd, hb, meshes, wid) => { if (!meshes.length || globalThis.__noClear) return 0; const ck = (look.ck || look.file) + '|' + look.h + '|' + sd + '|' + wid;
+    if (NUDGE.has(ck)) { const l = NUDGE.get(ck); if (l) for (const m of meshes) m.position.add(l); return 0; } /* (worked out once for a body and a weapon: every mob of the kind hangs its own copy) */
+    NUDGE.set(ck, null); scene.updateMatrixWorld(true);
+    /* the skin at the wrist moves over the hand as the wrist bends: the points are taken with the wrist straight and bent each way, all brought back to where the hand is now */
+    const pts = [], v = V(), sks = []; scene.traverse((o) => { if (o.isSkinnedMesh && o.geometry.attributes.skinIndex && nearHand(o, sd).length) sks.push(o); });
+    { const q0 = hb.quaternion.clone(), m0 = hb.matrixWorld.clone(), qq = new THREE.Quaternion(), inv = new THREE.Matrix4();
+      const T = tpl.clips || (tplCache.get(look.ck) || {}).clips, tr = T && T.idle && T.idle.tracks.find((t) => t.name.endsWith(sd + 'Hand.quaternion')), cs = [q0]; if (tr) cs.push(new THREE.Quaternion().fromArray(tr.values, 0)); /* (and round the wrist's own idle pose, which is not the pose the body was built in) */
+      for (const qc of cs) for (const [ax, an] of [[null, 0], [V(1, 0, 0), 0.35], [V(1, 0, 0), -0.35], [V(0, 0, 1), 0.35], [V(0, 0, 1), -0.35], [V(1, 0, 0), 0.7], [V(1, 0, 0), -0.7], [V(0, 0, 1), 0.7], [V(0, 0, 1), -0.7], [V(0, 1, 0), 0.5], [V(0, 1, 0), -0.5]]) {
+        hb.quaternion.copy(qc); if (ax) hb.quaternion.multiply(qq.setFromAxisAngle(ax, an)); hb.updateWorldMatrix(false, true); inv.copy(hb.matrixWorld).invert();
+        for (const o of sks) for (const i of nearHand(o, sd)) { o.getVertexPosition(i, v); v.applyMatrix4(o.matrixWorld).applyMatrix4(inv).applyMatrix4(m0); const c = v.clone(); c.core = !ax; pts.push(c); } }
+      hb.quaternion.copy(q0); hb.updateWorldMatrix(false, true); }
+    if (!pts.length) return 0; const sides = meshes.map((m) => m.material.side); for (const m of meshes) m.material.side = THREE.DoubleSide;
+    const S = solidOf(meshes), q = V(), cnt = (off) => { let n = 0; for (const p of pts) { q.copy(p); if (off) q.sub(off); if (S.inside(q)) n++; } return n; };
+    let best = null; const n0 = cnt(null);
+    if (n0) { const near = pts.filter((p) => { for (const d of SPH) { q.copy(p).addScaledVector(d, -0.016 * mmW * 1000); if (S.inside(q)) return true; } return S.inside(p); }), o = V(); /* (only points within reach of the largest shift can ever end up inside) */
+      const c2 = (off) => { let n = 0; for (const p of near) { q.copy(p).sub(off); if (S.inside(q)) n++; } return n; };
+      for (let mm = 1.5; mm <= 14.01 && !best; mm += 1.25) for (const d of SPH) { o.copy(d).multiplyScalar(mm * mmW); if (!c2(o)) { best = o.clone(); o.copy(d).multiplyScalar((mm + 2) * mmW); if (!c2(o)) best.copy(o); /* (2 mm of air where there is room: the skin at the wrist moves as the wrist bends) */ break; } }
+      if (!best) { const core = near.filter((p) => p.core), c3 = (off) => { let n = 0; for (const p of core) { q.copy(p).sub(off); if (S.inside(q)) n++; } return n; }; /* no shift clears every bend of the wrist: the one that clears the wrist as it is held, and leaves the fewest points inside when bent */
+        let bn = c2(o.set(0, 0, 0)), b0 = c3(o); for (let mm = 1.5; mm <= 14.01; mm += 1.25) for (const d of SPH) { o.copy(d).multiplyScalar(mm * mmW); const k0 = c3(o); if (k0 > b0) continue; const k = c2(o); if (k0 < b0 || k < bn) { b0 = k0; bn = k; best = o.clone(); } } }
+      if (globalThis.__nudLog) globalThis.__nudLog.push([ck, n0, near.length, best ? c2(best) : -1]); }
+    meshes.forEach((m, i) => { m.material.side = sides[i]; });
+    if (best) { const il = new THREE.Matrix3().setFromMatrix4(hb.matrixWorld).invert(); const l = best.clone().applyMatrix3(il); NUDGE.set(ck, l); for (const m of meshes) { m.position.add(l); m.updateMatrixWorld(true); } }
+    return n0; };
+  const seal = (sd, wid, meshes) => { const hb = bones.get(sd + 'Hand'); if (!hb) return; meshes = meshes.filter(Boolean); clearPalm(sd, hb, meshes, wid); let mk = null; for (const c of hb.children) if ((c.name || '').startsWith('grasp:')) mk = c; if (!mk) return;
     const G = GRASP.get(mk.name.slice(6)); if (!G) return; mk.name = 'grasp:' + thumbFit(G, scene, sd, meshes.filter(Boolean), wid).key; };
   // A gun in the right fist (Nutty 2026-11-14: "make their guns fit inside their hands, gripped"). parts are built barrel along -Y,
   // sights +Z, pistol grip toward -Z; grip = the middle of the pistol grip, which lands in the palm with the fingers wrapped round it;
@@ -682,8 +781,11 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
       // Carried upright: the shaft lies along the knuckle row inside the closed fist (MobRig.twoPose stands it up); beside the wrist on a body without finger bones.
       const parts = necroStaffParts(), [gz, gx] = gripX(parts), F = fist('Right', Math.max(gz, gx), true);
       if (F && !F.old) { const w = F.k.clone().addScaledVector(F.d, F.tilt).normalize(), e = F.d.clone().addScaledVector(w, -F.d.dot(w)).normalize(), x = V().crossVectors(w, e).normalize(), palm = F.palm;
-        const o = [palm.dot(x) / s - 0.004, palm.dot(w) / s - 0.05, palm.dot(e) / s + 0.004];
+        const so = globalThis.__so ?? look.staffOut ?? 0; /* (bone hands: the shaft stands a little further off the palm) */
+        const o = [palm.dot(x) / s - 0.004 + so, palm.dot(w) / s - 0.05, palm.dot(e) / s + 0.004];
         seal('Right', 'staff', parts.map(([mk, geo]) => put('RightHand', mk, geo, o, { u: w, f: e })));
+        /* Bare bone fingers are far thinner than the flesh hand the fit closes, so they hovered round the shaft (Nutty 2026-11-24). A leather grip as thick as that missing flesh fills the fist: the bones now rest on it. Added after the fit, which still closes on the bare shaft. */
+        if (look.build === 'skeleton') for (const [mk, geo] of necroStaffSleeve(Math.max(gz, gx) + 0.07 * F.hm, 0.95 * F.hm)) put('RightHand', mk, geo, o, { u: w, f: e });
         const at = F.H.clone().add(palm); mark('RightHand', 'staffat', at); mark('RightHand', 'stafftop', at.clone().addScaledVector(w, 0.5 * s)); return; }
       const fr = limb('RightHand', 'RightForeArm'); let o = [0, 0, 0.05];
       const x = V().crossVectors(fr.u, fr.f).normalize();
@@ -793,7 +895,7 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     smg() {
       gunPut([['gun', merge([new THREE.BoxGeometry(0.05, 0.34, 0.09).translate(0, -0.1, 0.03), cyl(0.014, 0.014, 0.16, 8).translate(0, -0.34, 0.05)])],
         ['poly', merge([new THREE.BoxGeometry(0.04, 0.06, 0.22).translate(0, -0.14, -0.13), new THREE.BoxGeometry(0.04, 0.05, 0.13).rotateX(-0.3).translate(0, 0.0, -0.075), new THREE.BoxGeometry(0.03, 0.2, 0.03).translate(0, 0.14, 0.04)])]],
-        [0, 0.0, -0.075], [0, -0.43, 0.05], [0, -0.24, -0.07]);
+        [0, 0.0, -0.075], [0, -0.43, 0.05], globalThis.__smgFore || (look.ck === 'juggernaut' ? [0, -0.3, -0.05] : ['rifleman', 'riot', 'bulwark'].includes(look.ck) ? [0, -0.14, -0.27] : [0, -0.24, -0.07])); /* (2026-11-24: where the other hand goes, per body, so its fingers are not inside the magazine: under the fore-end, or cupping the foot of the magazine) */
     },
     pistol() {
       gunPut([['gun', merge([new THREE.BoxGeometry(0.035, 0.22, 0.05).translate(0, -0.1, 0.075), cyl(0.009, 0.009, 0.03, 6).translate(0, -0.22, 0.085)])],
@@ -835,7 +937,7 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     // The Lizard man's plasma: no gun, a ball of dark purple plasma gathered over his open hand (his body has no finger bones to hold a grip).
     plasmaorb() {
       /* The ball floats just off his PALM (Nutty 2026-11-16: it sat above his arm). Palm side = x of the hand frame; fingers run away from the forearm. The three markers let aimGun turn the palm at the target with the fingers up, and the shot leaves from the ball. */
-      const fr = limb('RightHand', 'RightForeArm'), x = V().crossVectors(fr.u, fr.f).normalize(), PS = globalThis.__ps || [0.13, -0.085, 0];
+      const fr = limb('RightHand', 'RightForeArm'), x = V().crossVectors(fr.u, fr.f).normalize(), PS = globalThis.__ps || [0.24, -0.085, 0]; /* (2026-11-24: clear of the hand; at 0.13 his whole hand sat inside the ball) */
       put('RightHand', 'plasmaD', new THREE.SphereGeometry(0.05, 28, 20), PS, fr);
       put('RightHand', 'plasmaL', new THREE.SphereGeometry(0.07, 28, 20), PS, fr);
       const base = bp('RightHand').addScaledVector(fr.u, PS[1] * s).addScaledVector(fr.f, PS[2] * s);
@@ -887,7 +989,7 @@ function buildGear(tpl, look, names = look.gear, shared = null) {
     const x = V().crossVectors(w, e).normalize(), palm = F.palm, o = [palm.dot(x) / s, palm.dot(w) / s, palm.dot(e) / s];
     seal('Right', id, parts.map(([mk, geo]) => put('RightHand', mk, geo, o, { u: w, f: e }))); return true; };
   for (const id in MOB_ARM_GEO) G['w_' + id] = () => { const parts = mobArmParts(id);
-    if (!hold(parts, id)) { const fr = limb('RightHand', 'RightForeArm'); for (const [mk, geo] of parts) put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0]); } };
+    if (!hold(parts, id)) { const fr = limb('RightHand', 'RightForeArm'); const ms = parts.map(([mk, geo]) => put('RightHand', mk, geo, [0, 0, 0.05], fr, [2.1, 0, 0])).filter(Boolean); if (ms.length) clearPalm('Right', bones.get('RightHand'), ms, id); } };
   for (const n of names) if (G[n]) G[n]();
 }
 
@@ -899,7 +1001,7 @@ function mobTemplate(kind) {
   const def = { id: 'mob_' + kind, file: look.file, tposeArms: look.tposeArms, build: look.build, design: look.design, body: look.body, lizard: look.lizard, eye: look.eye, height: look.h };
   const tpl = getTemplate(def);
   look.ck = kind;
-  if (tpl) { if (look.rot) rotDress(tpl, look); dress(tpl, look); if (look.gear) buildGear(tpl, look, MOB_ARM_POOL[kind] ? look.gear.filter((n) => !WEAPON_GEAR.has(n)) : look.gear.filter((n) => n !== 'bow')); collapse(tpl.scene); }
+  if (tpl) { if (look.rot) rotDress(tpl, look); dress(tpl, look); if (look.gear) buildGear(tpl, look, (MOB_ARM_POOL[kind] ? look.gear.filter((n) => !WEAPON_GEAR.has(n)) : look.gear.filter((n) => n !== 'bow')).filter((n) => n !== 'kite')); collapse(tpl.scene); }
   tplCache.set(kind, tpl);
   return tpl;
 }
@@ -942,7 +1044,7 @@ function wingGeometry(boneCol, memCol) {
 // closed fingers and the palm enclose. Every handle is laid through that channel and the fist is closed only as far as the handle's
 // thickness allows, so nothing passes through the palm or the fingers. pw/gripcheck.mjs counts any skin left inside a weapon.
 const CURLS = [1, 0.85, 0.7, 0.55];
-function fistCurl(B, sd, curl = 1) {
+function fistCurl(B, sd, curl = 1, tk = curl) {
   const H = B.get(sd + 'Hand'), g = (n) => B.get(sd + 'Hand' + n), out = [];
   if (!H || !g('Middle1') || !g('Index1') || !g('Pinky1')) return out;
   const wp = (b) => b.getWorldPosition(new THREE.Vector3());
@@ -952,7 +1054,7 @@ function fistCurl(B, sd, curl = 1) {
     out.push([b, b.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(la, ang))]); };
   for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) [1.2, 1.35, 0.9].forEach((ang, j) => turn(g(f + (j + 1)), axis, ang * curl));
   const t1 = g('Thumb1'), t2 = g('Thumb2');
-  if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang * curl)); }
+  if (t1 && t2) { const dt = wp(t2).sub(wp(t1)).normalize(), ta = new THREE.Vector3().crossVectors(dt, pn).normalize(); [0.5, 0.45, 0.55].forEach((ang, j) => turn(g('Thumb' + (j + 1)), ta, ang * tk)); }
   return out;
 }
 // graspFit: the handle (a round bar of radius hr, in hand lengths, along the knuckle line tipped `tilt` toward the fingers) is laid on
@@ -962,6 +1064,14 @@ export const GRASP = new Map();
 // Bodies whose new hold has been checked in close-up pictures AND reads 0 in pw/gripcheck.mjs. Every other body keeps its old hold
 // until it has been looked at the same way (2026-11-15: knight, goblin and the soldier bodies came out with an open hand, so they wait).
 const NEW_HOLD = new Set(); // empty = every body with finger bones (2026-11-15: all read 0 or near 0; bandit, warmaiden, knight, dread knight, shambler and the soldier gun hands are clear of the weapon but still loose round it, see pw/rigshot.mjs tag x-1)
+// Every skin point the hand carries a good share of (0.3 and up: the palm, the wrist's edge, the web of the thumb), but not the fingers
+// past their first joint, which the grasp fit closes and opens.
+export function nearHand(o, sd) {
+  const ge = o.geometry, ud = ge.userData.nearV || (ge.userData.nearV = {}); if (ud[sd]) return ud[sd];
+  const si = ge.attributes.skinIndex, sw = ge.attributes.skinWeight, out = [], bones = o.skeleton.bones, re = new RegExp(sd + 'Hand$');
+  if (si && sw) for (let i = 0; i < si.count; i++) { let h = 0; for (let q = 0; q < 4; q++) { const b = bones[si.getComponent(i, q)]; if (b && re.test(b.name)) h += sw.getComponent(i, q); } if (h >= 0.3) out.push(i); }
+  return (ud[sd] = out);
+}
 export function handVerts(o, sd) {
   const ge = o.geometry, ud = ge.userData.graspV || (ge.userData.graspV = {}); if (ud[sd]) return ud[sd];
   const si = ge.attributes.skinIndex, sw = ge.attributes.skinWeight, out = { palm: [], Thumb: [], Index: [], Middle: [], Ring: [], Pinky: [] }, bones = o.skeleton.bones;
@@ -1113,9 +1223,10 @@ export class MobRig {
   gripHand(sd = 'Right') {
     this.model.updateMatrixWorld(true);
     this.grip = this.grip || [];
-    const G = this.grasp && this.grasp[sd];
+    const G = !(globalThis.__nograsp ?? this.look.fistOnly) && this.grasp && this.grasp[sd];
     if (G) { const byName = new Map(); this.model.traverse((o) => { if (o.isBone && !byName.has(o.name)) byName.set(o.name, o); }); for (const [n, q] of G.quats) { const b = byName.get(n); if (b) { this.grip.push([b, q]); b.quaternion.copy(q); } } return; }
-    for (const e of fistCurl(bonesOf(this.model), sd)) { this.grip.push(e); e[0].quaternion.copy(e[1]); }
+    { const fk = globalThis.__fk ?? this.look.fistK ?? 1, tk = globalThis.__tk ?? this.look.thumbK ?? fk, to = globalThis.__to ?? this.look.thumbOut ?? 0;
+      for (const e of fistCurl(bonesOf(this.model), sd, fk, tk)) { if (to && /Thumb1$/.test(e[0].name)) e[1].multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), to)); this.grip.push(e); e[0].quaternion.copy(e[1]); } }
   }
   // Where this mob's shot leaves its weapon (world space); false when it carries nothing that shoots.
   muzzleWorld(out) { if (!this.muz) return false; this.muz.getWorldPosition(out); return true; }
@@ -1148,6 +1259,64 @@ export class MobRig {
     const N = this.bn, H = this.b.get('LeftHand'); if (!N.lua || !N.lfa || !H || !this.fore) return;
     this.pivot.updateMatrixWorld(true);
     this.reach(N.lua, N.lfa, H, _ik[3].setFromMatrixPosition(this.fore.matrixWorld), 0.07 * this.h);
+  }
+  /* The thrust's last word (Nutty 2026-11-25: "the entire spear is pointing backwards"): whatever the shoulder, elbow, spine and twist have
+     done, the weapon hand is turned so the weapon's far end points at the target, dipping a little. w = how much of that is on (0 to 1).
+     The weapon's own direction in the hand is measured once from its real meshes (hand to its furthest point). */
+  /* Planted feet under an armed swing (Nutty 2026-11-25). The body's travel (the pivot's shift: the lunge, a shove from a blow) is taken back out of the feet:
+     the back foot stays where it stood and only its heel comes up, the front foot (side: + left, - right) lifts, travels ahead of the body and lands flat,
+     and the hips come down as far as the split needs. k = how far into the stride (0..1.15), lunge = the body's forward travel. */
+  plantFeet(side, k, lunge) {
+    const N = this.bn, LF = this.b.get('LeftFoot'), RF = this.b.get('RightFoot'), piv = this.pivot, P = piv.position; if (!LF || !RF || !N.lul || !N.rul || !N.lll || !N.rll) return;
+    const legs = side > 0 ? [[N.lul, N.lll, LF], [N.rul, N.rll, RF]] : [[N.rul, N.rll, RF], [N.lul, N.lll, LF]];
+    P.y -= 0.02 * this.h * k; piv.updateMatrixWorld(true);
+    const sc = piv.parent.matrixWorld.getMaxScaleOnAxis(), H = this.h * sc, air = k < 0.98 ? Math.sin(Math.PI * Math.min(1, k)) : 0, fw = Math.max(0, lunge) * sc;
+    const ox = (AXS[0] * P.x + AXS[3] * P.y + AXS[6] * P.z) * sc, oy = (AXS[1] * P.x + AXS[4] * P.y + AXS[7] * P.z) * sc, oz = (AXS[2] * P.x + AXS[5] * P.y + AXS[8] * P.z) * sc;
+    let drop = 0;
+    for (let i = 0; i < 2; i++) { const [up, lo, ft] = legs[i], t = ft.getWorldPosition(_pk[i]);
+      t.x -= ox; t.y -= oy; t.z -= oz; /* where this foot stands when the body has not moved */
+      const ah = i ? fw * 0.3 : fw + 0.1 * H * k, lift = i ? 0.03 * H * k : 0.05 * H * air;
+      t.x += AXS[6] * ah + AXS[3] * lift; t.y += AXS[7] * ah + AXS[4] * lift; t.z += AXS[8] * ah + AXS[5] * lift;
+      const p = up.getWorldPosition(_pk[4]), kn = lo.getWorldPosition(_pk[5]), an = ft.getWorldPosition(_pk[6]), Lg = (p.distanceTo(kn) + kn.distanceTo(an)) * 0.985, dh2 = (p.x - t.x) ** 2 + (p.z - t.z) ** 2;
+      drop = Math.max(drop, (p.y - t.y) - Math.sqrt(Math.max(1e-6, Lg * Lg - dh2))); }
+    if (drop > 1e-4) { P.y -= Math.min(drop, 0.2 * H) / sc; piv.updateMatrixWorld(true); }
+    for (let i = 0; i < 2; i++) { const [up, lo, ft] = legs[i], t = _pk[i], sd = (i ? -side : side) > 0 ? 1 : -1; ft.getWorldQuaternion(_pq[4]);
+      const pole = lo.getWorldPosition(_pk[13]); pole.x += (AXS[6] * 0.6 + AXS[0] * 0.1 * sd) * H; pole.y += (AXS[7] * 0.6 + AXS[1] * 0.1 * sd) * H; pole.z += (AXS[8] * 0.6 + AXS[2] * 0.1 * sd) * H;
+      legIK(up, lo, ft, t, pole);
+      /* the sole keeps facing the way it stood; the back heel peels up, the front toes lift through the step */
+      const ang = i ? 0.32 * k : -0.2 * air; _pq[0].setFromAxisAngle(_pk[12].set(AXS[0], AXS[1], AXS[2]), ang); setWQ(ft, _pq[0].multiply(_pq[4])); }
+  }
+  /* The held weapon's own line in the hand's frame: from the hand to its furthest point (wpnTip, wpnDir), measured once. */
+  wpnAxis() {
+    if (this.wpnDir !== undefined) return this.wpnDir;
+    const H = this.bn.rh; if (!H) return (this.wpnDir = null);
+    let bd = 0; const P = new THREE.Vector3(), best = new THREE.Vector3(); H.updateWorldMatrix(true, true); const inv = new THREE.Matrix4().copy(H.matrixWorld).invert();
+    H.traverse((o) => { if (!o.isMesh || o.isSkinnedMesh) return; const pa = o.geometry.attributes.position, st = Math.max(1, (pa.count / 300) | 0); for (let i = 0; i < pa.count; i += st) { P.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld).applyMatrix4(inv); const d = P.lengthSq(); if (d > bd) { bd = d; best.copy(P); } } });
+    /* gear welded into a skinned mesh: every vertex carried by the hand bone alone, measured in the bind pose (once per shared geometry) */
+    this.root.traverse((o) => { if (!o.isSkinnedMesh) return; const bi = o.skeleton.bones.indexOf(H); if (bi < 0) return; const g = o.geometry; let c = _tipOf.get(g);
+      if (!c) { const pa = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, cnt = pa.count, tip = new THREE.Vector3(); let d2 = 0;
+        for (let i = 0; i < cnt; i++) { if (!((si.getX(i) === bi && sw.getX(i) > 0.99) || (si.getY(i) === bi && sw.getY(i) > 0.99))) continue; P.fromBufferAttribute(pa, i).applyMatrix4(o.bindMatrix).applyMatrix4(o.skeleton.boneInverses[bi]); const d = P.lengthSq(); if (d > d2) { d2 = d; tip.copy(P); } }
+        _tipOf.set(g, (c = { tip, d2 })); }
+      if (c.d2 > bd) { bd = c.d2; best.copy(c.tip); } });
+    this.wpnTip = bd > 0 ? best.clone() : null; this.wpnDir = bd > 0 ? best.normalize() : null;
+    return this.wpnDir;
+  }
+  /* The cutting part of the weapon in the world (b = a third of the way up it, t = its tip) while a swing is cutting; false when there is nothing to trace. */
+  bladeSpan(b, t) {
+    if (!(this.trailU > 0) || !this.wpnAxis()) return false;
+    const H = this.bn.rh; H.updateWorldMatrix(true, false);
+    t.copy(this.wpnTip).applyMatrix4(H.matrixWorld); b.copy(this.wpnTip).multiplyScalar(0.38).applyMatrix4(H.matrixWorld);
+    return b.distanceToSquared(t) > 0.09;
+  }
+  aimPoint(w, dip = 0.1) {
+    const H = this.bn.rh; if (!H || w <= 0) return;
+    this.wpnAxis();
+    const d0 = this.wpnDir; if (!d0) return;
+    this.pivot.updateMatrixWorld(true);
+    H.parent.matrixWorld.decompose(_bw[5], _iq[2], _bw[6]); const hq = _iq[3].copy(_iq[2]).multiply(H.quaternion), cur = _bw[3].copy(d0).applyQuaternion(hq).normalize();
+    const des = _bw[4].set(AXS[6] - AXS[3] * dip, AXS[7] - AXS[4] * dip, AXS[8] - AXS[5] * dip).normalize(), dq = _iq[4].setFromUnitVectors(cur, des);
+    if (w < 1) dq.slerp(_iq[5].identity(), 1 - w);
+    H.quaternion.copy(_iq[2].invert().multiply(dq.multiply(hq)));
   }
   // A two-handed sword at rest: the sword hand in front of the belly, the forearm rolled and the wrist set until the blade stands up
   // and a little forward, so the grip below the fist is where the other hand can close on it.
@@ -1212,6 +1381,8 @@ export class MobRig {
     this.kind = kind;
     // 'type@weapon': an armed mob (MOB_ARMS). Same body template; the weapon is glued to this mob's own hand bone.
     const [kb, arm] = kind.split('@'), A = arm && MOB_ARMS[arm];
+    this.armId = arm || null; this.atkN = 0;
+    this.shielded = ['shield', 'tower', 'kite'].some((q) => (MOB_LOOKS[kb] && MOB_LOOKS[kb].gear || []).includes(q));
     this.look = A ? { ...MOB_LOOKS[kb], aim: !!A.ranged, palm: A.gear === 'plasmaorb' } : { ...(MOB_LOOKS[kb] || {}) };
     // Whoever holds a weapon strikes with it (Nutty 2026-11-13: sword carriers were smashing down with both fists). A mob given a melee
     // weapon, or whose own kit has one, swings the weapon hand: big "slam" bodies use the one-handed overhead cleave, the rest the cross cut.
@@ -1227,7 +1398,7 @@ export class MobRig {
     if (this.look.bow) buildGear({ scene: this.model, scale: tpl.scale, yaw: tpl.yaw }, this.look, ['bow'], SHARED_MATS);
     this.grasp = {}; this.model.traverse((o) => { const n = o.name || ''; if (n.startsWith('grasp:')) { const G = GRASP.get(n.slice(6)); if (G) this.grasp[n.split('|')[1]] = G; } }); // how each fist closes on what it holds
     this.sup = this.model.getObjectByName('stafftop') || null; this.sat = this.model.getObjectByName('staffat') || null;
-    if (A || this.look.oneHand || this.sup) this.gripHand(); // the weapon hand closes round what it holds
+    if (A || this.look.oneHand || this.sup || this.look.fistK) this.gripHand(); // the weapon hand closes round what it holds (fistK: a body that came with its weapon, the Brute, closes its fingers this far round the handle)
     if (this.look.bow) this.gripHand('Left');
     this.muz = this.model.getObjectByName('muzzle') || null; this.fore = this.model.getObjectByName('foregrip') || null; this.pull = this.model.getObjectByName('pull') || null; this.bup = this.model.getObjectByName('bladeup') || null; this.breech = this.model.getObjectByName('breech') || null; this.gup = this.model.getObjectByName('gunup') || null;
     if (this.fore) this.gripHand('Left');
@@ -1242,6 +1413,8 @@ export class MobRig {
     this.bodies = []; this.model.traverse((o) => { if (o.isSkinnedMesh && o.castShadow) this.bodies.push(o); }); // LOD + shadow switching (lod.js)
     this.full = this.bodies.map((m) => m.geometry); this.lod = 0; this.shadow = true;
     this.b = bonesOf(this.model);
+    if ((this.look.gear || []).includes('kite') && this.b.get('LeftForeArm') && this.b.get('LeftHand')) { this.kite = makeKite(this.look.h); this.root.add(this.kite); this.bk = 0; } /* his shield is its own piece, set on the arm every frame (fitShield) */
+    this.mo = tpl.mrest ? new MocapLayer(this.b, tpl.mrest) : null; /* motion capture player (mocap.js) */
     // Bones a build shrank (the lizard goblin's hidden head) keep that size: the clips carry scale tracks that would put it back to 1.
     this.keepScale = []; for (const b of this.b.values()) if (Math.abs(b.scale.x - 1) > 1e-3) this.keepScale.push([b, b.scale.clone()]);
     this.h = this.look.h / 1.8;
@@ -1260,7 +1433,7 @@ export class MobRig {
     this.headTilt = (Math.random() - 0.5) * 0.1; this.t = 0;
     // Smoothed motion state, derived from the transform the view sets each frame.
     this.spf = 0; this.spS = 0; this.yr = 0; this.lastYaw = null;
-    this.fl = 0; this.flv = 0; this.flImp = 0; this.flSide = 1; this.flinch = 0;
+    this.fl = 0; this.flv = 0; this.flImp = 0; this.flSide = 1; this.flinch = 0; this.flX = 0; this.flY = 0; this.flZ = -1; this.flHead = 1;
     this.atkT = -1; this.atkArm = true; this.atkDur = 0.5; this.lungeZ = 0;
     this.pP = 0; this.pB = 0;
     this.tail = []; this.model.traverse((o) => { if (/^tail_\d+$/.test(o.name)) this.tail[+o.name.slice(5)] = o; });
@@ -1269,7 +1442,7 @@ export class MobRig {
     this.hover = !!(this.look.fly || this.look.float);
     const g = (k) => this.b.get(k) || null;
     this.bn = { sp: g('Spine'), sp1: g('Spine1'), sp2: g('Spine2'), neck: g('Neck'), head: g('Head'), lsh: g('LeftShoulder'), rsh: g('RightShoulder'),
-      lua: g('LeftArm'), rua: g('RightArm'), lfa: g('LeftForeArm'), rfa: g('RightForeArm'), lul: g('LeftUpLeg'), rul: g('RightUpLeg'), lll: g('LeftLeg'), rll: g('RightLeg') };
+      lua: g('LeftArm'), rua: g('RightArm'), rh: g('RightHand'), lfa: g('LeftForeArm'), rfa: g('RightForeArm'), lul: g('LeftUpLeg'), rul: g('RightUpLeg'), lll: g('LeftLeg'), rll: g('RightLeg') };
     this.orbs = [];
     const glow = this.look.orb || this.look.hands;
     if (glow) {
@@ -1390,9 +1563,28 @@ export class MobRig {
     const k = muOn(BIG_HEAD) ? HEAD_SCALE : 1;
     if (k !== 1 || this._hk !== 1) { h.scale.copy(this._hb).multiplyScalar(k); this._hk = k; }
   }
+  /* This mob's next armed swing: spears thrust (every third a hack), everything else turns through a diagonal from the right, the
+     backhand diagonal from the left and an overhead. */
+  swingKeys() {
+    const n = this.atkN | 0, id = this.armId || '';
+    if (this.sup) return SWING.staff; /* a staff is raised, then levelled at the target (Nutty 2026-11-25: the Necromancer swept his sideways) */
+    if (id === 'spear') return n % 3 === 2 ? SWING.diagR : SWING.thrust;
+    if (this.shielded) return n % 2 ? SWING.over : SWING.diagR; /* a shield bearer cuts from his open side and overhead, never back across his own shield */
+    return [SWING.diagR, SWING.diagL, SWING.over][n % 3];
+  }
+  /* The recorded move for this body's next attack, or null (it keeps its hand-built one): shooters, floating casters, flyers, spears
+     and the bosses' specials have none. */
+  pickMove() { const L = this.look; if (this.bk > 0.3) return null; if (!this.mo || !mocapReady.v || NO_MOCAP.v || L.aim || L.bow || L.float || L.fly || this.hover || this.wings || this.atkKind >= 2 || this.lod >= 2) return null;
+    const armed = L.oneHand || this.armId || (this.sup && !L.cast); let set;
+    if (L.cast) set = this.sup ? MV_STAFF : MV_CAST; else
+    if (armed) { if (this.armId === 'spear') return null; /* (tried the actor's stab on a spear carrier 2026-11-25: he whips the pole upright in the wind-up and then freezes at full stretch; the hand-built thrust reads better, so it stays) */ set = this.sup ? MV_STAFF : L.two && this.fore ? MV_TWO : this.shielded ? MV_SHIELD : MV_ONE; }
+    else set = L.slam ? MV_HEAVY : L.reach ? MV_ZOMBIE : MV_FIST;
+    return MOCAP[set[((this.atkN | 0) + (this.mvSeed === undefined ? (this.mvSeed = (Math.random() * 7) | 0) : this.mvSeed)) % set.length]] || null; }
   update(st, dt, far = 0) {
     if (!this.ok) return;
-    if (st.hit) this.flImp += this.look.slam ? 0.4 : 1;
+    if (st.hit) this.flImp += (this.look.slam ? 0.4 : 1) * (st.hpow || 1); /* (hpow: a blow that takes a bigger share of its health rocks it harder) */
+    /* Which way the blow travelled, in this body's own frame (x to its left, y up, z forward), and whether it landed on the head (Nutty 2026-11-25: bodies are thrown the way the blade went, as in Dying Light). No direction given: shoved straight back, tipping to a random side. */
+    if (st.hit || st.stagger) { if (st.hx !== undefined) { this.flX = st.hx; this.flY = st.hy; this.flZ = st.hz; this.flHead = st.hzone === 'head' ? 1.7 : st.hzone === 'leg' ? 0.5 : 1; } else { this.flX = (Math.random() < 0.5 ? 0.38 : -0.38); this.flY = 0; this.flZ = -1; this.flHead = 1; } }
     if (st.stagger) this.flImp += this.look.slam ? 0.5 : 1.4; // a staggering hit rocks the whole body
     // Motion state from the transform the view just set: smoothed speed (jittery snapshot
     // interpolation would otherwise make the stride stutter), turn rate, a slower speed for acceleration.
@@ -1427,11 +1619,33 @@ export class MobRig {
       A.walk.time = ((this.cyc + S.ow) % 1) * S.dw; A.run.time = ((this.cyc + S.or) % 1) * S.dr;
       if (this.tail.length) animateTail(this.model, this.t, dt, sp, this.yr, TAU * f * 0.5 + 1.2);
     } else if (this.tail.length) animateTail(this.model, this.t, dt, 0, this.yr, 1.6);
+    // ---- attack timeline: anticipation, fast strike with overshoot, recovery (own clock, not the noisy network value) ----
+    const a = Math.min(1, st.attack || 0);
+    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; this.atkKind = (st.kind | 0) || (L.oneHand && L.slam ? 1 : 0); this.atkN++;
+      /* a swing recorded from an actor, where there is one for what this body holds: the last of its wind-up is fitted to the time the blow takes to land */
+      if (this.atkDur0 === undefined) this.atkDur0 = this.atkDur; const mc = this.pickMove(); if (this.mc && this.mo) this.mo.cut();
+      this.mc = mc; if (mc) { this.mcWind = st.wind || (L.slam ? MOB_WIND_BIG : MOB_WIND); this.mcPre = Math.min(mc.hit, this.mcWind * (L.slam ? 1.1 : 1.35)); this.atkDur = this.mcWind + (mc.dur - mc.hit); } else this.atkDur = this.atkDur0;
+    } else if (a < 0.3) this.atkArm = true;
+    let u = -1; this.trailU = 0; let plantK = -1, plantSide = 1, plantL = 0;
+    if (this.atkT >= 0) { this.atkT += dt; if (this.atkT >= this.atkDur) { this.atkT = -1; this.mc = null; } else u = this.atkT / this.atkDur; }
+    if (st.stagger && this.mc && !L.slam) { this.atkT = -1; this.mc = null; u = -1; if (this.mo) this.mo.cut(0.2); } /* a staggering hit stops a man-sized enemy's swing (sim.js takes the blow away too) */
+    /* struck hard: a recorded flinch from the side the blow came from, under the spring that rocks the body */
+    if ((st.stagger || (st.hit && (st.hpow || 1) > 1.25)) && this.mo && mocapReady.v && !NO_MOCAP.v && !this.mc && !L.float && !L.fly && !this.hover && !L.slam && this.lod < 2) {
+      const hx = st.hx || 0, set = MV_HIT[Math.abs(hx) < 0.35 ? 'f' : hx > 0 ? 'r' : 'l'], rc = MOCAP[set[(this.atkN + (this.hitN = (this.hitN | 0) + 1)) % set.length]]; if (rc) { if (this.rc) this.mo.cut(0.1); this.rc = rc; this.rcT = 0; } }
     if (frozen || !dt) rewritePose(this.mixer);
     this.mixer.update(frozen ? 0 : dt);
     for (const [b, sc] of this.keepScale) b.scale.copy(sc);
     if (this.grip) for (const [b, q] of this.grip) b.quaternion.copy(q);
     this.headSize();
+    if (this.mo) { const mo = this.mo, mc = this.mc; let on = false;
+      if (mc && u >= 0 && !frozen) { const T = this.atkT, W = this.mcWind, tc = T < W ? mc.hit - this.mcPre * (1 - T / W) : mc.hit + (T - W);
+        const w = ss(T, 0, L.slam ? 0.22 : 0.1) * (1 - ss(T, this.atkDur - 0.3, this.atkDur)), still = this.robed === undefined ? ((this.robed = (L.gear || []).includes('robe')) ? 0 : 1 - ss(sp, 0.5, 1.6)) : this.robed ? 0 : 1 - ss(sp, 0.5, 1.6); /* (under a robe the actor's crouch pushes a knee out through the cloth, so a robed caster takes the capture from the waist up only) */ /* on the move the legs keep walking and the hips stay square: the capture takes the body from the waist up */
+        MASK[0] = still; for (let i = 14; i < 22; i++) MASK[i] = still;
+        mo.apply(mc, tc, w, dt, MASK, still, null); on = true; this.rc = null;
+        this.trailU = !L.cast && !this.sup && T > W - 0.13 && T < W + 0.1 ? 0.3 + (T - (W - 0.13)) / 0.23 * 0.3 : 0; }
+      else if (this.rc && !frozen) { const rc = this.rc; this.rcT += dt; if (this.rcT >= rc.dur) this.rc = null; else { const T = this.rcT, w = ss(T, 0, 0.07) * (1 - ss(T, rc.dur - 0.3, rc.dur)) * 0.9, still = 1 - ss(sp, 0.5, 1.6);
+          MASK[0] = still; for (let i = 14; i < 22; i++) MASK[i] = still; mo.apply(rc, T, w, dt, MASK, still, null); on = true; } }
+      if (!on && mo.live) mo.stop(); }
     root.updateMatrixWorld(true);
     // Axes of the body's own frame (+Z forward, +X its left, so a tilted flyer pitches about its own side).
     const e = this.pivot.matrixWorld.elements;
@@ -1447,18 +1661,17 @@ export class MobRig {
       const n = Math.min(4, Math.ceil(dt / 0.02)), h = Math.min(dt, 0.1) / n;
       for (let i = 0; i < n; i++) { this.flv += (-150 * this.fl - 13 * this.flv) * h; this.fl += this.flv * h; }
     } else this.fl = this.flv = 0;
-    const flinch = clamp(this.fl, -0.6, 0.9) * 0.55;
+    const flinch = clamp(this.fl, -0.8, 1.6) * 0.55;
 
-    // ---- attack timeline: anticipation, fast strike with overshoot, recovery (own clock, not the noisy network value) ----
-    const a = Math.min(1, st.attack || 0);
-    if (a > 0.7 && this.atkArm) { this.atkArm = false; this.atkT = 0; this.atkKind = (st.kind | 0) || (L.oneHand && L.slam ? 1 : 0); } else if (a < 0.3) this.atkArm = true;
-    let u = -1;
-    if (this.atkT >= 0) { this.atkT += dt; if (this.atkT >= this.atkDur) this.atkT = -1; else u = this.atkT / this.atkDur; }
     let sp1 = 0, sp2 = 0, spY = 0, headP = 0, lunge = 0, armRaise = 0, armSweep = 0, foreBend = 0, castLift = 0, pulse = 0, atkE = 0;
-    let down = 0, up2 = 0, rec = 0;
+    let down = 0, up2 = 0, rec = 0, stride = 0;
+    const mcOn = !!this.mc && u >= 0;
+    if (mcOn) { atkE = Math.sin(Math.PI * Math.min(1, u * 1.2)); this.swLeft = undefined; this.swThrust = false; this.swStaff = 0; this.swWrist = 0; } else
     if (u >= 0) {
       atkE = Math.sin(Math.PI * Math.min(1, u * 1.2));
-      if (L.slam && !(this.atkKind >= 2)) {
+      /* an armed slam body (Dread Knight, Warchief, the zweihander boss) cuts with the new swings too, not the old stiff cleave */
+      this.newSw = this.atkKind === 1 && (L.oneHand || this.armId) && !L.aim && !L.bow;
+      if (L.slam && !(this.atkKind >= 2) && !this.newSw) {
         // Both fists rise slowly, hang, then a heavy smash with a rebound.
         up2 = ss(u, 0, 0.5); down = ss(u, 0.6, 0.7); rec = ss(u, 0.78, 1);
         const reb = Math.sin(Math.PI * ss(u, 0.7, 0.88)) * 0.1;
@@ -1480,6 +1693,13 @@ export class MobRig {
         // A shot: the gun kicks up and back, the shoulders take it.
         const k = Math.sin(Math.PI * ss(u, 0, 0.35)) * (1 - ss(u, 0.35, 1));
         sp2 = -0.08 * k; headP = -0.05 * k; lunge = -this.h * 0.03 * k; foreBend = k;
+      } else if (L.oneHand || this.armId || (this.sup && !L.cast)) {
+        /* Armed swings (Nutty 2026-11-24, after Chivalry 2): no flat sweeps. Diagonal hacks from each shoulder and an overhead in turn,
+           a spear thrusts. The wind-up coils the body and cocks the weapon behind the head, the strike drives down through the target
+           with the hips and a step, then the weapon follows through low and comes back. */
+        const sw = this.swingKeys(), K = sampleSwing(sw, u);
+        armRaise = K[0]; armSweep = K[1] * (this.shielded ? 0.55 : 1); foreBend = K[2]; spY = K[3]; sp2 = K[4] * 0.55; sp1 = K[4] * 0.45; headP = -K[4] * 0.35;
+        lunge = this.h * K[5]; this.swLeft = sw.left; this.swWrist = K[6]; this.swThrust = sw === SWING.thrust; this.trailU = !this.swThrust && sw !== SWING.staff && u > 0.3 && u < 0.6 ? u : 0; this.swStaff = sw === SWING.staff ? ss(u, 0.3, 0.46) * (1 - ss(u, 0.68, 0.95)) * 0.85 : 0; stride = clamp(K[5] / 0.28, 0, 1.15) * (sw === SWING.diagL ? -1 : 1); plantSide = sw === SWING.diagL ? -1 : 1; plantK = Math.abs(stride); plantL = lunge;
       } else {
         // Wind up to the right (weight back), strike across the body, overshoot, recover.
         const wind = ss(u, 0, 0.3), rake = ss(u, 0.3, 0.46), back = ss(u, 0.52, 1);
@@ -1499,7 +1719,9 @@ export class MobRig {
     const lean = clamp((this.spf - this.spS) * 0.045, -0.22, 0.28) * slamK * (frozen ? 0 : 1);
     const roll = clamp(-this.yr * this.spf * 0.011 / rs, -0.2, 0.2) * slamK;
     const calm = frozen ? 0 : 1 - Math.min(1, atkE * 2);
-    const breath = Math.sin(tt * 1.7 + ph) * 0.014 * idleW * (frozen ? 0 : 1);
+    /* Breathing (Nutty 2026-11-24): a slow, visible rise and fall of the chest when standing (a quicker, smaller one on the move). */
+    const bph = ((tt * 0.24 + ph * 0.16) % 1), bw = bph < 0.4 ? ss(bph, 0, 0.4) : 1 - ss(bph, 0.4, 1);
+    const breath = (bw - 0.5) * (0.07 * idleW + 0.02 * (1 - idleW)) * (frozen ? 0 : 1) * (u >= 0 ? 0.3 : 1);
     const scan = (Math.sin(tt * 0.45 + ph) * 0.3 + Math.sin(tt * 1.1 + ph * 2) * 0.08) * idleW * calm;
     const lead = clamp(this.yr * 0.09, -0.3, 0.3) * calm;
     const sway = Math.sin(tt * 0.5 + ph * 1.7) * 0.025 * idleW * calm;
@@ -1509,14 +1731,18 @@ export class MobRig {
       rv(N.lul, tr, 0, 0); rv(N.rul, tr, 0, 0); rv(N.lll, 0.5, 0, 0); rv(N.rll, 0.5, 0, 0);
     }
     rv(N.sp, hunch * 0.45 + lean * 0.3, 0, roll * 0.3 + sway);
-    rv(N.sp1, hunch * 0.3 + lean * 0.35 - flinch + sp1, spY, roll * 0.35 + flinch * 0.3 * this.flSide - sway * 0.5);
-    rv(N.sp2, hunch * 0.25 + lean * 0.35 + breath + sp2 - flinch * 0.4, 0, roll * 0.35);
+    /* the blow: shoved back (or folded forward under a downward blow), the top tipped and turned the way the weapon went */
+    const fDown = Math.max(0, -this.flY), fBack = -this.flZ, fP = flinch * (0.75 * fDown - fBack * (1 - 0.7 * fDown)), fR = -flinch * 0.8 * this.flX, fT = flinch * 0.9 * this.flX, fH = this.flHead;
+    rv(N.sp1, hunch * 0.3 + lean * 0.35 + fP + sp1, spY + fT * 0.5, roll * 0.35 + fR - sway * 0.5);
+    rv(N.sp2, hunch * 0.25 + lean * 0.35 + breath + sp2 + fP * 0.4, fT * 0.5, roll * 0.35 + fR * 0.5);
     rv(N.neck, -hunch * 0.55 - lean * 0.4 - breath * 0.5 + headP * 0.4, (scan + lead) * 0.35, this.headTilt * 0.4 - roll * 0.3);
-    rv(N.head, -hunch * 0.3 - lean * 0.2 - breath * 0.5 + headP * 0.6 - flinch * 0.6, (scan + lead) * 0.65, this.headTilt * 0.6 - roll * 0.3);
+    rv(N.head, -hunch * 0.3 - lean * 0.2 - breath * 0.5 + headP * 0.6 + fP * 0.6 * fH, (scan + lead) * 0.65 + fT * 0.8 * fH, this.headTilt * 0.6 - roll * 0.3 + fR * 0.6 * fH);
     chain(N.sp2, N.neck, N.head, N.lsh, N.rsh);
     // Arms.
-    if (u >= 0) {
-      if (L.slam && this.atkKind === 1) {
+    if (mcOn && N.rh && !frozen && this.lod < 2 && this.sup) { const T = this.atkT, W = this.mcWind; /* (the arm is an actor's cast, and the wrist levels the staff at the target as the hand-built one did) */
+      this.aimPoint(ss(T, W - 0.22, W - 0.05) * (1 - ss(T, W + 0.3, W + 0.6)), -0.12); }
+    if (u >= 0 && !mcOn) {
+      if (L.slam && this.atkKind === 1 && !this.newSw) {
         rv(N.rua, armRaise * 1.1, 0, 0); rv(N.rfa, foreBend, 0, 0); rv(N.lua, armRaise * 0.15, 0, 0); // one-handed overhead cleave
       } else if (L.slam && !this.atkKind) {
         rv(N.lua, armRaise, 0, 0); rv(N.rua, armRaise, 0, 0); rv(N.lfa, foreBend, 0, 0); rv(N.rfa, foreBend, 0, 0);
@@ -1524,6 +1750,14 @@ export class MobRig {
         const lift = castLift, ang = -1.35 * lift - 0.35 * pulse, yw = 0.35 * lift;
         rv(N.lua, ang, -yw, 0); rv(N.rua, ang, yw, 0);
         rv(N.lfa, -0.3 * lift, 0, 0); rv(N.rfa, -0.3 * lift, 0, 0);
+      } else if (!L.aim && !L.bow && this.swLeft !== undefined && (L.oneHand || this.armId || (this.sup && !L.cast))) {
+        rv(N.rua, -armRaise, armSweep, 0); rv(N.rfa, foreBend, 0, 0);
+        /* (Nutty 2026-11-25: the spear pointed BACKWARDS through its thrust. A thrust now levels the weapon exactly: whatever the shoulder, elbow and spine have turned, the wrist turns back, so the point always leads at the target, dipping a little.) */
+        if (N.rh && this.swThrust) { rv(N.rh, armRaise - foreBend - sp1 - sp2, 0, 0); this.aimPoint(clamp(armRaise / 0.6, 0, 1)); } else
+        if (N.rh && this.swStaff) this.aimPoint(this.swStaff, -0.3); else
+        if (N.rh && this.swWrist) rv(N.rh, this.swWrist, 0, 0); /* the wrist: cocked back in the wind-up, snapping through the cut */
+        if (!this.shielded) { rv(N.lua, -0.25 - armRaise * 0.18, -armSweep * 0.35 + this.swLeft, 0); rv(N.lfa, -0.5, 0, 0); } /* the free arm balances the swing (a shield stays up) */
+        rv(N.neck, 0, -spY * 0.35, 0); rv(N.head, 0, -spY * 0.3, 0); /* eyes stay on the target */
       } else if (!L.aim && !L.bow) {
         rv(N.rua, -armRaise, armSweep, 0); rv(N.rfa, foreBend, 0, 0); rv(N.lua, -armRaise * 0.5, armSweep * 0.4, 0);
       }
@@ -1563,13 +1797,48 @@ export class MobRig {
       rv(hip, -0.3 * hit, 0, 0.18 * side * hit); rv(knee, 0.4 * hit, 0, 0); rv(N.sp, 0, 0, -0.14 * side * hit);
     }
     // Weight thrown into a strike, recoil from a hit.
-    this.lungeZ = lunge - flinch * 0.1 * this.h;
-    if (!this.hover) this.pivot.position.set(0, 0, this.lungeZ);
+    /* A stride under the strike (Nutty 2026-11-24): the front foot goes out with the knee bent, the back leg trails, the hips sink. */
+    let sink = 0;
+    const planted = plantK >= 0 && !L.float && !L.fly && !this.hover && !frozen && this.lod < 2 && sp < 0.6 && !PLANT_OFF.v;
+    if (stride && !planted && !L.float && !L.fly && !this.hover) { const k = Math.abs(stride), fu = stride > 0 ? N.lul : N.rul, fk = stride > 0 ? N.lll : N.rll, bu = stride > 0 ? N.rul : N.lul, bk = stride > 0 ? N.rll : N.lll;
+      rv(fu, -0.55 * k, 0, 0); rv(fk, 0.6 * k, 0, 0); rv(bu, 0.32 * k, 0, 0); rv(bk, 0.16 * k, 0, 0); sink = 0.034 * this.h * k * k; } /* (pitch + tips the top forward, so a leg, hanging below its joint, swings BACK with +: the front thigh takes -, a knee flexes with +) */
+    this.lungeZ = lunge - flinch * 0.1 * this.h * fBack;
+    if (!this.hover) this.pivot.position.set(flinch * 0.14 * this.h * this.flX, -sink - Math.max(0, flinch) * 0.05 * this.h * fDown, this.lungeZ); /* (the feet give with the blow: a step to the side it was struck toward, a dip under a downward one) */
+    if (planted) this.plantFeet(plantSide, plantK, plantL);
+    this.fitShield(dt, st);
     for (const o of this.orbs) {
       const hand = b.get(o.userData.hand);
       if (hand) { hand.getWorldPosition(o.position); this.root.worldToLocal(o.position); o.position.y += 0.08 * this.h; }
       o.scale.setScalar(1 + Math.sin(tt * 8 + ph) * 0.15 + atkE * 0.8);
     }
+  }
+
+  /* The shield on the arm (Nutty 2026-11-25). Carried: it hangs at his left side, face turned out, standing upright on the forearm.
+     Blocking: the forearm comes across and the shield stands square to the front, covering chest and head. Same fit as the player's. */
+  fitShield(dt, st) {
+    const k = this.kite; if (!k) return;
+    const want = st && st.block ? 1 : 0; this.bk += (want - this.bk) * Math.min(1, (dt || 0.016) * 9);
+    const e = this.bk * this.bk * (3 - 2 * this.bk), b = this.b, fa = b.get('LeftForeArm'), lh = b.get('LeftHand');
+    if (!fa || !lh) return;
+    if (e > 0.01) { /* the arm comes up across the chest and the head drops behind the rim */
+      rvw(fa, -0.95 * e, 0.5 * e, 0); const ua = b.get('LeftArm'); if (ua) rvw(ua, -0.6 * e, 0.5 * e, 0.3 * e);
+      const hd = b.get('Head'); if (hd) rvw(hd, 0.18 * e, 0, 0);
+    }
+    this.root.updateMatrixWorld(true);
+    const ep = fa.getWorldPosition(_kv[0]), hp = lh.getWorldPosition(_kv[1]);
+    const ax = _kv[2].copy(hp).sub(ep); const al = ax.length() || 1; ax.divideScalar(al);
+    const q = this.root.getWorldQuaternion(_kq);
+    const n = _kv[3].set(0.95 * (1 - e), 0.05, 0.3 + 0.7 * e).normalize().applyQuaternion(q); /* out at his side when carried, to the front when blocking */
+    const n0 = _kv[4].copy(n);
+    n.addScaledVector(ax, -ax.dot(n) * (1 - e)).normalize();
+    if (Math.abs(ax.y) < 0.85) { const nv = _kv[0].copy(ax).cross(UPV).normalize(); if (nv.dot(n0) < 0) nv.negate(); n.lerp(nv, 0.85 * (1 - e)).normalize(); } /* it stands upright, never flat like a tray */
+    const yv = _kv[1].set(0, 1, 0).addScaledVector(n, -n.y).normalize(), zv = _kv[4].copy(n).cross(yv).normalize();
+    _km.makeBasis(n, yv, zv);
+    const wq = _kq.setFromRotationMatrix(_km);
+    const H = this.h;
+    const wp = lh.getWorldPosition(_kv[0]).addScaledVector(ax, 0.06 * H * (1 - e) + 0.02 * H).addScaledVector(n, 0.05 * H);
+    k.position.copy(this.root.worldToLocal(wp));
+    k.quaternion.copy(this.root.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wq));
   }
 
   // Collapse: tip over like a falling weight (slow start, hard landing, small rebound), arms flung, head lagging;
@@ -1586,6 +1855,9 @@ export class MobRig {
       this.slide = fast ? Math.min(2.2, this.spf * 0.25) * this.h * 0.5 : 0;
       this.fallT = this.look.slam ? 0.85 : 0.55;
       this.impact = false;
+      /* a recorded death (knees give, the body folds and drops the way the blow sent it) instead of the stiff topple: for anything on its feet that is not at a run */
+      const L = this.look; this.dmc = null; this.mc = null; this.rc = null;
+      if (this.mo && mocapReady.v && !NO_MOCAP.v && !fast && !L.fly && !L.float && !this.hover && !this.wings && this.lod < 2) { const set = MV_DIE[L.slam ? 'h' : (this.flZ || -1) > 0.3 ? 'f' : 'b']; this.dmc = MOCAP[set[(Math.random() * set.length) | 0]] || null; if (this.dmc) this.mo.cut(0.18); }
     }
     this.dieT += dt;
     const t = this.dieT, T = this.fallT, p = Math.min(1, t / T);
@@ -1594,21 +1866,22 @@ export class MobRig {
     const after = Math.max(0, t - T), reb = 1 - 0.07 * Math.sin(Math.min(1, after * 2.2) * Math.PI) * Math.exp(-after * 1.5);
     const f = e * (after > 0 ? reb : 1);
     const piv = this.pivot, kind = this.fallKind, d = this.fallDir;
-    const rx = kind === 0 ? -1.45 : kind === 1 ? 1.45 : 0.35 * d, rz = kind === 2 ? 1.45 * d : 0.12 * d * (kind === 0 ? 1 : -1);
+    const dmc = this.dmc, rx = dmc ? 0 : kind === 0 ? -1.45 : kind === 1 ? 1.45 : 0.35 * d, rz = dmc ? 0 : kind === 2 ? 1.45 * d : 0.12 * d * (kind === 0 ? 1 : -1);
     const blendIn = ss(t, 0, 0.12); // continue smoothly from the pose the mob died in
     piv.rotation.x = (this.rot0 * (1 - blendIn) + rx * f * blendIn) ;
     piv.rotation.z = (this.rotZ0 * (1 - blendIn) + rz * f * blendIn);
     if (this.wings) this.animWings(dt, { vy: 0 });
-    const lift = 0.1 * this.h * Math.min(1, Math.abs(piv.rotation.x) / 1.2 + Math.abs(piv.rotation.z) / 1.2);
+    const lift = dmc ? 0 : 0.1 * this.h * Math.min(1, Math.abs(piv.rotation.x) / 1.2 + Math.abs(piv.rotation.z) / 1.2), sinkT = dmc ? Math.min(2.1, (dmc.dur / dmc.sp) + 0.25) : 1.1;
     const slide = this.slide * (1 - Math.exp(-t * 4)) / 4 * (kind === 1 ? 1 : kind === 0 ? -0.2 : 0.4);
-    piv.position.set(this.pos0.x * (1 - blendIn), this.pos0.y * (1 - blendIn) + lift - Math.max(0, t - 1.1) * 0.9 * this.look.h * 0.4, this.pos0.z * (1 - blendIn) + slide);
+    piv.position.set(this.pos0.x * (1 - blendIn), this.pos0.y * (1 - blendIn) + lift - Math.max(0, t - sinkT) * 0.9 * this.look.h * 0.4, this.pos0.z * (1 - blendIn) + slide);
     if (this.mixer) {
       this.mixer.update(dt * Math.max(0, 1 - t * 2));
       for (const [b, sc] of this.keepScale) b.scale.copy(sc);
       this.headSize();
+      if (dmc) this.mo.apply(dmc, Math.min(dmc.dur, t * dmc.sp), ss(t, 0, 0.16), dt, null, 1, null);
       this.root.updateMatrixWorld(true);
       // limbs go slack: arms fling out and trail, head lags the fall
-      const b = this.b, w = Math.sin(Math.PI * Math.min(1, t / 0.9)) * (1 - ss(t, 0.9, 1.6) * 0.4);
+      const b = this.b, w = dmc ? 0 : Math.sin(Math.PI * Math.min(1, t / 0.9)) * (1 - ss(t, 0.9, 1.6) * 0.4);
       if (w > 0.01) {
         const E = piv.matrixWorld.elements, fl = w * (kind === 1 ? -1 : 1);
         const Sx = E[0] / (this.root.scale.x || 1), Sy = E[1] / (this.root.scale.x || 1), Sz = E[2] / (this.root.scale.x || 1);
@@ -1619,7 +1892,7 @@ export class MobRig {
         rotVec(b.get('RightArm'), Sx * -0.7 * fl - Fx * 0.9 * w, Sy * -0.7 * fl - Fy * 0.9 * w, Sz * -0.7 * fl - Fz * 0.9 * w);
       }
     }
-    return t < 2.2;
+    return t < (this.dmc ? sinkT + 1.1 : 2.2);
   }
 }
 

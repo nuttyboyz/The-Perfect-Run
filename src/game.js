@@ -30,13 +30,15 @@ import { Intro, PressStart } from './intro.js';
 import { kbLogical } from './controls.js';
 import { setWeaponEnv, boltProto } from './weapons.js';
 import { ScopeView, CAM_LEAD, scopeZoomFov, RETICLES } from './scope.js';
-import { moveOf, samplePose } from './meleemoves.js';
+import { moveOf, samplePose, sampleCam } from './meleemoves.js';
 import { launchArrow, longbowPick } from './longbow.js';
-import { Governor } from './perf.js';
+import { Governor, PERF } from './perf.js';
 import { CHAR_BY_ID, CHARACTERS } from './characters.js';
 import { validSkin, DEFAULT_SKIN, skinUnlocked, skinOf } from './skins.js';
 import { mulberry32 } from './rng.js';
-import { warmMobs, makeMobRig } from './mobrig.js';
+import { warmMobs, makeMobRig, hitMat, MOB_LOOKS } from './mobrig.js';
+import { setAniso } from './aniso.js';
+import { ContactShadows } from './contact.js';
 import { PadInput, KeyPad, connectedPads } from './pad.js';
 import { LocalParty, makeLocalHub } from './net.js';
 import { Profile } from './profile.js';
@@ -112,6 +114,7 @@ export class Game {
     this.onResize();
     this.records = LS.get('records', { runs: 0, wins: 0, bestRound: 0, bestKills: 0, totalKills: 0 });
     this.views = { players: new Map(), mobs: new Map(), npcs: new Map(), boss: null, demon: null, dying: [] };
+    this.mobHi = 0; this.mobHiOk = false;
     this.hits = []; this.hitSeq = 0;
     this.reqs = []; this.reqSeq = 0;
     this.fxOut = []; this.fxSeq = 0;
@@ -151,6 +154,7 @@ export class Game {
     r.setPixelRatio(Math.min(window.devicePixelRatio, this.q === 2 ? 1.75 : this.q === 1 ? 1.25 : 0.85));
     r.setSize(this.vw(), this.vh(), false); // false: CSS keeps the canvas at 100%, so it fills any later window size
     r.outputColorSpace = THREE.SRGBColorSpace;
+    try { setAniso(Math.max(8, Math.min(16, r.capabilities.getMaxAnisotropy() || 8))); } catch (e) { /* keep the old filtering */ }
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.1;
     r.shadowMap.enabled = this.q >= 1;
@@ -172,7 +176,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(70, this.vw() / this.vh(), 0.1, 1500);
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
     this.sun.castShadow = this.q >= 1;
-    const sz = this.q === 2 ? 2048 : 1024;
+    const sz = this.q === 2 ? 2048 : 1024; // (the governor raises it to 4096 on the top tier, perf.js)
     this.sun.shadow.mapSize.set(sz, sz);
     const sc = this.sun.shadow.camera;
     sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 200;
@@ -183,6 +187,7 @@ export class Game {
     this.scene.add(this.hemi);
     this.scene.fog = new THREE.FogExp2(0x333344, 0.012);
     this.fx = new FX(this.scene, this.camera, this.q);
+    this.contact = new ContactShadows(this.scene); // the soft patch under every body the sun's shadow map cannot reach
     this.muFx = new MutatorFx(this);
     this.el = new Elements(this.fx, this.scene);
     this.el.block = (x, z, r, top, sec, soft) => { if (this.world) this.world.addTemp(x, z, r, top, sec, soft); };
@@ -1085,6 +1090,7 @@ export class Game {
     if (this.views.boss) this.views.boss.dispose();
     if (this.views.demon) this.views.demon.dispose();
     this.views = { players: new Map(), mobs: new Map(), npcs: new Map(), boss: null, demon: null, dying: [] };
+    this.mobHi = 0; this.mobHiOk = false;
   }
 
   // ---------------- main loop ----------------
@@ -1339,6 +1345,7 @@ export class Game {
     this.ui.hitDirTick(dt);
     if (quiet) { this.publish(); return; }
     if (this._healT > 0 && (this._healT -= dt) <= 0) { healNormals(this.scene); this._healT = 5; } // new enemy bodies arrive all round; already-checked geometry is skipped
+    this.warmTick(dt);
     this.bulletTimeFx(dt);
     const rdt = vdt; vdt *= MU.bt; // Bullet Time: the world's visuals (enemies, effects, grass) follow the slowed clock; players do not
     this.updateRemotePlayers(peers, rdt);
@@ -1347,7 +1354,7 @@ export class Game {
     this.updateAim();
     if (!paused) {
       this.fx.update(vdt);
-      this.world.update(vdt, this.now);
+      this.world.update(vdt, this.now, this.warmBudget(dt));
       this.ambient(dt);
     }
     for (const v of this.views.mobs.values()) v.update(vdt, this.world, this.camera, this.fx);
@@ -1355,6 +1362,7 @@ export class Game {
     for (const v of this.views.npcs.values()) v.update(vdt, this.world, this.camera, this.fx);
     if (this.views.boss) { this.views.boss.update(vdt, this.world, this.camera, this.fx); this.bossLaserFx(); }
     if (this.views.demon) this.views.demon.update(vdt, this.world, this.camera, this.fx);
+    this.contactPass();
     this.publish();
     if (!this.headless) { this.ui.updateHud(dt); this.allyTags.update(); }
     this.pickups.update(vdt);
@@ -1496,7 +1504,7 @@ export class Game {
         if (!p.alive || p.out) { // the wave is beaten: everyone who fell is back on their feet, next to a teammate
           const mate = [...this.views.players.values()].find((v) => v.alive);
           if (mate) p.placeAt(mate.pos.x + 1.5, mate.pos.z + 1.5);
-          p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null; this.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */
+          p.revive(1); p.deadT = 0; p.invulnUntil = this.now + 5; this.spec = null;
           if (this.shopOpen && this.hshop) { try { this.closeShop ? this.closeShop() : null; } catch {} }
           this.ui.toast('Wave beaten. You are back in the fight.', 'good');
         }
@@ -1513,15 +1521,20 @@ export class Game {
     const rk = (w.rk && w.rk[this.party.myId]) || 0;
     if (rk) this.reqs = this.reqs.filter((r) => r[0] > rk);
 
-    // Mobs.
+    // Mobs. Building one body costs a few milliseconds (its skeleton is cloned and its gear fitted and collapsed
+    // into the skin), so a whole wave arriving on one frame used to drop that frame. Only a handful are built per
+    // frame now and the rest follow on the next ones; they arrive 55 m or more away, so none is seen to turn up late.
     const seen = new Set();
     const tint = this.world.biome.mobTint;
+    let made = 0;
     for (const row of w.m || []) {
       seen.add(row[0]);
       let v = this.views.mobs.get(row[0]);
-      if (!v) { v = new MobView(this.scene, row, tint); this.views.mobs.set(row[0], v); }
+      if (!v && made >= 6) continue; // (its id stays in `seen`, so nothing is removed and it is built next frame)
+      if (!v) { made++; v = new MobView(this.scene, row, tint); v.game = this; this.views.mobs.set(row[0], v); if (this.mobHiOk && row[0] > (this.mobHi || 0)) this.mobSpawnSound(row[2] / 10, row[3] / 10); this.mobHi = Math.max(this.mobHi || 0, row[0]); }
       v.apply(row);
     }
+    this.mobHiOk = true;
     for (const [id, v] of this.views.mobs) if (!seen.has(id)) { v.dispose(); this.views.mobs.delete(id); }
     // Boss.
     if (w.b) {
@@ -1556,6 +1569,57 @@ export class Game {
     if (id === this.party.myId) return this.myName;
     const p = this.party.peers().find((x) => x.id === id);
     return p && p.p ? String(p.p.n || '') : '';
+  }
+
+  // How many milliseconds this frame may lend to measuring the map's solids (world.warmSolids). While there is
+  // headroom it climbs, and the moment frames run long it drops away, so warming the map is never felt as a stutter.
+  warmBudget(dt) {
+    const b = this._wb ?? 3;
+    this._wb = Math.max(0.5, Math.min(4.5, b + (dt < 1 / 70 ? 0.6 : dt > 1 / 45 ? -2 : -0.2)));
+    return this._wb;
+  }
+
+  // Every enemy body is a shader program of its own, and the GPU only builds one the first time that enemy is drawn:
+  // a type you had not met yet cost a hitch the moment it walked into view. They are all built here instead, a couple
+  // of milliseconds a frame behind the round banner, once per page, so the first sight of anything is free.
+  queueWarm() {
+    if (this._warmQ) return;
+    // Three jobs for each kind of enemy, each small enough to sit inside one frame: build a body and compile its
+    // shader programs, then build its far copy, then its middle one (lod.js caches both by geometry, so every body
+    // of that kind afterwards finds them ready).
+    this._warmQ = [];
+    for (const k of Object.keys(MOB_LOOKS)) this._warmQ.push([k, 0], [k, 1], [k, 2]);
+  }
+
+  warmTick(dt) {
+    const q = this._warmQ;
+    if (!q || !q.length || !this.renderer) return;
+    /* Never while a fight is on: the work waits for the round banner, a walk between fights or a lull, of which a
+       run has plenty, and a frame that already ran long pushes it back further. */
+    if (dt > 1 / 52 || (this._wlast || 0) > 9) { this._wlast = (this._wlast || 0) * 0.55; return; }
+    const p = this.player;
+    if (p) for (const v of this.views.mobs.values()) { const dx = v.x - p.pos.x, dz = v.z - p.pos.z; if (dx * dx + dz * dz < 1225) return; }
+    const t0 = performance.now();
+    const hold = this._warmS || (this._warmS = new THREE.Scene()); // a scene of its own: the real one is not walked again
+    const [k, step] = q[0];
+    try {
+      if (step === 0) {
+        const r = this._warmR = makeMobRig(k);
+        if (r) {
+          hold.add(r.root);
+          const prev = this.renderer.getRenderTarget();
+          this.renderer.setRenderTarget(this.composer ? this.composer.readBuffer : null); // the same target as the real frame, so the programs match
+          this.renderer.compile(hold, this.camera, this.scene); // the real scene's lights, so the programs are the ones the game will use
+          this.renderer.setRenderTarget(prev);
+          hold.remove(r.root);
+        }
+      } else if (this._warmR && this._warmR.setLod) {
+        this._warmR.setLod(step === 1 ? 100 : 30);
+        if (step === 2) { this._warmR.setLod(0); this._warmR = null; }
+      }
+    } catch (e) { /* a failed warm-up only costs the old hitch */ }
+    q.shift();
+    this._wlast = performance.now() - t0;
   }
 
   // Zombie Staff: its six zombie bodies and the hell pit are shader programs the game has never used, and compiling them on
@@ -1597,6 +1661,7 @@ export class Game {
     this.hemi.intensity = b.hemiI;
     applyBiomeLook(this, b);
     healNormals(this.scene); this._healT = 2; // (again shortly after: some props finish building a moment later)
+    this.queueWarm();
     if (this.loadout.w.includes('zombiestaff') || this.party.peers().some((q) => q.p && (q.p.wp || []).includes('healstaff'))) this.warmSummons(); // the Healing Staff's beam shader is warmed for every seat that can see one
     const p = this.player;
     // A duel's two fighters are the lobby's two named players: the other one's in-game flag may not have reached us yet, and both sides must agree who is first.
@@ -1607,7 +1672,6 @@ export class Game {
       const s = this.world.duelSpawn(idx);
       p.placeAt(s.x, s.z); p.yaw = s.yaw; p.pitch = 0.1;
       const wasDown = !p.alive; p.resetDuel(); p.invulnUntil = this.now + 3; /* 3 s spawn protection (Nutty 2026-11-18) */
-      if (wasDown) this.audio.play('spawn'); /* the spawn sound when you come back for the next round (Nutty 2026-11-22) */
       this.dpDone = 0; this.elemOpen = false; this.ui.elem(null);
     } else {
       p.placeAt(this.world.spawn.x + Math.cos(a) * 3, this.world.spawn.z + Math.sin(a) * 3);
@@ -1617,7 +1681,7 @@ export class Game {
     }
     if (rd > 0 && !this.duel) {
       // A fresh map heals everyone and brings fallen teammates back.
-      if (!p.alive || p.out) { p.revive(1); this.audio.play('spawn'); } /* the spawn sound (Nutty 2026-11-22) */
+      if (!p.alive || p.out) p.revive(1);
       p.hp = p.stats.maxHp;
       this.runStats.roundsCleared = rd;
     }
@@ -1631,6 +1695,40 @@ export class Game {
     this.audio.play('round');
     // Braziers burn at camp.
     for (const br of this.world.braziers) this.brazier(br);
+  }
+
+  // One soft disc under each body, wherever the sun's shadow map does not reach it (PERF.mobShadow, and nothing
+  // at all on the lowest tiers), fading in over the last few metres so the hand-over cannot be seen. A body in the
+  // air gets a wider, fainter patch, which is what sells a leap or a flight as being off the ground.
+  contactPass() {
+    const C = this.contact;
+    if (!C || !this.world) return;
+    C.begin();
+    const cx = this.camera.position.x, cz = this.camera.position.z, reach = PERF.mobShadow;
+    const k = (bd) => (reach <= 0 ? 1 : bd < reach - 5 ? 0 : bd > reach ? 1 : (bd - (reach - 5)) / 5);
+    const W = this.world;
+    const put = (x, z, y, r) => {
+      const bd = Math.hypot(x - cx, z - cz);
+      if (bd > 120) return;
+      const s = k(bd) * (1 - Math.max(0, Math.min(1, (bd - 95) / 25))); // and out altogether at the far edge of sight
+      if (s <= 0.02) return;
+      /* The disc lies flat, so on a hillside it is set at the highest ground it covers: its edge then floats a
+         little on the downhill side, which cannot be seen (the edge has already faded out), where sinking into
+         the slope would have cut the shadow in half. */
+      const q = r * 1.1;
+      let gy = W.heightAt(x, z);
+      const h1 = W.heightAt(x + q, z), h2 = W.heightAt(x - q, z), h3 = W.heightAt(x, z + q), h4 = W.heightAt(x, z - q);
+      if (h1 > gy) gy = h1;
+      if (h2 > gy) gy = h2;
+      if (h3 > gy) gy = h3;
+      if (h4 > gy) gy = h4;
+      C.add(x, gy, z, y, r, s);
+    };
+    for (const v of this.views.mobs.values()) if (v.seen !== false) put(v.x, v.z, v.y - v.ground, (v.base.radius || 0.5) * (v.model.scale.x || 1));
+    for (const v of this.views.npcs.values()) put(v.x, v.z, 0, 0.5);
+    for (const v of this.views.dying) if (v.rig) put(v.x, v.z, Math.max(0, v.y - v.ground), (v.base.radius || 0.5) * 0.9);
+    if (this.views.boss) { const b = this.views.boss; put(b.x, b.z, Math.max(0, (b.y || 0) - this.world.heightAt(b.x, b.z)), 1.5); }
+    C.end();
   }
 
   brazier(pos) {
@@ -2271,7 +2369,7 @@ export class Game {
       case 'ns': { const until = this.now + 8; Vault.supper(this, () => (v.alive && this.now < until && this.views.players.get(v.id) === v ? [v.pos.x, v.pos.y, v.pos.z] : null), 8); break; }
       case 'rv': { /* a teammate held Use over you: back on your feet where you fell */
         const p = this.player;
-        if (p && this.party && a[0] === this.party.myId && (p.out || !p.alive) && !this.duel) { p.revive(0.5); p.deadT = 0; p.invulnUntil = this.now + 3; this.spec = null; this.audio.play('spawn'); /* the spawn sound (Nutty 2026-11-22) */ this.ui.healFlash(); this.ui.toast('A teammate revived you.', 'good'); }
+        if (p && this.party && a[0] === this.party.myId && (p.out || !p.alive) && !this.duel) { p.revive(0.5); p.deadT = 0; p.invulnUntil = this.now + 3; this.spec = null; this.audio.play('heal'); this.ui.healFlash(); this.ui.toast('A teammate revived you.', 'good'); }
         break;
       }
       case 'cp': { const c = this.world.crates[a[0]], pu = POWERUP_BY_ID[a[1]]; if (c && pu) this.openCrateVisual(c, pu); break; } /* a chest someone else opened: its power-up floats there for anyone */
@@ -2507,6 +2605,8 @@ export class Game {
     if (t.kind === 'demon') { this.ui.damageNumber(this.project(pos), 'IMMUNE', 'immune'); return; }
     if (t.kind === 'summon') { if (t.sm && t.sm.live) this.summonHurt(t.sm, dmg, !o.silentNum); return; }
     if (muOn(DRUNK)) dmg *= DRUNK_DMG; /* Drunk Aim mutator: everything you land hits twice as hard */
+    /* Which way this blow travels (o.sd: a melee swing's own direction; otherwise straight away from the player), left on the target's view so its body is thrown that way (Nutty 2026-11-25). */
+    if (t.view && t.kind !== 'player') { const v = t.view, h = v.hd || (v.hd = [0, 0, 0]); if (o.sd) { h[0] = o.sd[0]; h[1] = o.sd[1]; h[2] = o.sd[2]; } else { const dx = t.x - p.pos.x, dz = t.z - p.pos.z, dd = Math.hypot(dx, dz) || 1; h[0] = dx / dd; h[1] = 0; h[2] = dz / dd; } v.hdT = performance.now(); v.hdZ = o.zone || (o.head ? 'head' : ''); }
     // Physical power-ups: Killer Instinct crits, Executioner finishes the wounded, Heavy Rounds shove.
     if (!o.chain) { // the other duelist is an enemy like any other: crits, executes and shoves land on them too (Nutty 2026-11-11)
       if (p.stats.crit && Math.random() < p.stats.crit) { dmg *= 2; o = { ...o, crit: true }; }
@@ -2554,7 +2654,10 @@ export class Game {
     if (p.stats.lifesteal) p.heal(eff * p.stats.lifesteal);
     if (!o.silentNum && !o.silent) this.ui.damageNumber(this.project(pos), o.shown != null ? Math.round(o.shown * (eff / (dmg || 1))) : eff, o.head ? 'crit' : o.crit ? 'pcrit' : o.zone === 'arm' || o.zone === 'leg' ? 'limb' : t.kind === 'boss' ? 'boss' : '');
     if (!o.silent) { this.ui.hitmarker(false, !!o.head); this.audio.play('hit'); }
-    if (o.at && !o.silent) this.fx.blood(Array.isArray(o.at) ? o.at : [o.at.x, o.at.y, o.at.z], t.kind === 'boss' ? [0.3, 0.2, 0.05] : [0.35, 0.05, 0.08]);
+    if (o.at && !o.silent) { const at = Array.isArray(o.at) ? o.at : [o.at.x, o.at.y, o.at.z];
+      /* a melee blow (o.sd = the blade's own direction): what flies off depends on what was hit, and it flies the way the blade went */
+      if (o.sd) { const mat = t.kind === 'player' ? 'flesh' : hitMat(t.view && (t.kind === 'boss' ? t.view.rigKind || 'boss' + t.view.idx : t.view.type)), gh = mat === 'ghost' && t.view.rig && t.view.rig.look.ghost, hk = Math.max(0.4, Math.min(1.6, dmg / 70)); this.fx.meleeHit(at, o.sd, hk, mat, gh ? [(gh >> 16 & 255) / 255, (gh >> 8 & 255) / 255, (gh & 255) / 255] : null); if (mat === 'metal') this.audio.play('clang', 0.55 + 0.25 * hk); else if (mat === 'bone') this.audio.play('crack', 0.6); }
+      else this.fx.blood(at, t.kind === 'boss' ? [0.3, 0.2, 0.05] : [0.35, 0.05, 0.08]); }
     // Local prediction: dim the bar right away.
     if (t.view && t.kind === 'mob') t.view.hp = Math.max(0.01, t.view.hp - dmg / (t.view.base.hp * (1 + 0.38 * (this.round || 0)) * (t.view.mini ? MINI.hpMul + (this.round || 0) * MINI.hpPerRound : 1)));
   }
@@ -2652,6 +2755,13 @@ export class Game {
     return [(v.x * 0.5 + 0.5) * this.vw(), (-v.y * 0.5 + 0.5) * this.vh()];
   }
 
+  /* The spawn sound now plays when a mob freshly appears, only loud enough for players close by (Nutty 2026-11-24). */
+  mobSpawnSound(x, z) {
+    const d = this.distTo(x, z), R = 30;
+    if (!this.player || d > R || this.now - (this.mobSndT || 0) < 0.12) return;
+    this.mobSndT = this.now;
+    this.audio.play('spawn', 0.85 * Math.pow(1 - d / R, 1.6));
+  }
   distTo(x, z) { const p = this.player; return p ? Math.hypot(p.pos.x - x, p.pos.z - z) : 0; }
   distVol(x, z) { return Math.max(0.05, Math.min(1, 1 - this.distTo(x, z) / 80)); }
 
@@ -2778,8 +2888,9 @@ export class Game {
       // Your head goes with a melee swing: the view rolls into the cut and dips with a chop, more for heavier weapons.
       if (p.meleeT > 0 && wpn.kind === 'melee' && !wpn.cane && this.settings.shake !== false) {
         const dur = Math.max(0.2, wpn.rate / p.stats.rate), ph = Math.min(1, Math.max(0, 1 - p.meleeT / dur));
-        const ps = samplePose(moveOf(wpn, p.meleeMove), ph), w = Math.sin(ph * Math.PI), kk = Math.min(1.7, Math.max(0.5, wpn.rate / 0.6));
-        cam.rotateZ(-ps.az * 0.045 * w * kk); cam.rotateX(Math.min(0, ps.el) * 0.02 * w * kk);
+        const mvC = moveOf(wpn, p.meleeMove), kk = Math.min(1.7, Math.max(0.6, wpn.rate / 0.6));
+        if (mvC.cam) { const c = sampleCam(mvC, ph, this._mcam || (this._mcam = {})); cam.rotateY(c.yaw * kk); cam.rotateX(c.pitch * kk); cam.rotateZ(c.roll * kk); } /* the head goes with the cut the way it does in Dying Light: it turns back with the wind-up, then whips round and tips into the swing */
+        else { const ps = samplePose(mvC, ph), w = Math.sin(ph * Math.PI); cam.rotateZ(-ps.az * 0.045 * w * kk); cam.rotateX(Math.min(0, ps.el) * 0.02 * w * kk); }
       }
       if (cam.near !== 0.04) { cam.near = 0.04; cam.updateProjectionMatrix(); }
       if (this.shakeAmt > 0) { const s = this.shakeAmt * 0.06; cam.position.x += (Math.random() - 0.5) * s; cam.position.y += (Math.random() - 0.5) * s; this.shakeAmt = Math.max(0, this.shakeAmt - dt * 2.5); }

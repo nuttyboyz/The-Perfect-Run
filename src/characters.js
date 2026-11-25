@@ -7,6 +7,13 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { muOn, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 import { assetGLTF } from './assets.js';
 import { retargetClip, boneKey, tposeArms } from './retarget.js';
+import { mocapRest, MocapLayer, MOCAP, mocapReady } from './mocap.js';
+/* Motion capture swings for the heroes (Nutty 2026-11-25: move like actors), seen in third person: which actor's clip plays for each kind of
+   weapon and move. A move not listed here (only the fencing lunge now) keeps its hand-built keys. First person keeps its own view. */
+export const HERO_MOCAP = { v: true };
+const HMC = { one: { slashR: 'in', slashL: 'out', overhead: 'chop', thrust: 'stab1', cross: 'cross', hookL: 'hookL', rake: 'swipe', rakeL: 'swipeL', lash: 'lash', sidelash: 'in' }, /* (the fencing lunge was tried on the knife's stab 2026-11-25 and came out worse: arms flung wide, the point off the target. Its hand-built lunge stays.) */ shield: { slashR: 'ss1', slashL: 'ss3', sthrust: 'stab1' }, two: { slashR: 'gs1', slashL: 'gs3', overhead: 'chop', thrust: 'bstab', saw: 'bstab', sawdiag: 'gs3', sawrip: 'cut' } };
+const _fistI = new THREE.Matrix4();
+const HMC_NO = {} /* (the spear's thrusts and its one cut are captured now; these two have no clip that fits) */, HMASK = new Float32Array(22).fill(1), _mcM = new THREE.Matrix4(), _mcP = new THREE.Vector3(), _mcQ = new THREE.Quaternion(), _mcS = new THREE.Vector3();
 import { buildSkeleton, boneMaterial } from './skeleton.js';
 import { graspFit, thumbFit, handVerts, inMesh } from './mobrig.js';
 import { buildLizard, animateTail } from './lizard.js';
@@ -14,7 +21,7 @@ import { buildReptilian } from './reptilian.js';
 import { buildVeteranGear, buildDeathGear, buildAura, buildLongHair, animateAura, makeScythe, makeStaff } from './gear.js';
 import { buildIronwood, buildCrown, recolorTexture } from './armor.js';
 import { buildChad } from './chad.js';
-import { moveOf, samplePose, strikeDir, MELEE_V2 } from './meleemoves.js';
+import { moveOf, samplePose, sampleBody, sampleFP, strikeDir, MELEE_V2 } from './meleemoves.js';
 import { buildQuill, animateSpark } from './quill.js';
 import { SKINS, skinOf, DEFAULT_SKIN } from './skins.js';
 import { makeWeapon } from './weapons.js';
@@ -65,7 +72,11 @@ function buttOf(w) {
   return (u.butt = V(0, n ? y / n : 0, minZ + 0.015));
 }
 const UP = V(0, 1, 0);
+export const GRIP2 = { v: true, fp: -1.1 };
+const NEWGRIP = (wd, isGun) => GRIP2.v && !isGun && wd.kind === 'melee' && !wd.bow && !wd.cane && !wd.fist && !wd.reaper && wd.id !== 'chainsaw';
+const _edgeDown = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), -Math.PI / 2), _edgeFP = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), GRIP2.fp);
 // A melee weapon's world rotation along its move: the shaft points out along `radial`, the edge (+x) leads the strike.
+const _stp = new THREE.Vector3(), _pl = [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector3()), _plq = new THREE.Quaternion();
 function moveBasis(p, dir, frame) {
   const ca = Math.cos(p.az), sa = Math.sin(p.az), ce = Math.cos(p.el), se = Math.sin(p.el);
   const z = V(sa * ce, se, ca * ce).normalize();
@@ -177,6 +188,7 @@ export function getTemplate(def, skinId) {
   // Measure before any build step (some collapse the original head).
   scene.updateMatrixWorld(true);
   const b0 = bonesOf(scene);
+  const mrest = mocapRest(scene); /* the body's T-pose, for motion capture (mocap.js) */
   const top = b0.get('HeadTop_End') ? b0.get('HeadTop_End').getWorldPosition(new THREE.Vector3()).y : new THREE.Box3().setFromObject(scene).max.y;
   // Character-specific build on top of the rest pose.
   if (def.build === 'skeleton') {
@@ -213,7 +225,7 @@ export function getTemplate(def, skinId) {
   const b = bonesOf(scene);
   const la = b.get('LeftArm').getWorldPosition(new THREE.Vector3()), lf = b.get('LeftForeArm').getWorldPosition(new THREE.Vector3());
   const yaw = Math.atan2(-(lf.z - la.z), lf.x - la.x); // rotation that makes the left arm point +X
-  const t = { def, skin, scene, clips, scale: (def.height / top) * 1.04, yaw: -yaw };
+  const t = { def, skin, scene, clips, mrest, scale: (def.height / top) * 1.04, yaw: -yaw };
   templates.set(key, t);
   return t;
 }
@@ -369,6 +381,7 @@ export class CharacterRig {
     this.eyeGlow = [0, 1].map(() => { const o = new THREE.Mesh(new THREE.SphereGeometry(0.024 * this.h0, 12, 8), this.eyeMat); o.visible = false; o.frustumCulled = false; this.root.add(o); return o; });
     this.eyesOn = false; this.pitch = 0;
     this.mixer = new THREE.AnimationMixer(this.model);
+    this.mo = tpl.mrest ? new MocapLayer(this.b, tpl.mrest) : null; this._mcG = null; this._mcGF = null; this._mcGid = null; this._mcW = 0; this._mcD = 0.6; this._mcPrev = 0;
     this.actions = {};
     for (const k of ['idle', 'walk', 'run']) { const a = this.mixer.clipAction(tpl.clips[k]); a.play(); a.setEffectiveWeight(k === 'idle' ? 1 : 0); this.actions[k] = a; }
     this.lastPos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.first = true;
@@ -481,12 +494,18 @@ export class CharacterRig {
       } else { swingAng = e * wide; twist = swingAng * 0.45; }
     }
     // Melee weapons follow their own pair of attack motions (meleemoves.js); st.move picks which one this swing is.
-    let mvPose = null, mvDir = null, fistGuard = null; let lungeK = 0, sth = 0;
+    let mvPose = null, mvDir = null, fistGuard = null; let lungeK = 0, sth = 0, bod = null, hipYaw = 0; let mvCur = null;
     if (MELEE_V2 && melee > 0 && wd && wd.kind === 'melee' && !wd.cane && !wd.reaper) {
       const mv = moveOf({ id: wd.id, shield: !!wd.shield, fist: !!wd.fist }, st.move);
-      mvPose = samplePose(mv, melee); mvDir = strikeDir(mv);
+      mvPose = samplePose(mv, melee); mvDir = strikeDir(mv); mvCur = mv;
       if (wd.shield && mv.lunge) sth = 1; /* the thrust from behind the shield */
       twist = mvPose.az * (mv.type === 'chop' ? 0.15 : 0.45);
+      if (mv.b) { /* the whole body swings (Nutty 2026-11-24): the hips lead, the chest follows, the head stays on the target */
+        bod = sampleBody(mv, melee, this._bod || (this._bod = {}));
+        const lead = sampleBody(mv, Math.min(1, melee + 0.06), this._bodL || (this._bodL = {}));
+        const fpK = this.firstPerson ? 0.35 : 1;
+        hipYaw = lead.yaw * 0.45 * fpK; twist = (bod.yaw - hipYaw) * fpK;
+      }
       if (mv.lunge) lungeK = Math.max(0, Math.min(1, (mvPose.r - 1) / 0.6)); /* a fencing lunge: the body goes in behind the point */
     }
     const pitch = THREE.MathUtils.clamp(st.pitch || 0, -1.1, 1.2);
@@ -497,8 +516,41 @@ export class CharacterRig {
     const parryK = st.parry != null && st.parry >= 0 && st.parry < 0.36 ? Math.sin(Math.PI * Math.pow(st.parry / 0.36, 0.6)) : 0;
     this._parryK = parryK;
     const spine = ['Spine', 'Spine1', 'Spine2'].map((k) => B.get(k)).filter(Boolean);
+    /* Idle breathing (Nutty 2026-11-24): standing still, the chest slowly rises and falls (a slow in-breath, a longer out-breath) and the
+       shoulders lift with it. */
+    const still = st.dead ? 0 : Math.max(0, this.blend.idle - (melee > 0 ? 1 : 0)) * (this.firstPerson ? 0.3 : 1);
+    const bc = (this.t + (this.bph || (this.bph = Math.random() * 9))) / 4.2 % 1, br = bc < 0.4 ? smooth(bc / 0.4) : 1 - smooth((bc - 0.4) / 0.6);
+    const breathK = br * still;
+    { const hp0 = B.get('Hips'); if (hp0 && this._hipSet) { if (hp0.position.distanceToSquared(this._hipSet) < 1e-10) hp0.position.copy(this._hipBase); this._hipSet = null; } } /* (a stride's hip drop from the last frame is taken back off if the clip did not already reset it) */
+    /* Motion capture swing (third person): the body is the actor's from the clip, timed so the clip's blow lands exactly when this move's does. The wind-up is
+       the last stretch of the actor's own, played a little quicker; the follow-through runs at the actor's own speed and fades back to the ready stance. On the
+       move the legs keep running and the capture takes the body from the waist up. */
+    let mcW = 0;
+    { const pm = this._mcPrev; this._mcPrev = melee; if (melee > 0 && dt > 0) { const dm = melee - (pm < melee ? pm : 0); if (dm > 1e-4) this._mcD += (THREE.MathUtils.clamp(dt / dm, 0.25, 2) - this._mcD) * (pm < melee && pm > 0 ? 0.3 : 1); } }
+    if (mvCur && this.mo && HERO_MOCAP.v && mocapReady.v && !this.firstPerson && !st.dead && !HMC_NO[wd.id] && (wd.fist ? this._mcGF : this._mcG) && this._mcGid === this.weaponId) {
+      const mc = MOCAP[(HMC[wd.shield ? 'shield' : wd.twoHanded ? 'two' : 'one'])[mvCur.nm]];
+      if (mc) { const hit = mvCur.hit || 0.4, D = this._mcD, pre = Math.min(mc.hit, hit * D * 2.2), /* (a quick weapon plays the actor's wind-up faster, up to about twice; quicker than that and it starts part way in) */ tc = melee < hit ? mc.hit - pre * (1 - melee / hit) : mc.hit + (melee - hit) * D;
+        mcW = smooth(Math.min(1, melee / 0.1)) * (1 - smooth(Math.max(0, Math.min(1, (melee - 0.76) / 0.24))));
+        const stl = Math.max(0, Math.min(1, this.blend.idle)), hips = B.get('Hips'); HMASK[0] = stl; for (let i = 14; i < 22; i++) HMASK[i] = stl;
+        if (!this._hipSet) this._hipBase = (this._hipBase || new THREE.Vector3()).copy(hips.position);
+        this.mo.apply(mc, tc, mcW, dt, HMASK, stl, null); this.mo.live = false;
+        this._hipSet = (this._hipKeep || (this._hipKeep = new THREE.Vector3())).copy(hips.position);
+        hips.updateWorldMatrix(false, true);
+        bod = null; hipYaw = 0; twist = 0; }
+    }
+    this._mcW = mcW;
+    /* Planted feet (Nutty 2026-11-25): where each foot stands before the swing moves the body is kept, and the legs are solved back onto those spots afterwards,
+       so the hips can turn, sink and travel over the feet without the soles sliding. */
+    let plant = null;
+    if (bod && !this.firstPerson && !st.dead && B.get('LeftFoot') && B.get('RightFoot') && B.get('LeftLeg') && B.get('RightLeg') && B.get('LeftUpLeg') && B.get('RightUpLeg')) {
+      plant = this._plant || (this._plant = { L: [V(), new THREE.Quaternion()], R: [V(), new THREE.Quaternion()] });
+      for (const k of ['Left', 'Right']) { const f = B.get(k + 'Foot'); f.getWorldPosition(plant[k[0]][0]); f.getWorldQuaternion(plant[k[0]][1]); }
+    }
+    if (hipYaw) { rotateWorld(B.get('Hips'), up, hipYaw); if (!plant) for (const lg of ['LeftUpLeg', 'RightUpLeg']) if (B.get(lg)) rotateWorld(B.get(lg), up, -hipYaw); } /* the hips turn into the swing; the feet stay planted */
     for (const sb of spine) {
       rotateWorld(sb, up, (-this.legYaw + twist) / spine.length);
+      if (bod && !this.firstPerson) { rotateWorld(sb, right, -bod.lean / spine.length); rotateWorld(sb, fwd, bod.bend / spine.length); } /* leaning back to load, crunching into the blow, bending to the side */
+      if (breathK) rotateWorld(sb, right, breathK * 0.06 / spine.length);
       rotateWorld(sb, right, -(isGun || melee > 0 ? pitch * 0.7 : pitch * 0.35) / spine.length);
       if (lungeK) { rotateWorld(sb, right, -lungeK * 0.3 / spine.length); } /* leaning in, sword shoulder leading */
       if (!this.firstPerson && (this._bk > 0.01 || parryK)) rotateWorld(sb, right, -(this._bk * 0.08 + parryK * 0.3) / spine.length); /* braced behind the shield; a parry leans right in */
@@ -512,6 +564,51 @@ export class CharacterRig {
     }
     if (B.get('Neck')) rotateWorld(B.get('Neck'), right, -pitch * 0.15);
     if (B.get('Head')) rotateWorld(B.get('Head'), right, -pitch * 0.15);
+    if (bod && !this.firstPerson) { /* the eyes stay on the target while the body coils and uncoils under them */
+      for (const hb of ['Neck', 'Head']) if (B.get(hb)) { rotateWorld(B.get(hb), up, -bod.yaw * 0.28); rotateWorld(B.get(hb), right, bod.lean * 0.3); }
+      /* The free arm is a counterweight (Nutty 2026-11-25: move like an actor): it lags behind the turning shoulders instead of being carried round like a plank,
+         swings back as the body crunches forward, and the elbow folds and lifts away from the ribs with the effort of the swing. */
+      if (wd && !wd.support && !wd.shield && !wd.fist && !wd.cane && !wd.reaper && B.get('LeftArm') && B.get('LeftForeArm')) {
+        const e = Math.min(1, Math.abs(bod.yaw) * 0.9 + Math.abs(bod.step) * 0.35), la = B.get('LeftArm'), lf = B.get('LeftForeArm');
+        rotateWorld(la, up, -bod.yaw * 0.42); rotateWorld(la, right, -bod.lean * 0.7 + e * 0.12); rotateWorld(la, fwd, e * 0.24);
+        rotateWorld(lf, right, e * 0.75); rotateWorld(lf, up, -bod.yaw * 0.2);
+      }
+      const stp = bod.step; /* a foot steps in under the strike: + the left foot, - the right; the front knee bends, the back leg straightens */
+      const fl = stp > 0 ? 'Left' : 'Right', bl = stp > 0 ? 'Right' : 'Left', a = Math.abs(stp) * (0.4 + 0.6 * this.blend.idle);
+      if (plant) {
+        /* a real stride on planted feet: the front foot lifts, travels and lands flat ahead; the back foot stays where it stood and only its heel comes up;
+           the hips sink and travel forward over the front foot, so the weight goes into the blow */
+        const hips = B.get('Hips'), H = this.h, air = Math.sin(Math.PI * Math.min(1, a)) * (a < 0.98 ? 1 : 0);
+        const tF = _pl[0].copy(plant[fl[0]][0]).addScaledVector(fwd, a * 0.3 * H); tF.y += air * 0.05 * H;
+        const tB = _pl[1].copy(plant[bl[0]][0]).addScaledVector(fwd, a * 0.03 * H); tB.y += a * 0.04 * H;
+        hips.updateWorldMatrix(true, true);
+        const hw = hips.getWorldPosition(_pl[2]); hw.addScaledVector(fwd, a * 0.15 * H); hw.y -= a * 0.035 * H;
+        const setHips = () => { if (!this._hipSet) this._hipBase = (this._hipBase || new THREE.Vector3()).copy(hips.position); hips.position.copy(hips.parent.worldToLocal(_pl[3].copy(hw))); hips.updateWorldMatrix(false, true); this._hipSet = (this._hipKeep || (this._hipKeep = new THREE.Vector3())).copy(hips.position); };
+        setHips();
+        /* the hips come down as far as the longer reach needs (a leg never has to stretch past its own length) */
+        let drop = 0;
+        for (const [sd, t] of [[fl, tF], [bl, tB]]) { const p = B.get(sd + 'UpLeg').getWorldPosition(_pl[4]), kn = B.get(sd + 'Leg').getWorldPosition(_pl[5]), an = B.get(sd + 'Foot').getWorldPosition(_pl[6]);
+          const L = (p.distanceTo(kn) + kn.distanceTo(an)) * 0.985, dh2 = (p.x - t.x) ** 2 + (p.z - t.z) ** 2; drop = Math.max(drop, (p.y - t.y) - Math.sqrt(Math.max(1e-4, L * L - dh2))); }
+        if (drop > 1e-4) { hw.y -= drop; setHips(); }
+        for (const [sd, t, front] of [[fl, tF, 1], [bl, tB, 0]]) { const up2 = B.get(sd + 'UpLeg'), lg = B.get(sd + 'Leg'), ft = B.get(sd + 'Foot');
+          const pole = lg.getWorldPosition(_pl[4]).addScaledVector(fwd, 0.6 * H).addScaledVector(right, (sd === 'Left' ? -1 : 1) * 0.1 * H);
+          twoBoneIK(up2, lg, ft, t, pole);
+          setWorldQuat(ft, _plq.copy(plant[sd[0]][1])); /* the sole keeps facing the way it stood */
+          if (front) rotateWorld(ft, right, -air * 0.22); else rotateWorld(ft, right, a * 0.34); /* toes up through the step; the back heel peels off the ground */
+        }
+      } else if (a > 0.01 && B.get(fl + 'UpLeg') && B.get('LeftFoot') && B.get('RightFoot')) {
+        const hips = B.get('Hips'), fy = (n) => B.get(n).getWorldPosition(_stp).y; hips.updateWorldMatrix(true, true); const y0 = [fy('LeftFoot'), fy('RightFoot')];
+        rotateWorld(B.get(fl + 'UpLeg'), right, a * 0.74); rotateWorld(B.get(fl + 'Leg'), right, -a * 0.92); rotateWorld(B.get(fl + 'Foot'), right, a * 0.18);
+        rotateWorld(B.get(bl + 'UpLeg'), right, -a * 0.42); rotateWorld(B.get(bl + 'Leg'), right, -a * 0.22); rotateWorld(B.get(bl + 'Foot'), right, a * 0.36);
+        hips.updateWorldMatrix(true, true); const rise = Math.min(fy('LeftFoot') - y0[0], fy('RightFoot') - y0[1]);
+        const hw = hips.getWorldPosition(new THREE.Vector3()); hw.y -= Math.max(0, rise); hw.addScaledVector(fwd, a * 0.09 * this.h);
+        this._hipBase = (this._hipBase || new THREE.Vector3()).copy(hips.position); hips.position.copy(hips.parent.worldToLocal(hw)); hips.updateWorldMatrix(false, true); this._hipSet = (this._hipKeep || (this._hipKeep = new THREE.Vector3())).copy(hips.position);
+      }
+    }
+    if (breathK) { /* shoulders lift a little with each breath, the head stays level */
+      for (const [sd, sg] of [['Left', 1], ['Right', -1]]) { const sh = B.get(sd + 'Shoulder'); if (sh) rotateWorld(sh, fwd, sg * breathK * 0.05); }
+      if (B.get('Head')) rotateWorld(B.get('Head'), right, -breathK * 0.04);
+    }
 
     // Heavy builds carry the free arm away from the lats, slightly forward with a soft elbow.
     const ap = this.def.armPose;
@@ -590,6 +687,19 @@ export class CharacterRig {
             const L = caneLift(melee);
             gp = eye.clone().add(V(-0.3 + bobX, -0.7 + bob + L * 0.6, 0.52).multiplyScalar(K).applyQuaternion(yaw));
             gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.1 - L * 0.12, -0.08, 0, 'YXZ')));
+          } else if (mvPose && mvCur && mvCur.fp && !wd.fist) {
+            /* First person, the Dying Light way (Nutty 2026-11-24): the hand is drawn back to the edge of the view with the blade laid back
+               out of sight, then the whole blade is dragged across the middle of the screen and out of the far bottom corner (meleemoves.js
+               FPK). The ready stance is blended in and out at the ends, so it leaves from and comes home to wherever this weapon is carried. */
+            const F = sampleFP(mvCur, melee, this._fpk || (this._fpk = {})), sm = THREE.MathUtils.smoothstep, w = sm(melee, 0, 0.14) * (1 - sm(melee, 0.86, 1));
+            const sx = wd.shield ? 0.1 + F.x * 0.62 : twoH ? F.x * 0.6 : F.x; /* (a shield arm keeps the left of the view; two hands cannot go as far out to the side) */
+            const p0 = wd.shield ? V(-0.3, -0.36, 0.4) : V(-0.25, -0.34, 0.42), q0 = wd.shield ? new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.95, -0.9, 'YXZ')) : new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.55, 0.2, -0.45, 'YXZ')); if (NEWGRIP(wd, isGun)) q0.multiply(_edgeFP);
+            const sy = twoH && F.y > -0.1 ? -0.1 + (F.y + 0.1) * 0.45 : F.y; /* (two arms lifted high would fill the view with shoulders) */ const hp = p0.lerp(V(-sx, sy - (twoH ? 0.06 : 0), F.z + (twoH ? 0.26 : 0)), w); /* (both fists on one haft put the near forearm against the lens: a two-hander is held further out and a shade lower, so the swing is seen and not worn) */ hp.x += bobX * (1 - w); hp.y += bob * (1 - w);
+            { const L = hp.length(), mn = twoH ? 0.54 : wd.shield ? 0.46 : 0.44; if (L > 1e-4 && L < mn) hp.multiplyScalar(mn / L); } /* (the wind-up draws the fist back toward the head: held no nearer than this, a forearm can never be pressed against the lens) */
+            gp = eye.clone().add(hp.multiplyScalar(K).applyQuaternion(aimQ));
+            const bz = V(-F.bx, F.by, F.bz).normalize(), fe = mvCur.fe, bx = V(-fe[0], fe[1], fe[2]); bx.addScaledVector(bz, -bx.dot(bz)).normalize();
+            const qk = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(bx, new THREE.Vector3().crossVectors(bz, bx), bz));
+            gq = aimQ.clone().multiply(q0.slerp(qk, w));
           } else if (mvPose) {
             const pivot = eye.clone().add(V(0, -0.15, 0.16).multiplyScalar(K).applyQuaternion(aimQ));
             // squeezed so the whole swing stays in the first-person view (downward strikes most of all: the camera can't see your feet)
@@ -598,6 +708,7 @@ export class CharacterRig {
             const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), ca * ce).normalize().applyQuaternion(aimQ);
             gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.36 : twoH ? 0.42 : 0.48) * p2.r * K);
             gq = wd.fist ? fistBasis(p2, aimQ) : moveBasis(p2, mvDir, aimQ);
+            if (mvPose.tilt && !wd.fist) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -mvPose.tilt * 0.55)); /* the wrist: cocked back, then the tip whips through */
             if (sth) gp.add(V(-0.17, -0.05, 0).multiplyScalar(K).applyQuaternion(aimQ)); /* past the shield's edge, not through it */
             if (wd.fist) fistGuard = { p: eye.clone().add(V(0, -0.3 + bob, 0.4).multiplyScalar(K).applyQuaternion(aimQ)), q: aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           } else if (melee > 0) {
@@ -616,12 +727,14 @@ export class CharacterRig {
             } else {
             gp = eye.clone().add(V(-0.25 + bobX, -0.34 + bob, 0.42).multiplyScalar(K).applyQuaternion(aimQ));
             gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.55, 0.2, -0.45, 'YXZ')));
+            const ng = NEWGRIP(wd, isGun); if (ng && !wd.shield) gq.multiply(_edgeFP);
             if (wd.shield) { /* held low on the right with the blade turned across to the side, clear of the shield (Nutty 2026-11-19) */
               const b = this._bk || 0;
               gp = eye.clone().add(V(-0.3 + bobX - 0.04 * b, -0.36 + bob - 0.03 * b, 0.4 - 0.06 * b).multiplyScalar(K).applyQuaternion(aimQ));
               gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.95 - 0.5 * b, -0.9 + 0.3 * b, 'YXZ')));
+              if (ng) gq.multiply(_edgeFP);
             }
-            if (st.sprint) gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.2, 0.5, 'YXZ')));
+            if (st.sprint) { gq = aimQ.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.2, 0.5, 'YXZ'))); if (ng) gq.multiply(_edgeFP); }
             }
           }
         }
@@ -660,13 +773,23 @@ export class CharacterRig {
           const L = caneLift(melee);
           gp = sc.clone().add(V(-0.32, -0.5 + L * 0.82, 0.2).multiplyScalar(h).applyQuaternion(yaw));
           gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.05 - L * 0.1, -0.05, 0, 'YXZ')));
+        } else if (mcW > 0 && this._mcG) {
+          /* the weapon rides the actor's right hand, held exactly as this body holds it at the ready (this._mcG); it eases out of and back into the ready stance */
+          const rh = B.get('RightHand'); rh.updateWorldMatrix(true, false);
+          _mcM.multiplyMatrices(rh.matrixWorld, this._mcG).decompose(_mcP, _mcQ, _mcS);
+          gp = sc.clone().add(V(twoH ? -0.12 : -0.2, -0.4, twoH ? 0.22 : 0.2).multiplyScalar(h).applyQuaternion(yaw)).lerp(_mcP, mcW);
+          gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(twoH ? -0.35 : 0.35, twoH ? 0.3 : 0.12, 0, 'YXZ'))).multiply(_edgeDown).slerp(_mcQ, mcW);
+          /* a whip is led by the wrist: the arm is the actor's throw, but the handle points along the lash's own path (cocked back, then snapped out at the target),
+             or the cord would fly wherever a throwing hand happens to turn */
+          if (wd.style === 'whip' && mvPose) gq.slerp(moveBasis({ az: mvPose.az, el: mvPose.el - 0.05, r: mvPose.r }, mvDir, yaw), mcW * smooth(Math.max(0, Math.min(1, (melee - 0.12) / 0.14))) * (1 - smooth(Math.max(0, Math.min(1, (melee - 0.74) / 0.18)))));
         } else if (mvPose) {
           const pivot = sc.clone().add(V(0, -0.1 * h, 0));
           const p2 = { az: mvPose.az, el: mvPose.el - 0.05, r: mvPose.r };
           const ce = Math.cos(p2.el);
           const radial = V(Math.sin(p2.az) * ce, Math.sin(p2.el), Math.cos(p2.az) * ce).normalize().applyQuaternion(yaw);
-          gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.3 : twoH ? 0.42 : 0.5) * p2.r * h);
+          gp = pivot.clone().addScaledVector(radial, (wd.fist ? 0.3 : twoH ? 0.42 : 0.5) * (twoH ? Math.min(1.38, p2.r) : p2.r) * h); /* (both hands stay on a two-handed haft at full stretch) */
           gq = wd.fist ? fistBasis(p2, yaw) : moveBasis(p2, mvDir, yaw);
+          if (mvPose.tilt && !wd.fist) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -mvPose.tilt * (twoH ? 0.6 : 1))); /* (two hands on the grip cock the wrists less) the wrist: the blade laid back over the shoulder in the wind-up, the tip whipping out ahead as it cuts through */
           if (sth) gp.add(V(-0.34, -0.16, 0).multiplyScalar(h).applyQuaternion(yaw)); /* Shield thrust (Nutty 2026-11-19): the sword hand goes past the shield's right edge, clear of the shield and the shield arm, just holding the handle */
           if (wd.fist) fistGuard = { p: sc.clone().add(V(0, -0.2, 0.28).multiplyScalar(h).applyQuaternion(yaw)), q: yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, 0, 0, 'YXZ'))) };
           if (twoH) gq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -0.15));
@@ -691,6 +814,7 @@ export class CharacterRig {
           gp = sc.clone().add(V(twoH ? -0.12 : -0.2, -0.4, twoH ? 0.22 : 0.2).multiplyScalar(h).applyQuaternion(yaw));
           gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(twoH ? -0.35 : 0.35, twoH ? 0.3 : 0.12, 0, 'YXZ')));
           if (st.sprint) gq = yaw.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.2, 0.1, 0, 'YXZ')));
+          if (NEWGRIP(wd, isGun)) gq.multiply(_edgeDown); /* carried edge down, the palm on the flat */
           }
         }
       }
@@ -702,11 +826,19 @@ export class CharacterRig {
       wpn.updateMatrixWorld(true);
       // Fist weapons strike one hand at a time (Nutty 2026-11-12): attack 1 the right arm only, attack 2 the left arm
       // only. The striking half rides the move with the weapon; the other half is pinned back at the guard.
-      const fistOn = wd.halves && fistGuard ? (st.move | 0) % 2 : -1;
+      const fistOn = wd.halves && fistGuard && !(mcW > 0 && this._mcGF) ? (st.move | 0) % 2 : -1; /* (in a captured punch both arms are the actor's, so neither fist is pinned back at the guard) */
       if (wd.halves) {
         for (let i = 0; i < 2; i++) {
           const hf = wd.halves[i];
-          if (fistOn >= 0 && i !== fistOn) {
+          const hb = mcW > 0 && this._mcGF && this._mcGF[i] ? B.get(i ? 'LeftHand' : 'RightHand') : null;
+          if (hb) {
+            /* the half sits in its own hand exactly as it does at the ready, eased in and out with the clip */
+            hb.updateWorldMatrix(true, false);
+            _mcM.multiplyMatrices(hb.matrixWorld, this._mcGF[i]).premultiply(_fistI.copy(wpn.matrixWorld).invert()).decompose(_mcP, _mcQ, _mcS);
+            if (mcW >= 0.999) { hf.position.copy(_mcP); hf.quaternion.copy(_mcQ); }
+            else { hf.position.lerp(_mcP, mcW); hf.quaternion.slerp(_mcQ, mcW); }
+            hf.scale.setScalar(1);
+          } else if (fistOn >= 0 && i !== fistOn) {
             const mG = new THREE.Matrix4().compose(fistGuard.p, fistGuard.q, new THREE.Vector3().setFromMatrixScale(wpn.matrixWorld));
             mG.premultiply(wpn.matrixWorld.clone().invert()).decompose(hf.position, hf.quaternion, hf.scale);
             hf.scale.setScalar(1);
@@ -743,10 +875,13 @@ export class CharacterRig {
       } else {
       // Right hand to the grip. Hand frames in weapon space.
       const wq = gq;
-      const gripF = isGun ? V(0, -0.35, 1) : V(0, 1, 0); // knuckles direction
+      /* A blade is held the way a real one is (Nutty 2026-11-25: move like actors): the thumb toward the blade, the knuckles along the edge, the palm on the flat.
+         (Before, the hand sat the other way round on the handle, blade out of the little-finger side, and the wrist had to fold back to point it.) */
+      const nf = NEWGRIP(wd, isGun);
+      const gripF = isGun ? V(0, -0.35, 1) : nf ? V(1, 0, 0) : V(0, 1, 0); // knuckles direction
       // A bow in first person is held mirrored: the right hand on the grip, the left on the string.
       const swap = !!(wd.bow && this.firstPerson), mir = swap ? -1 : 1, gripH = swap ? 'Left' : 'Right', supH = swap ? 'Right' : 'Left';
-      const gripP = V(mir, 0, 0); // palm faces the weapon's left side
+      const gripP = nf ? V(0, 1, 0) : V(mir, 0, 0); // palm faces the weapon's left side (a blade: its flat)
       gripF.normalize().applyQuaternion(wq); gripP.applyQuaternion(wq);
       const gz = !globalThis.__oldHold && isGun && GRIPZ[wd.id], gpt = () => { if (!gz) return gp; wpn.updateMatrixWorld(true); return V(0, 0, gz).applyMatrix4(wpn.matrixWorld); }; /* (these guns' grips sit behind the weapon's own origin) */
       const mainGrab = () => { this._gax = isGun || wd.bow || globalThis.__oldHold ? null : V(0, 0, 1).applyQuaternion(wq); const r = this.grab(gripH, gpt(), gripF, gripP, 1.0, swap ? right.clone().negate() : right, h, isGun ? 'ggrip' : 'grip'); this._gax = null; return r; };
@@ -767,7 +902,9 @@ export class CharacterRig {
         off.x += (this._sth || 0) * e * (fp ? 0.07 : 0.11); /* the shield slides aside a little to let the thrust out */
         const pt = eyeP.clone().add(off.multiplyScalar(K2).applyQuaternion(fr));
         const fDir = V(-0.25 - 0.75 * e, 0.25 + 0.2 * e, 1 - 0.85 * e).normalize().applyQuaternion(fr); /* fingers forward at the side; across the body when blocking */
+        const mcA = mcW > 0 ? ['LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand'].map((n) => B.get(n)).filter(Boolean).map((b) => [b, b.quaternion.clone()]) : null;
         this.grab('Left', pt, fDir, V(-1 + e, 0, -e).normalize().applyQuaternion(fr), 0.95, V(0.5, -0.6 - 0.3 * e, -0.6 + 0.6 * e).normalize().applyQuaternion(fr), h);
+        if (mcA) { for (const [b, q0] of mcA) b.quaternion.slerp(q0, mcW); mcA[0][0].updateWorldMatrix(false, true); } /* in a motion capture swing the shield arm is the actor's own */
         const sh = this.shield, fa = B.get('LeftForeArm'), lh = B.get('LeftHand');
         if (sh && fa && lh) {
           fa.updateWorldMatrix(true, false); lh.updateWorldMatrix(true, false);
@@ -786,6 +923,7 @@ export class CharacterRig {
         if (wd.bow) { f = V(-0.25 * mir, 0.05, 1).normalize(); p = V(-mir, 0, -0.15).normalize(); } // fist round the riser, arm straight at the target
         else if (isGun && wd.pistol) { f = V(0.3, -0.5, 1).normalize(); p = V(-1, 0.3, 0).normalize(); }
         else if (isGun) { gun2 = !globalThis.__oldHold; f = gun2 ? V(-0.906, 0, 0.423) : V(-0.45, 0.1, 1).normalize(); p = V(0, 1, 0); } /* a long gun's fore-end lies across the palm, fingers up its far side */
+        else if (nf) { f = V(1, 0, 0); p = V(0, -1, 0); } /* both hands hold a haft the same way round (the blade out of the thumb side) */
         else if (topBar) { f = V(-1, 0, 0); p = V(0, -1, 0); } /* a chainsaw's top handle bar: the hand comes over it, palm down */
         else { f = V(0, -1, 0); p = V(1, 0, 0); }
         f.applyQuaternion(wq); p.applyQuaternion(wq);
@@ -794,7 +932,7 @@ export class CharacterRig {
         const haft = !isGun && !wd.bow, supGrab = () => { if (vg && (vOff[wd.id] | 0) < 25) { const ms = this.grab(supH, V(...vg).applyMatrix4(wpn.matrixWorld), vf, vp, 1.0, swap ? right : right.clone().negate(), h, 'ggrip'); if (ms.length() / this.k < 0.05 || wd.id === "minigun") { vOff[wd.id] = 0; return ms; } vOff[wd.id] = (vOff[wd.id] | 0) + 1; if (vOff[wd.id] < 25) return ms; /* (out of reach for a moment while the weapon comes up is nothing; out of reach for good and the hand goes under the fore-end instead) */ if (globalThis.__holdDbg) (globalThis.__vgLog || (globalThis.__vgLog = [])).push([this.def.id, wd.id, +(ms.length() / this.k).toFixed(3), this.missBy && this.missBy.Left]); } const sl = topBar ? V(0, 0.2, 0.235) : supP.clone(); if (gun2) sl.z -= 0.07; /* (the hand lies across the fore-end, its middle where its heel used to be) */ const sp = sl.clone().applyMatrix4(wpn.matrixWorld);
           const bar = gun2 || topBar ? V(0, 0, 1).applyQuaternion(wq) : haft ? sp.clone().sub(gp).normalize() : null;
           return this.grab(supH, sp, f, p, 0.9, swap ? right : right.clone().negate(), h, 'sup', bar, gun2 ? Math.max(0, sl.z - 0.1) : topBar ? 0 : haft ? Math.max(0, sp.distanceTo(gp) / this.k - 0.12) : 0); };
-        if (follow(supGrab())) { follow(mainGrab()); supGrab(); } if (follow(mainGrab())) supGrab(); /* (and once more if the main hand is still off its mark) */ /* still out of the support arm's reach: the weapon comes in to it, and both hands take hold again */
+        for (let it = 0; it < 4; it++) { if (!follow(supGrab())) break; follow(mainGrab()); } if (follow(mainGrab())) supGrab(); /* (a full-stretch thrust: back and forth until both hands are on it) */ /* (and once more if the main hand is still off its mark) */ /* still out of the support arm's reach: the weapon comes in to it, and both hands take hold again */
       } else if (isGun && wd.pistol) {
         // Cup the pistol grip from below.
         const sp = V(0.02, -0.07, -0.01).applyMatrix4(wpn.matrixWorld);
@@ -805,6 +943,13 @@ export class CharacterRig {
       }
       }
     }
+    /* a pair of fists at the ready: where each half sits in its own hand (a motion capture punch keeps it there) */
+    if (wpn && wd && this.mo && !st.dead && !this.firstPerson && wd.fist && wd.halves && wd.kind === 'melee' && melee <= 0 && !st.sprint && !isGun) {
+      const hs = [B.get('RightHand'), B.get('LeftHand')];
+      if (hs[0] && hs[1]) { const o = []; for (let i = 0; i < 2; i++) { hs[i].updateWorldMatrix(true, false); wd.halves[i].updateWorldMatrix(true, false); o.push(new THREE.Matrix4().copy(hs[i].matrixWorld).invert().multiply(wd.halves[i].matrixWorld)); } this._mcGF = o; this._mcGid = this.weaponId; } }
+    /* the hold as it stands at the ready: where the weapon sits in the right hand (a motion capture swing keeps it there) */
+    if (wpn && wd && this.mo && !st.dead && !this.firstPerson && wd.kind === 'melee' && melee <= 0 && !wd.fist && !wd.cane && !wd.reaper && !wd.eyes && !st.sprint && !isGun) {
+      const rh = B.get('RightHand'); if (rh) { rh.updateWorldMatrix(true, false); wpn.updateWorldMatrix(true, false); this._mcG = (this._mcG || new THREE.Matrix4()).copy(rh.matrixWorld).invert().multiply(wpn.matrixWorld); this._mcGid = this.weaponId; } }
     // Web Swing: the left arm reaches up the line to its anchor in the sky (st.swing, world position).
     if (st.swing && !st.dead) {
       const a = Array.isArray(st.swing) ? V(st.swing[0], st.swing[1], st.swing[2]) : st.swing;

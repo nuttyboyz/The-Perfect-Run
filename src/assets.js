@@ -5,6 +5,7 @@
 // ever fetched (strict content security policies block those).
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadScan } from './scan.js';
+import { loadMocap } from './mocap.js';
 
 const cache = new Map();
 export const ASSET_FILES = ['m37.glb', 'veteran.glb', 'xbot.glb', 'clown.glb', 'soldier.glb', 'michelle.glb', 'sorceress.glb', 'skull.glb', 'blitz.glb', 'warlord.glb', 'archmage.glb', 'flayed.glb', 'rotgut.glb', 'king.glb', 'aldric.glb', 'ragmon.glb', 'gus.glb', 'surgeon.glb', 'kratia.glb', 'selena.glb', 'kiri.glb', 'm12.glb', 'm13.glb', 'm16.glb', 'm17.glb', 'm21.glb', 'm04.glb', 'm07.glb', 'm14.glb', 'm11.glb', 'm10.glb', 'm19.glb', 'm03.glb', 'm05.glb', 'm23.glb', 'm06.glb', 'm18.glb', 'm29.glb', 'm43.glb', 'm42.glb', 'm40.glb'];
@@ -67,7 +68,7 @@ export async function loadAssets(onProgress) {
   restP = (async () => {
     const queue = [...rest];
     const lane = async () => { while (queue.length) { await loadOne(loader, queue.shift()); await new Promise((r) => setTimeout(r, 90)); } }; // a breath between files keeps the menu smooth
-    await Promise.all([lane(), lane()]);
+    await Promise.all([lane(), lane(), loadMocap('assets/mocap.json')]); /* (the recorded moves come with the enemies; without them the hand-built ones play) */
     restDone = true;
   })();
 }

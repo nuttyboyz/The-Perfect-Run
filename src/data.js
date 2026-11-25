@@ -314,7 +314,7 @@ export const MOBS = {
   // Optional keys read by the host sim: w spawn-weight multiplier, cap max alive, share max fraction of live
   // mobs, cost share of the live-mob budget, pack [min,max], guard/turn (frontal shield), bomb, leap, summon,
   // burnHit/poisonHit (damage over time on the player), slam (ground smash), hold/pspd/pstyle (ranged), summoned, hard (absolute alive cap).
-  bulwark: { name: 'Bulwark', tier: 2, model: 'brute', extra: 'armor', hp: 250, speed: 3.5, dmg: 15, range: 2.5, rate: 1.5, radius: 0.85, height: 2.4, scale: 1.3, color: 0x6a7a9a, w: 0.8, cap: 4, guard: 0.72, turn: 1.4 },
+  bulwark: { name: 'Bulwark', tier: 2, model: 'brute', extra: 'armor', block: 1, hp: 250, speed: 3.5, dmg: 15, range: 2.5, rate: 1.5, radius: 0.85, height: 2.4, scale: 1.3, color: 0x6a7a9a, w: 0.8, cap: 4, guard: 0.72, turn: 1.4 },
   bomber: { name: 'Bomber', tier: 1, model: 'runner', hp: 36, speed: 6.4, dmg: 0, range: 2.4, rate: 1, radius: 0.5, height: 1.5, scale: 0.9, color: 0xd8681a, w: 0.8, cap: 4, bomb: { r: 5.2, dmg: 30, fuse: 0.75 } },
   pouncer: { name: 'Pouncer', tier: 2, model: 'runner', hp: 85, speed: 5.8, dmg: 15, range: 2.2, rate: 1.0, radius: 0.55, height: 1.4, scale: 0.95, color: 0xc89a3a, w: 0.9, cap: 4, leap: { min: 5, max: 15, cd: 4.5, wind: 0.5, t: 0.6, h: 3.4 } },
   hatchling: { name: 'Hatchling', tier: 1, model: 'spitter', hp: 14, speed: 5.8, dmg: 4, range: 1.4, rate: 0.6, radius: 0.4, height: 1.2, scale: 0.75, color: 0xd8c820, w: 0.7, cap: 10, share: 0.22, cost: 0.4, pack: [4, 6], weave: true },
@@ -329,15 +329,15 @@ export const MOBS = {
   // Goblins (the Haunted Forest's tribe): small raiders in packs, a shaman that lobs curses, and the warchief.
   goblin: { name: 'Raider', tier: 1, model: 'runner', hp: 46, speed: 6.8, dmg: 7, range: 1.8, rate: 0.75, radius: 0.45, height: 1.35, scale: 0.8, color: 0x5a9a2c, w: 1.1, cap: 10, share: 0.3, pack: [3, 5] },
   gobshaman: { name: 'Hexcaller', tier: 2, model: 'spitter', hp: 95, speed: 4.4, dmg: 14, range: 24, rate: 1.8, radius: 0.5, height: 1.5, scale: 0.9, ranged: true, color: 0x8aff30, w: 0.9, cap: 3, hold: [12, 20], pspd: 20, pstyle: 1 },
-  gobchief: { name: 'Warchief', tier: 3, model: 'brute', hp: 380, speed: 5.0, dmg: 24, range: 2.4, rate: 1.4, radius: 0.8, height: 2.2, scale: 1.3, color: 0x6a4a1c, w: 0.9, cap: 2, slam: { r: 4.0, d: 1.0, dmg: 22, cd: 6 } },
+  gobchief: { name: 'Warchief', tier: 3, model: 'brute', block: 1, hp: 380, speed: 5.0, dmg: 24, range: 2.4, rate: 1.4, radius: 0.8, height: 2.2, scale: 1.3, color: 0x6a4a1c, w: 0.9, cap: 2, slam: { r: 4.0, d: 1.0, dmg: 22, cd: 6 } },
   // Humans (the Scorched Desert's outlaws, the Abyss's hired killers): cutthroats, deserters with rifles, shadow blades and a hedge witch.
   // (The hero-built ones, cutthroat, shadow blade and the knights, carry 200k+ vertices each, hence the low caps.)
-  bandit: { name: 'Cutthroat', tier: 1, model: 'grunt', hp: 56, speed: 5.8, dmg: 9, range: 2.0, rate: 0.9, radius: 0.5, height: 1.84, scale: 1, color: 0x8a5a3a, w: 1.0, cap: 2, hard: 4, share: 0.2, pack: [1, 2] },
+  bandit: { gone: true, name: 'Cutthroat', tier: 1, /* out of the game (Nutty 2026-11-25): he wore Captain Saltvane's coat, and no enemy may look like a playable character */ model: 'grunt', hp: 56, speed: 5.8, dmg: 9, range: 2.0, rate: 0.9, radius: 0.5, height: 1.84, scale: 1, color: 0x8a5a3a, w: 1.0, cap: 2, hard: 4, share: 0.2, pack: [1, 2] },
   rifleman: { name: 'Deserter Rifleman', tier: 2, model: 'spitter', hp: 85, speed: 4.6, dmg: 16, range: 42, rate: 2.0, radius: 0.5, height: 1.9, scale: 1, ranged: true, color: 0x8a8a7a, w: 0.9, cap: 3, hold: [16, 28], pspd: 44, pstyle: 2 },
   assassin: { gone: true, name: 'Shadow Blade', tier: 2, model: 'runner', hp: 75, speed: 8.0, dmg: 16, range: 2.0, rate: 0.8, radius: 0.45, height: 1.74, scale: 0.95, color: 0x2a2a3a, w: 0.9, cap: 1, hard: 2, leap: { min: 5, max: 14, cd: 5, wind: 0.4, t: 0.5, h: 3.0 } },
   witch: { name: 'Hedge Witch', tier: 3, model: 'spitter', hp: 150, speed: 4.0, dmg: 19, range: 30, rate: 1.6, radius: 0.5, height: 1.72, scale: 1, ranged: true, color: 0xc040ff, w: 0.8, cap: 2, hold: [14, 24], pspd: 18, pstyle: 1 },
   // Knights (the Frozen Peaks' fallen order): plate-armoured swordsmen with a shield, and the dread knight that smashes the ground.
-  knight: { name: 'Knight Errant', tier: 2, model: 'brute', hp: 260, speed: 4.4, dmg: 20, range: 2.6, rate: 1.3, radius: 0.65, height: 2.0, scale: 1.15, color: 0x8896b0, w: 0.9, cap: 1, hard: 3, guard: 0.55, turn: 1.5 },
+  knight: { name: 'Knight Errant', tier: 2, model: 'brute', block: 1, hp: 260, speed: 4.4, dmg: 20, range: 2.6, rate: 1.3, radius: 0.65, height: 2.0, scale: 1.15, color: 0x8896b0, w: 0.9, cap: 1, hard: 3, guard: 0.55, turn: 1.5 },
   dreadknight: { name: 'Dread Knight', tier: 3, model: 'brute', hp: 620, speed: 3.8, dmg: 30, range: 2.8, rate: 1.8, radius: 0.8, height: 2.4, scale: 1.35, color: 0x3a2a3a, w: 0.8, cap: 1, hard: 1, regen: 0.01, slam: { r: 4.5, d: 1.1, dmg: 28, cd: 5.5 } },
   // Fear's call: the bosses already beaten, shrunk to mob size. Boss rigs, appended so snapshot indices stay stable.
   echo0: { name: 'Echo of the Gravewarden', tier: 3, hp: 900, speed: 4.2, dmg: 30, range: 3.6, rate: 1.6, radius: 1.2, height: 4.2, scale: 1, summoned: true, cost: 3, slam: { r: 5, d: 1.0, dmg: 34, cd: 5 } },
@@ -351,7 +351,7 @@ export const MOBS = {
 export const STAGE_MOBS = {
   graveyard: ['grunt', 'wraith', 'archer', 'necro', 'banshee', 'shambler', 'deadcop'],
   forest: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'lizardman'],
-  desert: ['bandit', 'spitter', 'rifleman', 'pouncer', 'ogre', 'trooper', 'riot'],
+  desert: ['spitter', 'rifleman', 'pouncer', 'ogre', 'trooper', 'riot'],
   frozen: ['crawler', 'knight', 'bulwark', 'juggernaut', 'dreadknight', 'warmaiden'],
   volcanic: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager', 'riot'],
   abyss: ['runner', 'hexer', 'witch'],
@@ -360,7 +360,7 @@ export const STAGE_MOBS = {
   waterfall: ['hatchling', 'venomfang', 'pouncer', 'spitter', 'troll', 'lizardman'],
   clearing: ['goblin', 'gobshaman', 'venomfang', 'troll', 'gobchief', 'warmaiden', 'lizardman'],
   volcano: ['hatchling', 'bomber', 'brute', 'cinder', 'ravager'],
-  ruins: ['wraith', 'archer', 'riot', 'knight', 'warmaiden', 'bandit', 'crawler'], // the Graveyard's cast is the Graveyard's alone (Nutty 2026-11-14)
+  ruins: ['wraith', 'archer', 'riot', 'knight', 'warmaiden', 'crawler'], // the Graveyard's cast is the Graveyard's alone (Nutty 2026-11-14)
 };
 // Runs only (never Horde Mode): a stage listed here fields exactly this cast every round, nothing else (Nutty 2026-11-14: the Graveyard).
 export const STAGE_ONLY = { graveyard: { mobs: ['grunt', 'runner', 'shambler', 'deadcop', 'convict', 'hexer', 'banshee', 'necro'], fly: ['skyhunter'] } };

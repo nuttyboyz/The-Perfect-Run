@@ -3,6 +3,7 @@
 // and ship like the other assets: glTF JSON with an inlined buffer, textures as webp next to them.
 // Models load at boot (small); ground textures stream in per biome and replace the procedural layers.
 import * as THREE from 'three';
+import { ANISO, track } from './aniso.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { toGLB } from './assets.js';
 
@@ -13,7 +14,8 @@ let index = null;
 const texLoader = new THREE.TextureLoader();
 const texCache = new Map();
 
-function tex(file, srgb, aniso = 8) {
+function tex(file, srgb, aniso = 0) {
+  aniso = aniso || ANISO.v;
   const key = file + (srgb ? 's' : 'l');
   if (texCache.has(key)) return texCache.get(key);
   const t = texLoader.load(BASE + file);
@@ -21,6 +23,7 @@ function tex(file, srgb, aniso = 8) {
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = aniso;
+  track(t);
   texCache.set(key, t);
   return t;
 }
@@ -111,7 +114,7 @@ export function groundTex(id, onReady) {
   const mk = (f, srgb) => {
     const t = texLoader.load(BASE + f, () => { if (++n === 2) done(r); }, undefined, () => {});
     t.flipY = false; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = ANISO.v; track(t);
     return t;
   };
   const r = { albedo: mk(id + '_a.webp', true), normal: mk(id + '_n.webp', false), wait };

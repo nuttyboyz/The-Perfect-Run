@@ -64,10 +64,23 @@ export function installSolids(World) {
   };
 
   // A few chunks are measured every frame until the whole map is done, so no shot or sprint ever waits on it.
+  // One chunk can cost many times another (a whole temple against a patch of rocks), and checking the clock only
+  // before starting one used to let a single monster chunk blow the budget many times over. Another is now started
+  // only while the frame still has room for the worst chunk this map has shown, so warming never costs a stutter.
   P.warmSolids = function (ms = 3) {
     const vx = this.vx; if (!vx || !vx.todo.length) return;
     const t0 = performance.now();
-    while (vx.todo.length && performance.now() - t0 < ms) { const c = vx.todo.pop(); if (!c.ready) this.vxBuild(c); }
+    let worst = vx.worst || 0;
+    for (;;) {
+      if (!vx.todo.length || performance.now() - t0 + worst * 0.8 > ms) break;
+      const c = vx.todo.pop();
+      if (c.ready) continue;
+      const t1 = performance.now();
+      this.vxBuild(c);
+      const e = performance.now() - t1;
+      if (e > worst) worst = e;
+    }
+    vx.worst = worst * 0.97; // let it fade, so one heavy chunk does not hold back the rest of the map for ever
   };
 
   P.vxOpen = function (c) {

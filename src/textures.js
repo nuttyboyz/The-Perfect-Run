@@ -1,6 +1,7 @@
 // Procedural texture pack: every element, prop and ground surface gets
 // generated maps (diffuse + normal) at load, so nothing ships as flat colour.
 import * as THREE from 'three';
+import { ANISO, track } from './aniso.js';
 import { makeNoise } from './rng.js';
 
 const cache = new Map();
@@ -15,7 +16,7 @@ function toTexture(c, { repeat = 1, srgb = true } = {}) {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(repeat, repeat);
-  t.anisotropy = 4;
+  t.anisotropy = Math.max(4, ANISO.v); track(t);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true;
   return t;

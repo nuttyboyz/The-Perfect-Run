@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { MOBS, MOB_TYPES, MOB_ARM_IDS, armedBase, BOSSES, NPCS, NPC_TYPES, CLASS_BY_ID, WEAPON_BY_ID, MINI, ELITE } from './data.js';
 import { makeHumanoid, makeMob, makeBoss, makeDemon, makeNameplate } from './models.js';
 import { makeCharacterModel, flushSwipes, setCharacterScale, STEP_KIND, stepAccum } from './characters.js';
-import { makeMobRig, MOB_LOOKS, makeVikingAxe } from './mobrig.js';
+import { makeMobRig, MOB_LOOKS, makeVikingAxe, MOB_WIND, MOB_WIND_BIG } from './mobrig.js';
 import { muOn, LOWGRAV, BIG_HEAD, HEAD_SCALE } from './mutators.js';
 import { makeOrbitBlades, makeFireRing, auraRadius } from './duelfx.js';
 import { makeJetpack, jetFx } from './jetpack.js';
@@ -186,6 +186,7 @@ export class RemotePlayerView {
 }
 
 const _dir = new THREE.Vector3();
+const _tb = new THREE.Vector3(), _tt = new THREE.Vector3(), MOB_TRAIL = [0.95, 0.9, 0.8];
 export class MobView {
   constructor(scene, row, tint) {
     this.scene = scene;
@@ -243,6 +244,10 @@ export class MobView {
     this.tfy = (row[8] || 0) / 10;
   }
   update(dt, world, camera, fx) {
+    /* Hit stop: the instant a blow lands, the struck body stops dead for a heartbeat (the same beat the player's own
+       swing hangs for, player.js hitStop), so blade and body read as one collision instead of passing through
+       each other. Everything freezes together: stride, swing, the capture, the drift toward the host's position. */
+    if (this.hsT > 0) { this.hsT -= dt; dt = 1e-4; }
     this.t += dt;
     this.spawnT += dt;
     const ox = this.x, oz = this.z, oy = this.y;
@@ -263,7 +268,10 @@ export class MobView {
     this.anim = Math.max(0, this.anim - dt * 3);
     // Held still by ice.
     const frozen = this.flags & 1 ? 1 : 0;
-    const hit = this.hp < this.lastHp - 1e-4; this.lastHp = this.hp;
+    const hpDrop = this.lastHp - this.hp, hit = hpDrop > 1e-4; this.lastHp = this.hp;
+    /* only a real bite stops a body: sustained gunfire would otherwise hold a crowd paralysed, so small, fast
+       hits pass straight through and no one body can be stopped more than about five times a second */
+    if (hit && hpDrop > 0.035 && this.t - (this.hsAt ?? -9) > 0.18) { this.hsAt = this.t; this.hsT = Math.min(0.085, 0.025 + hpDrop * 0.5); }
     // Staggered (flag 32): the body stops dead and jolts; the rig gets a heavier flinch the moment it starts.
     const stag = (this.flags & 32) !== 0, stagStart = stag && !this.stagWas; this.stagWas = stag;
     if (this.rig) {
@@ -275,7 +283,9 @@ export class MobView {
       const seen = d < 75 + 55 * Math.min(1, PERF.lod);
       if (seen !== this.seen) { this.seen = seen; this.model.visible = seen; }
       if (this.rig.setLod) this.rig.setLod(d);
-      const st = { speed: frozen || stag ? 0 : speed, attack: this.anim, frozen, hit, stagger: stagStart };
+      const st = { speed: frozen || stag ? 0 : speed, attack: this.anim, frozen, hit, stagger: stagStart, block: (this.flags & 128) !== 0, hpow: hit ? Math.min(2.2, 0.8 + hpDrop * 4) : 1, wind: this.base.slam ? MOB_WIND_BIG : MOB_WIND };
+      /* the blow's direction (Game.damage leaves it on this view: world x, y, z and when), turned into this body's own frame */
+      if ((hit || stagStart) && this.hd && performance.now() - this.hdT < 700) { const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw), h = this.hd; st.hx = h[0] * cs - h[2] * sn; st.hy = h[1]; st.hz = h[0] * sn + h[2] * cs; st.hzone = this.hdZ; }
       if (this.fly) {
         // Wing beat and body pitch follow the climb or dive.
         const vy = (this.y - oy) / Math.max(dt, 1e-3);
@@ -283,6 +293,25 @@ export class MobView {
         st.pitch = THREE.MathUtils.clamp(Math.atan2(-vy, Math.max(speed, 1.5)) * 0.8 + 0.12, -0.7, 1.0);
       }
       if (seen) this.rig.update(st, dt, far);
+      /* Every swing announces itself. The weapon cuts the air as it starts, a heavy body growls as it loads a slam,
+         and the slam marks the ground it will come down in for the whole wind-up, so a blow can be read and stepped
+         out of instead of simply landing. */
+      if (this.rig.atkN !== this._swN) {
+        const again = this._swN !== undefined; this._swN = this.rig.atkN;
+        const G = this.game;
+        const slam = !!this.base.slam, reach = slam ? 34 : 24;
+        if (again && G && G.audio && d < reach && !frozen) {
+          const k = Math.max(0, 1 - d / reach);
+          G.audio.play(slam ? 'windup' : 'swing_mob', k * (slam ? 0.95 : 0.6));
+          if (slam && G.el) {
+            const r = Math.max(2.4, (this.base.range || 2.6) * 0.85);
+            G.el.telegraph([this.x + Math.sin(this.yaw) * r * 0.55, 0, this.z + Math.cos(this.yaw) * r * 0.55], r, MOB_WIND_BIG * 0.9, 0xff7a2a);
+          }
+        }
+      }
+      this.onScreen = seen && !behind; // sparks, auras and halos are only worth making for a body that is actually drawn
+      /* an armed enemy's weapon leaves a faint streak through the cut, so a swing can be read and dodged (Nutty 2026-11-25) */
+      if (seen && fx && d < 34 && this.rig.trailU > 0 && this.rig.bladeSpan(_tb, _tt)) fx.swipe(this, _tb, _tt, this.model.position, this.rig.trailU, 0.42, MOB_TRAIL);
     } else this.model.userData.anim({ speed: frozen || stag ? 0 : speed, attack: this.anim, phase: this.phase, frozen }, frozen ? 0 : dt, this.t);
     // Every enemy shows its health once you are close enough; hurt ones stay visible from further away, champions always.
     const bd = Math.hypot(this.x - camera.position.x, this.z - camera.position.z);
@@ -299,14 +328,14 @@ export class MobView {
       if (Math.random() < 0.18) fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 2, this.y + 0.1, this.z + (Math.random() - 0.5) * 2], v: [0, 1.4, 0], life: 0.8, s0: 0.9, s1: 0.2, c0: [1, 0.8, 0.3, 0.5], c1: [1, 0.55, 0.1, 0] });
     }
     const H = this.vh;
-    if (this.elite && bd < 70) {
+    if (this.elite && bd < 70 && this.onScreen !== false) {
       const c = this.elite.color, sh = this.flags & 64;
       if (Math.random() < 0.55) fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 1.0, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 1.0], v: [0, 1.0, 0], life: 0.55, s0: 0.7, s1: 0.15, c0: [c[0], c[1], c[2], 0.85], c1: [c[0], c[1], c[2], 0] });
       fx.glow.emit({ p: [this.x, this.y + H * 0.55, this.z], life: 0.06, s0: H * (sh ? 2.1 : 1.5), s1: H * (sh ? 2.1 : 1.5), c0: [c[0], c[1], c[2], sh ? 0.3 : 0.16], c1: [c[0], c[1], c[2], sh ? 0.25 : 0.1] }); // a halo you can spot from far away
     }
     // Ability wind-up (bit 8: bomber fuse, pouncer crouch, necromancer cast, archer aim, ogre smash) and per-type ambience.
     const L = this.look;
-    if (bd < 55) {
+    if (bd < 55 && this.onScreen !== false) {
       if (this.flags & 8 && L.tele) {
         const c = L.tele;
         for (let i = 0; i < 2; i++) fx.glow.emit({ p: [this.x + (Math.random() - 0.5) * 0.9, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 0.9], v: [0, 1.5, 0], life: 0.35, s0: 0.7, s1: 0.1, c0: [c[0], c[1], c[2], 0.9], c1: [c[0], c[1], c[2], 0] });
@@ -320,9 +349,10 @@ export class MobView {
         else if (L.aura === 'spark') fx.glow.emit({ p: [this.x, this.y + H * 0.95, this.z], v: [(Math.random() - 0.5) * 2, 2.5, (Math.random() - 0.5) * 2], life: 0.3, s0: 0.25, s1: 0.05, c0: [1, 0.8, 0.3, 1], c1: [1, 0.3, 0, 0] });
       }
     }
-    if (this.flags & 2 && Math.random() < 0.5) fx.fire.emit({ p: [this.x + (Math.random() - 0.5) * 0.6, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 0.6], v: [0, 2.5, 0], life: 0.4, s0: 0.7, s1: 0.2, c0: [1, 0.8, 0.4, 1], c1: [1, 0.2, 0, 0], turb: 4 });
-    if (this.flags & 1 && Math.random() < 0.4) fx.shard.emit({ p: [this.x + (Math.random() - 0.5) * 0.8, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 0.8], v: [0, 0.3, 0], life: 0.6, s0: 0.35, s1: 0.1, c0: [0.8, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0] });
-    else if (this.flags & 4 && Math.random() < 0.2) fx.glow.emit({ p: [this.x, this.y + 0.3, this.z], v: [0, 0.4, 0], life: 0.6, s0: 1.2, s1: 1.6, c0: [0.6, 0.85, 1, 0.3], c1: [0.6, 0.85, 1, 0] });
+    const amb = bd < 60 && this.onScreen !== false; // burning, frozen and shocked bodies off screen cost nothing
+    if (amb && this.flags & 2 && Math.random() < 0.5) fx.fire.emit({ p: [this.x + (Math.random() - 0.5) * 0.6, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 0.6], v: [0, 2.5, 0], life: 0.4, s0: 0.7, s1: 0.2, c0: [1, 0.8, 0.4, 1], c1: [1, 0.2, 0, 0], turb: 4 });
+    if (amb && this.flags & 1 && Math.random() < 0.4) fx.shard.emit({ p: [this.x + (Math.random() - 0.5) * 0.8, this.y + Math.random() * H, this.z + (Math.random() - 0.5) * 0.8], v: [0, 0.3, 0], life: 0.6, s0: 0.35, s1: 0.1, c0: [0.8, 0.95, 1, 1], c1: [0.6, 0.85, 1, 0] });
+    else if (amb && this.flags & 4 && Math.random() < 0.2) fx.glow.emit({ p: [this.x, this.y + 0.3, this.z], v: [0, 0.4, 0], life: 0.6, s0: 1.2, s1: 1.6, c0: [0.6, 0.85, 1, 0.3], c1: [0.6, 0.85, 1, 0] });
   }
   target() {
     if (muOn(BIG_HEAD)) return { id: this.id, kind: 'mob', x: this.x, y: this.y, z: this.z, r: this.base.radius, h: this.vh * 1.17, big: 1, view: this }; // the swollen head sticks up above the body
