@@ -62,8 +62,9 @@ window.addEventListener('unhandledrejection', (e) => { if (!window.__game) fail(
 requestAnimationFrame(() => setTimeout(async () => {
   const bar = loading.querySelector('.ld-bar i'), txt = loading.querySelector('.ld-text');
   txt.textContent = 'Loading characters…';
-  // No sign-in any more (Nutty 2026-11-23): everyone who opens the game is Admin, with everything unlocked.
-  const who = Promise.resolve(Profile.enterAdmin());
+  // No sign-in (Nutty 2026-11-23). Everyone plays as a normal player whose progress (PP, shop, unlocks) is saved in this
+  // browser and earned from zero (v145). Admin, with everything unlocked, is only for testing: open the game with ?admin
+  const who = Promise.resolve(/[?&]admin\b/.test(location.search) ? Profile.enterAdmin() : Profile.enterPlayer());
   await loadAssets((f) => { if (bar) { bar.style.animation = 'none'; bar.style.transition = 'width .2s'; bar.style.width = Math.round(f * 100) + '%'; } });
   await who;
   txt.textContent = 'Forging the world…';
