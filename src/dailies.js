@@ -3,6 +3,7 @@
 // Progress is per account (Profile key 'perfectrun.daily') and resets each day. Runs the CPU played count for nothing.
 import { Profile } from './profile.js';
 import { addPP } from './meta.js';
+import { Ach } from './achievements.js';
 
 export const DAILY_TIERS = {
   1: { name: 'Easy', pp: 5 },
@@ -144,19 +145,19 @@ export const Dailies = {
     return c.slots.map((s, i) => { const d = DAILY_BY_ID[s.id]; return { ...d, slot: i, cur: Math.min(s.cur || 0, d.need), done: !!s.done, pp: DAILY_TIERS[d.tier].pp, tierName: DAILY_TIERS[d.tier].name }; });
   },
   add(stat, n = 1) {
-    if (!n) return; const c = load(); let hit = false;
+    if (!n) return; Ach.add(stat, n); const c = load(); let hit = false; // every daily counter also feeds the achievements
     for (const s of c.slots) { const d = DAILY_BY_ID[s.id]; if (d.stat !== stat || s.done) continue; s.cur = (s.cur || 0) + n; hit = true; this.check(s, d); }
     if (hit) save();
   },
   best(stat, v) {
-    const c = load(); let hit = false;
+    Ach.best(stat, v); const c = load(); let hit = false;
     for (const s of c.slots) { const d = DAILY_BY_ID[s.id]; if (d.best !== stat || s.done || v <= (s.cur || 0)) continue; s.cur = v; hit = true; this.check(s, d); }
     if (hit) save();
   },
   check(s, d) {
     if (s.done || (s.cur || 0) < d.need) return;
     s.done = 1; s.cur = d.need;
-    flush();
+    flush(); Ach.add('dailies');
     if (this.onDone) this.onDone(d, DAILY_TIERS[d.tier].pp);
   },
   // Claim a finished challenge: pays its PP and swaps in a new one of the same tier. Returns the PP paid (0 if not claimable).
