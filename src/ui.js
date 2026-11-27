@@ -15,6 +15,7 @@ import { setFocus, connectedPads, KEYPAD_HELP } from './pad.js';
 import { CHARACTERS, CHAR_BY_ID } from './characters.js';
 import { skinsOf, skinIsFree, skinUnlocked } from './skins.js';
 import { Dailies, msToReset } from './dailies.js';
+import { Ach } from './achievements.js';
 import { puIcon, hasPuIcon } from './puicons.js';
 import { ControlsScreen, loadBinds, bindsJSON, kbPhys, padPhys, keyName, PAD_NAMES } from './controls.js';
 
@@ -399,6 +400,7 @@ export class UI {
     this.$('#btn-unlocks').onclick = () => { g.audio.play('ui'); this.screen('s-unlocks'); this.renderUnlocks(); };
     this.$('#db-list').onclick = (e) => { const b = e.target.closest('.db-claim'); if (!b) return; const pp = Dailies.claim(+b.dataset.s); if (pp) { g.audio.play('crate', 0.7); this.toast('+' + pp + ' PP claimed. New challenge added.', 'good'); this.$('#title-pp').textContent = getMeta().pp.toLocaleString(); } this.dailyTitle(); };
     setInterval(() => { if (this.$('#s-title').classList.contains('on')) this.dailyTitle(); }, 1000); // the box is live: progress, ticks and the reset clock
+    if (g.seat === 1 && !g.isBot) Ach.onDone = (a) => { this.toast('🏆 Achievement: ' + a.name + ' · +' + a.pp + ' PP', 'good'); g.audio.play('bless', 0.7); };
     if (g.seat === 1 && !g.isBot) Dailies.onDone = (d, pp) => { this.toast('Daily Challenge done: ' + d.text + ' · claim ' + pp + ' PP on the title screen', 'good'); g.audio.play('crate', 0.7); };
     this.$('#btn-help').onclick = () => { g.audio.play('ui'); this.screen('s-help'); };
     this.$('#btn-settings').onclick = () => { g.audio.play('ui'); this.openSettings('s-title'); };
@@ -1205,7 +1207,7 @@ export class UI {
     if (cn && document.activeElement !== cn && cn.value !== g.settings.name) cn.value = g.settings.name;
     const btn = this.$('#btn-ready');
     if (this.cpuFlow() && !g.ready && !this.cpuDone && !((host && host.p.cd) || 0)) {
-      if (!armed) btn.textContent = g._cpuPick ? 'Pick 3 items for the CPU' : 'Pick 3 items to ready up';
+      if (!armed) btn.textContent = g._cpuPick ? 'Pick 3 items for the CPU' : (g.hordeMode ? 'Pick 1 weapon' : 'Pick 3 items') + ' to ready up';
       else btn.innerHTML = g._cpuPick ? 'Ready Up' : 'Choose CPU ▶';
       btn.disabled = !armed; btn.classList.remove('is-ready', 'waiting');
       return;
@@ -1215,7 +1217,7 @@ export class UI {
       const other = members.filter((m) => !m.me)[0];
       const cd = (host && host.p.cd) || 0;
       const waitFor = other && !other.p.rdy && !g.bot ? 'PLAYER ' + (other.id === 'p2' ? 2 : 1) : '';
-      if (!armed) btn.textContent = 'Pick 3 items to ready up';
+      if (!armed) btn.textContent = (g.hordeMode ? 'Pick 1 weapon' : 'Pick 3 items') + ' to ready up';
       else if (cd) btn.innerHTML = `${duel ? 'Duel' : 'Starting'} in ${cd}…<small>Press to cancel</small>`;
       else if (g.ready) btn.innerHTML = `Ready ✓<small>${waitFor ? 'Starts when both are ready · press to cancel' : 'Press to cancel'}</small>`;
       else btn.innerHTML = `Ready up<small>${waitFor || g.bot ? '' : 'The other player is ready'}</small>`;
@@ -1226,7 +1228,7 @@ export class UI {
     }
     if (g.couchWait && duel) { btn.textContent = 'Waiting for Player 2'; btn.disabled = true; btn.classList.remove('is-ready', 'waiting'); return; }
     const wait = g.isHost ? members.filter((m) => !m.me && !m.p.rdy).length : 0;
-    if (!armed) btn.textContent = 'Pick 3 items to ready up';
+    if (!armed) btn.textContent = (g.hordeMode ? 'Pick 1 weapon' : 'Pick 3 items') + ' to ready up';
     else if (g.isHost) btn.innerHTML = wait ? `${startWord}<small>${wait} ${wait > 1 ? 'players still need' : 'player still needs'} to ready up</small>` : startWord;
     else btn.textContent = g.ready ? 'Ready ✓' : this.lateJoin() ? 'Ready Up' : 'Ready up';
     btn.disabled = !armed;
@@ -1392,7 +1394,6 @@ export class UI {
   applyLook() {
     const S = this.game.settings, sc = Math.min(1.3, Math.max(0.8, +S.uiScale || 1)), xs = Math.min(2.2, Math.max(0.6, +S.xhSize || 1)), xh = S.xh || 'cross';
     if (this.game.seat === 1) {
-      document.documentElement.style.setProperty('--ui', sc);
       document.documentElement.style.setProperty('--uis', sc);
       document.documentElement.style.fontSize = (16 * sc) + 'px';
       const cb = S.cb && S.cb !== 'off' ? S.cb : '';
@@ -2082,6 +2083,10 @@ export class UI {
     );
     this.$('#ul-sub').textContent = got + ' of ' + total + ' unlocked. Unlocked gear and weapons show up on the Weapon Wall.';
     this.$('#ul-grid').innerHTML = cards.join('');
+    // Achievements (v146): the same cards, grouped by category, each paying PP once.
+    const ach = Ach.list();
+    this.$('#ach-sub').textContent = ach.filter((a) => a.done).length + ' of ' + ach.length + ' earned · ' + ach.filter((a) => a.done).reduce((n, a) => n + a.pp, 0).toLocaleString() + ' of ' + ach.reduce((n, a) => n + a.pp, 0).toLocaleString() + ' PP collected';
+    this.$('#ach-grid').innerHTML = ach.map((a) => row(a.name, a.how, a.done, a.cur, a.need, a.cat + ' · ' + a.pp + ' PP', '🏆').replace('✓ Unlocked', '✓ Earned')).join('');
   }
 
   summary(s) {

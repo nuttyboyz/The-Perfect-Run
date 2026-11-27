@@ -2526,6 +2526,7 @@ export class LocalPlayer {
       }
       return;
     }
+    if (this === g.player) g._hurtAt = g.now; // achievements: last time a hit got through
     let dmg = amount * (1 - this.stats.armor);
     if (this.wardUntil > g.now) dmg *= 0.5; // an elemental power-up's ward
     if (this.shield.rock && this.shield.until > g.now) {
