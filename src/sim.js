@@ -493,8 +493,8 @@ export class HostSim {
       this.wells.push({ from, x: x / 10, y: y / 10, z: z / 10, k: Math.max(0.3, Math.min(4, k / 100)), t: 0, bossMoved: 0 });
     } else if (kind === 'crate') {
       this.opened.add(arg | 0);
-    } else if (kind === 'early' && !this.horde && this.phase === 'play' && (this.roundLen <= 0 || this.tl <= 0.5)) {
-      this.startBoss(); // no way out: the altar only calls the boss, and only after the round clock has run out
+    } else if (kind === 'early' && !this.horde && this.phase === 'play' && (this.roundLen <= 0 || this.tl <= 0.5 || (!this.space && (this.tl0 || this.roundLen) - this.tl >= CONFIG.altarAfter))) {
+      this.startBoss(); // v145: the altar wakes two minutes into the round, so the boss can be called early (it used to wait for the clock)
     }
   }
 
