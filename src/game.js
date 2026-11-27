@@ -51,6 +51,7 @@ import { installFog, SUN_OFFSET, buildComposer, applyBiomeLook, healNormals } fr
 import { addPP, runReward } from './meta.js';
 import { Bot } from './bot.js';
 import { Dailies } from './dailies.js';
+import { Ach } from './achievements.js';
 import { ChestFx } from './chest.js';
 import { MutatorFx } from './mufx.js';
 import { MU, MU_MASK, muList, muOn, JACKPOT, PINATA, NECRO, LOWGRAV, JACKPOT_EVERY, BULLET_TIME, DRUNK, DRUNK_DMG } from './mutators.js';
@@ -106,13 +107,13 @@ export class Game {
     this.initInput();
     this.menu = new MenuScene(this);
     for (const ms of [1500, 5000, 12000]) setTimeout(() => { try { if (this.menu && this.menu.scene) healNormals(this.menu.scene); } catch {} }, ms);
+    this.records = LS.get('records', { runs: 0, wins: 0, bestRound: 0, bestKills: 0, totalKills: 0 }); // before the UI: its title screen shows them
     this.ui = new UIClass(this);
     this.allyTags = new AllyTags(this);
     this.pickups = new HealthPickups(this);
     this.chests = new ChestFx(this);
     if (!this.isBot) this.gov = new Governor(this); // holds 60+ fps by stepping quality tiers (perf.js)
     this.onResize();
-    this.records = LS.get('records', { runs: 0, wins: 0, bestRound: 0, bestKills: 0, totalKills: 0 });
     this.views = { players: new Map(), mobs: new Map(), npcs: new Map(), boss: null, demon: null, dying: [] };
     this.mobHi = 0; this.mobHiOk = false;
     this.hits = []; this.hitSeq = 0;
@@ -1043,6 +1044,7 @@ export class Game {
     this.myVote = null;
     this.phase = null;
     this.runStats = { pcEarned: 0, roundsCleared: 0, bosses: 0, start: performance.now() };
+    if (this.seat === 1 && !this.isBot) Ach.newRun();
     this.muFx.reset(); this._muRound = -1;
     this.player.invulnUntil = this.now + 6; // a few seconds to get your bearings before the first mobs arrive
     this.brain = this.isBot ? new Bot(this, 'duel') : this.autoplay && this.alone && !this.duelMode ? new Bot(this, 'run') : null;
@@ -1077,9 +1079,12 @@ export class Game {
   backToLobby() {
     MU.on = 0; MU.bt = 1;
     if (this.isHost) { const last = this.sim ? this.sim.arena : -1; this.sim = new HostSim(this); this.sim.phase = 'lobby'; this.sim.arena = last; this.party.set({ w: this.sim.snapshot() }); } // arena: so the next duel moves on from this one
+    const kept = this.loadout && !this.hordeMode && !this.duelMode && !this.bot ? [...this.loadout.w] : null;
     this.teardownGame();
     this.party.set({ ig: 0, rdy: 0, out: 0, al: 1 }); // a stale 'out' from the failed run would end the next run the moment it starts
     this.enterLobby();
+    // Run it back (v146): the weapons from the run just played are still picked, and the lobby opens on its last page, one press from starting.
+    if (kept && this.loadOk(kept)) { this.loadout.w = kept; this.lobbyStep = 4; this.party.set({ wp: kept }); this.ui.setFlip(4, true); this.ui.renderLobby(); }
   }
 
   clearViews() {
@@ -1512,7 +1517,7 @@ export class Game {
     }
     this.round = w.rd;
     if (w.ph === 'play' && MU.on && this.round !== this._muRound) { this._muRound = this.round; this.ui.mutatorBanner(muList(MU.on), this.round === 0 ? 5 : 0); this.audio.play('mu_sting', 0.8); }
-    if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) Dailies.best('round', this.round + 1); }
+    if (w.ph === 'play' && this.round !== this._dailyRound) { this._dailyRound = this.round; if (this.dailyOn()) { Dailies.best('round', this.round + 1); if (stageIdx(this.runSeed, this.round) === 7) Ach.add('space'); } }
     this.tl = w.tl;
     this.endless = w.rl === 0;
     this.voteTally = w.vt;
@@ -1953,7 +1958,14 @@ export class Game {
         const bpp = this.counts() && (p.alive || !p.out) ? CONFIG.ppPerBoss || 0 : 0;
         if (bpp && this.seat === 1) { addPP(bpp); this.runStats.pp = (this.runStats.pp || 0) + bpp; }
         this.runStats.bosses++;
-        if ((p.alive || !p.out) && this.dailyOn()) { Dailies.add('bosses'); if (!p.deaths) Dailies.add('cleanBoss'); }
+        if ((p.alive || !p.out) && this.dailyOn()) {
+          Dailies.add('bosses'); if (!p.deaths) Dailies.add('cleanBoss');
+          Ach.add('boss:' + BOSSES[bossIdx(this.runSeed, this.round)].name);
+          if (p.deaths) Ach.add('comebackBoss');
+          if (this._bossT0 != null && this.now - this._bossT0 < 60) Ach.add('fastBoss');
+          if (this._bossT0 != null && !((this._hurtAt || 0) >= this._bossT0)) Ach.add('noHitBoss');
+          if (this._earlyTl > 360) Ach.add('earlyBoss');
+        }
         if (this.counts()) { Unlocks.add('bosses'); if (stageIdx(this.runSeed, this.round) === 7) Unlocks.add('bossesSpace'); }
         if (this.counts() && BOSSES[bossIdx(this.runSeed, this.round)].name === 'The Visitor' && Unlocks.grant('visitor')) { this.ui.banner('The Visitor unlocked', 'Pick them in character select'); }
         this.ui.banner('Boss defeated', '+' + CONFIG.pcPerBoss + ' PC' + (bpp ? ' · +' + bpp + ' PP' : '') + (killer === me ? ' · Final blow!' : ''));
@@ -2184,6 +2196,7 @@ export class Game {
     const boss = n % HORDE.bossEvery === 0;
     if (!boss) { this.ui.banner('Wave ' + n, this.hw[2] + ' enemies'); this.audio.play('round'); }
     if (this.runStats) this.runStats.wave = n;
+    if (this.dailyOn()) Ach.best('wave', n);
     const p = this.player;
     this.ui.waveSummary(null);
     if (p) this.waveBase = { k: p.totalKills, pc: this.runStats.pcEarned };
@@ -2194,6 +2207,7 @@ export class Game {
     this.ui.phase(ph, prev);
     if (ph === 'vote') { this.myVote = null; this.audio.play('round'); }
     if (ph === 'boss') {
+      this._bossT0 = this.now;
       this.audio.play('roar');
       const def = BOSSES[this.horde && this.hw ? this.hw[4] : bossIdx(this.runSeed, this.round)] || BOSSES[0];
       this.ui.banner(def.name, this.horde ? 'Wave ' + this.hw[0] + ' boss' : this.round >= CONFIG.rounds ? 'Bonus boss' : 'Round ' + (this.round + 1) + ' boss');
@@ -2234,6 +2248,7 @@ export class Game {
     const t = Math.round(DUEL.len - (this.tl || 0));
     this.unlockPointer();
     this.audio.play(result === 'win' ? 'bless' : 'death', 0.8);
+    if (result === 'win' && !this.isBot && this.seat !== 2) Ach.add('duelWins');
     this.ui.duelEnd({
       result, winner, timeUp: (this.tl || 0) <= 0,
       stats: [['Damage dealt', Math.round(p.damageDealt * DUEL.pvp)], ['Power-ups', p.powerups.length], ['Health left', Math.max(0, Math.ceil(p.hp)) + ' / ' + Math.round(p.stats.maxHp)], ['Match time', Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0')]],
@@ -3104,7 +3119,7 @@ export class Game {
       if (this.input.keys.has('KeyE')) this.summonHold = (this.summonHold || 0) + dtH; else this.summonHold = 0;
       const pct = Math.min(100, Math.round((this.summonHold / 2.5) * 10) * 10);
       prompt = this.summonHold > 0 ? 'Summoning the boss… ' + pct + '%' : '<b>Hold ' + this.ui.ctl('use') + '</b> Summon the boss' + (!this.endless && this.tl > 1 ? ' early' : '');
-      if (this.summonHold >= 2.5) { this.summonHold = 0; this.request('early'); this.ui.toast('The altar answers…'); }
+      if (this.summonHold >= 2.5) { this.summonHold = 0; this._earlyTl = this.endless ? 0 : this.tl; this.ach('summons'); this.request('early'); this.ui.toast('The altar answers…'); }
     } else { this.summonHold = 0; this.summonLast = 0; }
     this.ui.prompt(prompt);
   }
@@ -3225,6 +3240,7 @@ export class Game {
     const b = this.blessOpts[i];
     this.player.blessings.push(b);
     this.player.recomputeStats();
+    this.ach('blessings'); this.achBuild();
     this.player.hp = this.player.stats.maxHp;
     this.blessOpen = false;
     this.ui.bless(null);
@@ -3293,6 +3309,15 @@ export class Game {
 
   // Lifetime kill counters for the gear unlocks: where it happened, whether you were airborne, and what did the killing.
   // Daily Challenges count your own runs: not the CPU's, not the Duel Arena, and couch seat 2 shares seat 1's account.
+  // Achievements (v146) count exactly when Daily Challenges do. achBuild: the build achievements, checked whenever the stats change.
+  ach(stat, n) { if (this.dailyOn()) Ach.add(stat, n); }
+  achBuild() {
+    const p = this.player; if (!p || !this.dailyOn()) return;
+    const s = p.stats, n = {}; let top = 0;
+    for (const q of p.powerups) top = Math.max(top, (n[q.id] = (n[q.id] || 0) + 1));
+    Ach.best('dmgX', s.dmg); Ach.best('maxHp', s.maxHp); Ach.best('speedX', s.speed); Ach.best('orbit', s.orbit);
+    Ach.best('cdrPct', Math.round((1 - s.cdr) * 100)); Ach.best('armorPct', Math.round(s.armor * 100)); Ach.best('stack', top);
+  }
   dailyOn() { return !this.isBot && !this.duel && this.seat !== 2 && !(this.runStats && (this.runStats.cpuUsed || this.runStats.mutated)); }
   // Unlockables, records and PP: never from a run the CPU touched or one with mutators on.
   counts() { return !(this.runStats && (this.runStats.cpuUsed || this.runStats.mutated)); }
@@ -3311,6 +3336,10 @@ export class Game {
       if (v && v.elite) Dailies.add('eliteKills');
       if (v && v.mini) Dailies.add('champKills');
       Dailies.best('runKills', p.totalKills);
+      const kt = (this._killTs ||= []); kt.push(this.now); while (kt[0] < this.now - 1) kt.shift();
+      Ach.best('multi', kt.length);
+      if (this._ksAt !== (this._hurtAt || 0)) { this._ksAt = this._hurtAt || 0; this._ks = 0; }
+      Ach.best('noHitKills', ++this._ks);
     }
     this.hitInfo.delete(mobId);
     Unlocks.add('kills');
@@ -3370,7 +3399,7 @@ export class Game {
     const p = this.player;
     if (!this.elemOpen || this.elemKind !== 'elem' || !p) return;
     if (!(p.rerolls > 0)) { this.ui.toast('No rerolls. Find the dice lying around the map', 'bad'); this.audio.play('deny'); return; }
-    p.rerolls--;
+    p.rerolls--; this.ach('rerolls');
     this.elemOpts = rerollOffer(this.elemOpts, p.cls, this.hordeOwn(), p.weapons);
     this.elemSel = this.elemSel >= this.elemOpts.length ? this.elemOpts.length : 0; // rolled from the Roll button: stay on it
     this.audio.play('bless');
@@ -3407,6 +3436,7 @@ export class Game {
     p.elemPending = Math.max(0, p.elemPending - 1);
     const base = POWERUP_BY_ID[pu.id] || pu;
     for (let k = 0; k < (pu.rar || 1); k++) p.takePowerup(base); // Rare counts twice, Epic three times (v145)
+    this.ach('picks'); if (pu.rar === 3) this.ach('epics'); this.achBuild();
     this.fx.shockwave([p.pos.x, p.pos.y + 0.1, p.pos.z], 7, pu.color ? parseInt(pu.color.slice(1), 16) : 0xffd96a, 0.6);
     const info = puInfo(pu, p.cls), n = pu.el ? p.stats.elem[pu.el] : p.powerups.filter((q) => q.id === pu.id).length;
     this.ui.toast((pu.rar ? pu.rarName.toUpperCase() + ' ' : '') + pu.icon + ' ' + info.desc + (pu.rar ? ' ×' + pu.rar : '') + (n > 1 ? ' (×' + n + ')' : ''), 'good'); // says what it does, not just its name (Nutty 2026-11-13)
@@ -3466,7 +3496,18 @@ export class Game {
     if (!cpu) { Unlocks.add('runs'); Unlocks.max('bestRound', roundsReached); }
     if (this.dailyOn()) {
       Dailies.add('runs');
-      if (win) { Dailies.add('wins'); if (hardRun) Dailies.add('winsHard'); if (!p.deaths) Dailies.add('cleanWins'); }
+      if (win) {
+        Dailies.add('wins'); if (hardRun) Dailies.add('winsHard'); if (!p.deaths) Dailies.add('cleanWins');
+        const ws = (this.loadout.w || []).map((id) => WEAPON_BY_ID[id]).filter((w) => w && TIER(w) !== 3), ids = new Set(p.powerups.map((q) => q.id));
+        if (ws.length && ws.every((w) => w.kind === 'melee')) Ach.add('meleeWin');
+        if (ws.length && ws.every((w) => w.kind === 'gun')) Ach.add('gunWin');
+        if (performance.now() - this.runStats.start < 35 * 60000) Ach.add('fastWin');
+        if (Ach.inRun('crates') <= 2) Ach.add('frugalWin');
+        if (ids.size === 1 && p.powerups.length >= 5) Ach.add('oneTrick');
+        Ach.add('winEl:' + p.cls.id); Ach.add('winCh:' + this.loadout.ch);
+        if (this.party.kind === 'local') Ach.add('couchWin'); else if (this.lobbyMembers().length >= 5) Ach.add('fiveWin');
+      }
+      Ach.flush();
       Dailies.flush();
     }
     if (win && !cpu) {
