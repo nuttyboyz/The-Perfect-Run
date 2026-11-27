@@ -1,5 +1,6 @@
 // The Perfect Shop: spend Perfect Points on permanent power-ups. Opened from the title screen.
 import { META, costOf, getMeta, buy, refundAll } from './meta.js';
+import { Ach } from './achievements.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -20,6 +21,7 @@ export function renderPShop(ui) {
   }).join('');
   ui.$$('.ps-buy', root).forEach((b) => (b.onclick = () => {
     const res = buy(b.dataset.id);
+    if (res.ok) Ach.add('shopBuys');
     const g = ui.game;
     if (res.ok) { g.audio.play('buy'); ui.toast(META.find((x) => x.id === b.dataset.id).name + ' upgraded', 'good'); }
     else { g.audio.play('deny'); ui.toast(res.why === 'max' ? 'Already maxed' : res.why === 'pp' ? 'Need ' + res.need + ' more PP' : 'Not available', 'bad'); }
