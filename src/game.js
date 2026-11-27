@@ -3091,9 +3091,11 @@ export class Game {
     }
     const a = this.world.arena;
     const atAltar = !near && !this.horde && this.phase === 'play' && Math.hypot(a.x - p.pos.x, a.z - p.pos.z) < 7;
-    // The altar only ever summons the boss, and only once the round clock has run out. Hold E to call it.
-    if (atAltar && !this.endless && this.tl > 0) {
-      const t = Math.ceil(this.tl), mm = Math.floor(t / 60), ss = t % 60;
+    // The altar only ever summons the boss. v145: it wakes CONFIG.altarAfter seconds into the round, so you can call the boss
+    // early instead of waiting out the clock. Hold E to call it.
+    const sealT = this.tl - (10 * 60 - CONFIG.altarAfter);
+    if (atAltar && !this.endless && this.tl > 0 && sealT > 0) {
+      const t = Math.ceil(sealT), mm = Math.floor(t / 60), ss = t % 60;
       prompt = 'The altar is sealed · opens in ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
       this.summonHold = 0;
     } else if (atAltar) {
@@ -3101,7 +3103,7 @@ export class Game {
       this.summonLast = now;
       if (this.input.keys.has('KeyE')) this.summonHold = (this.summonHold || 0) + dtH; else this.summonHold = 0;
       const pct = Math.min(100, Math.round((this.summonHold / 2.5) * 10) * 10);
-      prompt = this.summonHold > 0 ? 'Summoning the boss… ' + pct + '%' : '<b>Hold ' + this.ui.ctl('use') + '</b> Summon the boss';
+      prompt = this.summonHold > 0 ? 'Summoning the boss… ' + pct + '%' : '<b>Hold ' + this.ui.ctl('use') + '</b> Summon the boss' + (!this.endless && this.tl > 1 ? ' early' : '');
       if (this.summonHold >= 2.5) { this.summonHold = 0; this.request('early'); this.ui.toast('The altar answers…'); }
     } else { this.summonHold = 0; this.summonLast = 0; }
     this.ui.prompt(prompt);
@@ -3344,7 +3346,7 @@ export class Game {
     this.elemKind = kind;
     this.elemSel = 0;
     // Duel: five different power-ups drawn at random, fresh for every pick.
-    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer(this.player && this.player.cls, this.hordeOwn());
+    this.elemOpts = kind === 'duel' ? [...DUEL_PICKS].sort(() => Math.random() - 0.5).slice(0, DUEL.offer) : levelOffer(this.player && this.player.cls, this.hordeOwn(), this.player && this.player.weapons);
     this.audio.play('bless');
     if (!this.headless) this.ui.elem(this.elemOpts, this.player, !this.elemStops(), kind);
     if (this.elemStops() && !this.headless) this.unlockPointer();
@@ -3369,7 +3371,7 @@ export class Game {
     if (!this.elemOpen || this.elemKind !== 'elem' || !p) return;
     if (!(p.rerolls > 0)) { this.ui.toast('No rerolls. Find the dice lying around the map', 'bad'); this.audio.play('deny'); return; }
     p.rerolls--;
-    this.elemOpts = rerollOffer(this.elemOpts, p.cls, this.hordeOwn());
+    this.elemOpts = rerollOffer(this.elemOpts, p.cls, this.hordeOwn(), p.weapons);
     this.elemSel = this.elemSel >= this.elemOpts.length ? this.elemOpts.length : 0; // rolled from the Roll button: stay on it
     this.audio.play('bless');
     this.ui.elem(this.elemOpts, p, !this.elemStops(), 'elem');
@@ -3403,10 +3405,11 @@ export class Game {
       return;
     }
     p.elemPending = Math.max(0, p.elemPending - 1);
-    p.takePowerup(pu);
+    const base = POWERUP_BY_ID[pu.id] || pu;
+    for (let k = 0; k < (pu.rar || 1); k++) p.takePowerup(base); // Rare counts twice, Epic three times (v145)
     this.fx.shockwave([p.pos.x, p.pos.y + 0.1, p.pos.z], 7, pu.color ? parseInt(pu.color.slice(1), 16) : 0xffd96a, 0.6);
     const info = puInfo(pu, p.cls), n = pu.el ? p.stats.elem[pu.el] : p.powerups.filter((q) => q.id === pu.id).length;
-    this.ui.toast(pu.icon + ' ' + info.desc + (n > 1 ? ' (×' + n + ')' : ''), 'good'); // says what it does, not just its name (Nutty 2026-11-13)
+    this.ui.toast((pu.rar ? pu.rarName.toUpperCase() + ' ' : '') + pu.icon + ' ' + info.desc + (pu.rar ? ' ×' + pu.rar : '') + (n > 1 ? ' (×' + n + ')' : ''), 'good'); // says what it does, not just its name (Nutty 2026-11-13)
     if (stops && p.elemPending <= 0) this.lockPointer();
   }
 
