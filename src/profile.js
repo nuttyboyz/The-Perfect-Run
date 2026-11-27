@@ -166,7 +166,7 @@ export const Profile = {
   // Storage for a progress key such as 'perfectrun.meta'.
   scoped(k) {
     const c = this.cur;
-    return c.kind === 'admin' ? k.replace(/^perfectrun\./, 'perfectrun.admin.') : c.kind === 'user' ? k.replace(/^perfectrun\./, 'perfectrun.u.' + c.id + '.') : null;
+    return c.kind === 'admin' ? k.replace(/^perfectrun\./, 'perfectrun.admin.') : c.kind === 'player' ? k.replace(/^perfectrun\./, 'perfectrun.player.') : c.kind === 'user' ? k.replace(/^perfectrun\./, 'perfectrun.u.' + c.id + '.') : null;
   },
   get(k) {
     if (cur && cur.cloud) return cloudData.has(k) ? cloudData.get(k) : null;
@@ -196,6 +196,7 @@ export const Profile = {
     if (!s) { try { if (sessionStorage.getItem(SES) === 'guest') s = { kind: 'guest' }; } catch {} }
     if (!s) return false;
     if (s.kind === 'admin') { cur = { kind: 'admin', id: 'admin', name: 'Admin' }; return true; }
+    if (s.kind === 'player') { cur = { kind: 'player', id: 'player', name: 'Player' }; return true; }
     if (s.kind === 'user' && s.cloud) {
       if (!CLOUD || !s.rt) return false;
       tok = { id: null, rt: s.rt, exp: 0, uid: s.id };
@@ -277,6 +278,8 @@ export const Profile = {
   },
   // Admin needs no password (Nutty 2026-11-06): anyone can open it.
   enterAdmin() { this.begin({ kind: 'admin', id: 'admin', name: 'Admin' }); },
+  // Everyone who opens the game (no sign-in): a normal player whose progress is saved in this browser and starts from zero (v145).
+  enterPlayer() { this.begin({ kind: 'player', id: 'player', name: 'Player' }); },
   // Admin only. Device accounts are deleted with everything they saved. Online accounts are taken off this device's list
   // (deleting one for good is done in the Firebase console, since Admin has no password).
   deleteUser(id) {

@@ -3,6 +3,7 @@
 export const CONFIG = {
   maxPlayers: 5,
   rounds: 6,
+  altarAfter: 120, // v145: the altar wakes this many seconds into a timed round, so the boss can be called early (Risk of Rain style); wait for the clock and Death comes hunting
   voteSeconds: 10,
   pcPerKill: 1, // was 2 (Nutty 2026-11-13: three times the enemies made everyone rich)
   pcPerBoss: 300, ppPerBoss: 3,
@@ -783,7 +784,7 @@ export const AB_PUS = CLASSES.flatMap((c) => [c.q, c.r, c.e, ...(c.more || [])].
 export const AB_PU_BY_AB = Object.fromEntries(AB_PUS.map((p) => [p.ab, p]));
 export const POWERUP_BY_ID = Object.fromEntries([...POWERUPS, ...ELEMENTS, ...DUEL_PICKS, ...AB_PUS].map((p) => [p.id, p]));
 
-// Every level-up offers ten cards: six fixed picks, a random physical attack power-up, a random element,
+// (Before v145) every level-up offered ten cards: six fixed picks, a random physical attack power-up, a random element,
 // a random utility stat and a random power mastery.
 const PHYSICAL = ['orbit', 'aura', 'burst', 'rate', 'leech', 'crit', 'execute', 'bigmag', 'fastreload', 'heavy'];
 const UTILITY = ['hp', 'cd', 'armor', 'learn'];
@@ -807,26 +808,44 @@ export function puOk(pu, cls, own) {
   if (CAST_PUS.has(pu.id)) return !!cls && ['q', 'r', 'e'].some((k) => cls[k]);
   return true;
 }
-export function levelOffer(cls, own) {
+// v145 (roguelite review): four cards a level instead of ten, cards for a weapon type you aren't carrying are left out,
+// and plain stat cards can roll Rare (counts twice) or Epic (counts three times). Taking a Rare card takes the card twice,
+// so saves and co-op keep working with plain card ids.
+export const OFFER_N = 4;
+const GUN_ONLY = new Set(['bigmag', 'fastreload', 'rr_drum', 'rr_speedload']), MELEE_ONLY = new Set(['longarm', 'rr_giant']);
+const RARE_OK = new Set(['dmg', 'rate', 'hp', 'spd', 'cd', 'leech', 'armor', 'regen', 'jump', 'eldmg']);
+function kitOk(pu, kit) {
+  if (!kit || !kit.length) return true;
+  const kinds = new Set(kit.map((id) => WEAPON_BY_ID[id] && WEAPON_BY_ID[id].kind).filter(Boolean));
+  if (GUN_ONLY.has(pu.id) && !kinds.has('gun')) return false;
+  if (MELEE_ONLY.has(pu.id) && !kinds.has('melee')) return false;
+  return true;
+}
+function rarify(pu) {
+  if (!RARE_OK.has(pu.id)) return pu;
+  const r = Math.random();
+  return r < 0.05 ? { ...pu, rar: 3, rarName: 'Epic' } : r < 0.2 ? { ...pu, rar: 2, rarName: 'Rare' } : pu;
+}
+export function levelOffer(cls, own, kit) {
   const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const mine = cls ? shuffle(['q', 'r', 'e'].map((k) => cls[k] && AB_PU_BY_AB[cls[k].id]).filter(Boolean)) : [];
-  const el = mine.slice(0, mine.length ? 1 + (Math.random() < 0.5 ? 1 : 0) : 0);
-  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', ...(hasSignature(cls) ? ['extra'] : []), 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS].filter((p) => puOk(p, cls, own)));
-  return shuffle([...el, ...pool.slice(0, 10 - el.length)]);
+  const el = mine.slice(0, mine.length ? 1 : 0); // one card for your own element's powers
+  const pool = shuffle([...['dmg', 'spd', 'jump', 'eldmg', ...(hasSignature(cls) ? ['extra'] : []), 'regen', ...PHYSICAL, ...UTILITY, ...MASTERY].map((id) => POWERUP_BY_ID[id]).filter(Boolean), ...ELEMENTS].filter((p) => puOk(p, cls, own) && kitOk(p, kit)));
+  return shuffle([...el, ...pool.slice(0, OFFER_N - el.length).map(rarify)]);
 }
 
-// A reroll: ten different picks drawn from the 30 reroll power-ups, never any that are on screen now.
-export function rerollOffer(current, cls, own) {
+// A reroll: four different picks drawn from the 30 reroll power-ups, never any that are on screen now.
+export function rerollOffer(current, cls, own, kit) {
   const cur = new Set((current || []).map((o) => o.id));
-  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id) && (p.id !== 'rr_echo' || hasSignature(cls)) && puOk(p, cls, own));
+  const pool = POWERUPS.filter((p) => p.rr && !cur.has(p.id) && (p.id !== 'rr_echo' || hasSignature(cls)) && puOk(p, cls, own) && kitOk(p, kit));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  return pool.slice(0, 10);
+  return pool.slice(0, OFFER_N);
 }
 
 // XP: each kill feeds the bar, each full bar grants a random level-up power-up.
 export const XP = {
   kill: { 1: 4, 2: 8, 3: 14 }, mini: 60, boss: 200, perRound: 0.08,
-  need: (lv) => Math.round(80 + 60 * lv + lv * lv * 7), // steeper (Nutty 2026-11-12 14:42): was 50 + 34 lv + 3.2 lv^2, too many easy power-ups with the bigger crowd // about 8-10 power-ups a round for a good player: each pick matters (2026-11-08)
+  need: (lv) => Math.round(Math.min(20 + 95 * lv + lv * lv * 7, 80 + 60 * lv + lv * lv * 7)), // v145: first level after about 5 kills (was 20), second about 30; from level 2 on, the same curve as before // steeper (Nutty 2026-11-12 14:42): was 50 + 34 lv + 3.2 lv^2, too many easy power-ups with the bigger crowd // about 8-10 power-ups a round for a good player: each pick matters (2026-11-08)
 };
 
 export function freshStats() {
