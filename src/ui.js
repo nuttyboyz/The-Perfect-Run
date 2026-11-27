@@ -2010,7 +2010,7 @@ export class UI {
     this.$('#elem-cards').innerHTML = opts.map((e, i) => {
       const info = puInfo(e, p.cls);
       const n = e.el ? p.stats.elem[e.el] : p.powerups.filter((q) => q.id === e.id).length;
-      return `<button class="elem-card${i === 0 ? ' sel pad-first' : ''}" data-i="${i}" style="--ec:${e.color || '#ffb347'}"><div class="b-icon">${hasPuIcon(e) ? `<span class="pu-ic">${puIcon(e)}</span>` : e.icon || '•'}</div><div class="b-name">${esc(info.name)}${n ? ` <small>×${n}</small>` : ''}</div><div class="b-desc">${esc(info.desc)}</div><kbd>${i === 9 ? 0 : i + 1}</kbd></button>`;
+      return `<button class="elem-card${i === 0 ? ' sel pad-first' : ''}${e.rar ? ' rar' + e.rar : ''}" data-i="${i}" style="--ec:${e.rar === 3 ? '#c77dff' : e.rar === 2 ? '#4cc9f0' : e.color || '#ffb347'}">${e.rar ? `<span class="rar-tag">${e.rarName} ×${e.rar}</span>` : ''}<div class="b-icon">${hasPuIcon(e) ? `<span class="pu-ic">${puIcon(e)}</span>` : e.icon || '•'}</div><div class="b-name">${esc(info.name)}${n ? ` <small>×${n}</small>` : ''}</div><div class="b-desc">${esc(info.desc)}</div><kbd>${i === 9 ? 0 : i + 1}</kbd></button>`;
     }).join('');
     this.$$('.elem-card').forEach((b) => { b.onclick = () => this.game.pickElem(+b.dataset.i);
       const hov = () => { const g = this.game; if (g.elemSel !== +b.dataset.i) { g.elemSel = +b.dataset.i; this.elemSel(g.elemSel); } };
